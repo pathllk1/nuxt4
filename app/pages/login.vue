@@ -1,0 +1,129 @@
+<template>
+  <div class="absolute inset-0 flex items-center justify-center overflow-hidden bg-[url('https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center">
+    
+    <!-- Login Card with width 800px on medium and up -->
+    <div class="relative z-10 w-full md:w-[800px] px-4 animate-fadeIn">
+      <div class="bg-white/15 backdrop-blur-xl rounded-2xl p-9 shadow-2xl border-2 border-white/30">
+        
+        <!-- Card Header -->
+        <div class="mb-9 text-center">
+          <h1 class="text-4xl font-bold text-white mb-2">Welcome Back</h1>
+          <p class="text-white/90 text-lg">Sign in to continue your journey</p>
+        </div>
+
+        <!-- Login Form using Nuxt UI Form components -->
+        <form class="space-y-5" @submit.prevent="onSubmit">
+          
+          <!-- Email Field -->
+          <div>
+            <label class="block text-base font-medium text-white/90 mb-2">Email address</label>
+            <UInput
+              v-model="email"
+              type="email"
+              required
+              icon="i-lucide-mail"
+              placeholder="Enter your email address"
+              size="lg"
+              class="w-full nuxt-ui-glass-input"
+            />
+          </div>
+
+          <!-- Password Field -->
+          <div>
+            <label class="block text-base font-medium text-white/90 mb-2">Password</label>
+            <UInput
+              v-model="password"
+              type="password"
+              required
+              icon="i-lucide-lock"
+              placeholder="Enter your password"
+              size="lg"
+              class="w-full nuxt-ui-glass-input"
+            />
+          </div>
+
+          <!-- Error Message -->
+          <div v-if="error" class="bg-red-500/30 backdrop-blur-md text-white p-3 rounded-xl border border-red-500/50 text-sm">
+            {{ error }}
+          </div>
+
+          <!-- Submit Button using Nuxt UI Button -->
+          <UButton
+            type="submit"
+            size="xl"
+            block
+            :loading="loading"
+            class="w-full bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl border border-white/20 backdrop-blur-md transition-all duration-300 flex justify-center items-center shadow-lg"
+          >
+            Sign In
+          </UButton>
+
+          <!-- Register Link -->
+          <div class="mt-4 text-center">
+            <NuxtLink to="/signup" class="text-white hover:text-blue-200 transition-colors duration-300 text-sm font-medium no-underline">
+              Don't have an account? Register here
+            </NuxtLink>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue';
+import { useAuth } from '../composables/useAuth';
+import { useRouter } from '#app';
+
+definePageMeta({
+  layout: 'default'
+});
+
+const email = ref('');
+const password = ref('');
+const loading = ref(false);
+const error = ref<string | null>(null);
+
+const { login } = useAuth();
+const router = useRouter();
+
+const onSubmit = async () => {
+  loading.value = true;
+  error.value = null;
+
+  try {
+    await login({ email: email.value, password: password.value });
+    router.push('/dashboard');
+  } catch (err: any) {
+    console.error('Login error:', err);
+    error.value = err.data?.message || 'Login failed. Please check your credentials.';
+  } finally {
+    loading.value = false;
+  }
+};
+</script>
+
+<style>
+/* Custom overrides for Nuxt UI inputs inside glassmorphic cards */
+.nuxt-ui-glass-input input {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+  color: white !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  border-width: 2px !important;
+  border-radius: 0.75rem !important;
+  backdrop-filter: blur(6px) !important;
+}
+
+.nuxt-ui-glass-input input::placeholder {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.nuxt-ui-glass-input input:focus {
+  --tw-ring-color: rgba(255, 255, 255, 0.6) !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.nuxt-ui-glass-input svg {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+</style>
