@@ -46,7 +46,7 @@ export default defineEventHandler(async (event) => {
   const token = authHeader.split(' ')[1];
   
   // Check if token is blacklisted
-  if (await isTokenBlacklisted(token)) {
+  if (await isTokenBlacklisted(token as any)) {
     await logSecurityEvent({
       action: 'invalid_token',
       event,
@@ -61,7 +61,7 @@ export default defineEventHandler(async (event) => {
   }
   
   try {
-    const decoded = verifyAccessToken(token);
+    const decoded = verifyAccessToken(token as any);
     
     // Validate device fingerprint if present in token
     if (decoded.deviceFingerprint) {
@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
     }
     
     // Check if user account is locked
-    const user = await User.findById(decoded.id);
+    const user = await (User as any).findById(decoded.id);
     if (!user) {
       throw createError({
         statusCode: 401,
@@ -182,10 +182,10 @@ export default defineEventHandler(async (event) => {
             refreshToken: refreshTokenValue, 
             userId: decodedRefresh.id,
             isActive: true 
-          });
+          } as any);
 
           if (session) {
-            const user = await User.findById(decodedRefresh.id);
+            const user = await (User as any).findById(decodedRefresh.id);
             if (user) {
               const deviceFingerprint = generateDeviceFingerprint(event);
               const newAccessToken = generateAccessToken(user, deviceFingerprint);

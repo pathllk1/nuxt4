@@ -68,7 +68,7 @@ export default defineEventHandler(async (event) => {
       refreshToken,
       userId: decoded.id,
       isActive: true
-    });
+    } as any);
 
     if (!session) {
       throw createError({
@@ -78,7 +78,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // 4. Fetch User
-    const user = await User.findById(decoded.id);
+    const user = await (User as any).findById(decoded.id);
     if (!user || user.status === 'suspended') {
       throw createError({
         statusCode: 401,

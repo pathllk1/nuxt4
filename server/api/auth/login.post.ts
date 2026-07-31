@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const user = await User.findOne({ email }).populate('firms.firm');
+    const user = await User.findOne({ email } as any).populate('firms.firm');
     if (!user) {
       await logSecurityEvent({
         email,

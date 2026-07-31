@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
       refreshToken,
       userId: decoded.id,
       isActive: true
-    });
+    } as any);
 
     if (session) {
       session.isActive = false;
@@ -39,8 +39,8 @@ export default defineEventHandler(async (event) => {
     const authHeader = getHeader(event, 'authorization');
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const accessToken = authHeader.split(' ')[1];
-      const accessExp = getTokenExpiration(accessToken) || new Date(Date.now() + 15 * 60 * 1000);
-      await blacklistToken(accessToken, 'access', decoded.id, 'User logout', accessExp);
+      const accessExp = getTokenExpiration(accessToken as any) || new Date(Date.now() + 15 * 60 * 1000);
+      await blacklistToken(accessToken as any, 'access', decoded.id, 'User logout', accessExp);
     }
 
     // Log logout event
