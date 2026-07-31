@@ -21,6 +21,7 @@ export default defineEventHandler(async (event) => {
                               !path.startsWith('/api/auth/login') && 
                               !path.startsWith('/api/auth/signup') && 
                               !path.startsWith('/api/auth/refresh') && 
+                              !path.startsWith('/api/_nuxt_icon/') && 
                               path !== '/api/health' && 
                               path !== '/api/info';
 
