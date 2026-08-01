@@ -32,7 +32,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto space-y-6">
+  <div class="p-6 max-w-full mx-auto space-y-6">
     <header class="flex justify-between items-center bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
       <div>
         <h1 class="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white">Trial Balance Sheet</h1>
