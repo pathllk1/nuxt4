@@ -14,7 +14,7 @@ const getConnectionOptions = (): mongoose.ConnectOptions => {
     minPoolSize: isServerless ? 0 : 1,
     heartbeatFrequencyMS: isServerless ? 10000 : 30000,
     socketTimeoutMS: 45000,
-    bufferCommands: false,
+    bufferCommands: true,
     autoIndex: process.env.NODE_ENV !== 'production',
   };
 };

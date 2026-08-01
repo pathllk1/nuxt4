@@ -1,6 +1,8 @@
 import { defineEventHandler, readBody, createError, getHeader, getRequestIP } from 'h3';
 import User from '../../models/User';
+import Firm from '../../models/Firm';
 import Session from '../../models/Session';
+import { connectDB } from '../../plugins/mongodb';
 import { 
   generateAccessToken, 
   generateRefreshToken 
@@ -14,6 +16,7 @@ import {
 } from '../../utils/security';
 
 export default defineEventHandler(async (event) => {
+  await connectDB();
   const body = await readBody(event);
   const { email, password } = body || {};
 
@@ -77,8 +80,8 @@ export default defineEventHandler(async (event) => {
 
     // Check account lockout
     if (user.isAccountLocked) {
-      const lockedUntil = user.securitySettings.accountLockedUntil;
-      if (lockedUntil && lockedUntil > new Date()) {
+      const lockedUntil = user.securitySettings?.accountLockedUntil;
+      if (lockedUntil && new Date(lockedUntil) > new Date()) {
         await logSecurityEvent({
           userId: user._id.toString(),
           email: user.email,
@@ -95,7 +98,9 @@ export default defineEventHandler(async (event) => {
       } else {
         // Lock expired, unlock
         user.isAccountLocked = false;
-        user.securitySettings.accountLockedUntil = undefined;
+        if (user.securitySettings) {
+          user.securitySettings.accountLockedUntil = undefined;
+        }
         await user.save();
       }
     }
@@ -112,9 +117,9 @@ export default defineEventHandler(async (event) => {
         event,
         metadata: { 
           reason: 'Invalid password',
-          failedAttempts: user.securitySettings.failedLoginAttempts 
+          failedAttempts: user.securitySettings?.failedLoginAttempts || 0 
         },
-        severity: user.securitySettings.failedLoginAttempts >= 3 ? 'high' : 'medium'
+        severity: (user.securitySettings?.failedLoginAttempts || 0) >= 3 ? 'high' : 'medium'
       });
 
       throw createError({
@@ -138,8 +143,10 @@ export default defineEventHandler(async (event) => {
         severity: 'critical'
       });
 
-      user.securitySettings.suspiciousActivityCount += 1;
-      await user.save();
+      if (user.securitySettings) {
+        user.securitySettings.suspiciousActivityCount = (user.securitySettings.suspiciousActivityCount || 0) + 1;
+        await user.save();
+      }
     }
 
     // Generate credentials
@@ -179,16 +186,23 @@ export default defineEventHandler(async (event) => {
       severity: 'low'
     });
 
+    const firmsMapped = (user.firms || [])
+      .filter((f: any) => Boolean(f && f.firm))
+      .map((f: any) => ({
+        firm: { 
+          id: typeof f.firm === 'object' ? (f.firm._id || f.firm.id) : f.firm, 
+          name: typeof f.firm === 'object' ? (f.firm.name || 'Selected Firm') : 'Selected Firm' 
+        },
+        grade: f.grade || 'Staff'
+      }));
+
     return {
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        firms: user.firms.map((f: any) => ({
-          firm: { id: f.firm._id || f.firm, name: f.firm.name || 'Selected Firm' },
-          grade: f.grade
-        }))
+        firms: firmsMapped
       },
       accessToken,
       refreshToken
@@ -209,7 +223,7 @@ export default defineEventHandler(async (event) => {
 
     throw createError({
       statusCode: 500,
-      statusMessage: 'Server error during login'
+      statusMessage: error.message || 'Server error during login'
     });
   }
 });

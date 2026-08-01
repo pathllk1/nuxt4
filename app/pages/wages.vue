@@ -1,20 +1,68 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import WagesDashboard from '~/components/wages/WagesDashboard.vue'
+import WagesCreate from '~/components/wages/WagesCreate.vue'
+import WagesEdit from '~/components/wages/WagesEdit.vue'
+import WagesReport from '~/components/wages/WagesReport.vue'
+import AdvancesManagement from '~/components/wages/AdvancesManagement.vue'
+
+definePageMeta({
+  layout: 'default',
+  middleware: 'auth'
+})
+
+const activeTab = ref('dashboard')
+
+const tabs = [
+  { id: 'dashboard', label: 'Dashboard', icon: 'i-heroicons-chart-bar' },
+  { id: 'create', label: 'Create New Wages', icon: 'i-heroicons-plus-circle' },
+  { id: 'edit', label: 'Manage & Edit', icon: 'i-heroicons-pencil-square' },
+  { id: 'advance', label: 'Advances', icon: 'i-heroicons-banknotes' },
+  { id: 'report', label: 'Wages Report', icon: 'i-heroicons-document-chart-bar' }
+]
+</script>
+
 <template>
-  <div class="max-w-4xl mx-auto p-6 animate-fadeIn pt-12">
-    <div class="bg-white/80 backdrop-blur-md rounded-2xl p-8 border border-slate-200/50 shadow-xl">
-      <h1 class="text-3xl font-black mb-4 text-slate-800 bg-clip-text text-transparent bg-gradient-to-r from-teal-500 to-indigo-600">💸 Wages Center</h1>
-      <p class="text-slate-600 leading-relaxed mb-6">
-        Payroll distribution, automated wage calculation sheet, and employee payroll slips module.
-      </p>
-      <div class="p-6 bg-slate-50 rounded-xl border border-slate-100">
-        <h3 class="font-bold text-slate-700">Wages & Salaries</h3>
-        <p class="text-xs text-slate-500">Payroll distributions system coming soon.</p>
-      </div>
+  <div class="h-[calc(100vh-64px)] flex flex-col p-4 bg-gray-50 dark:bg-black gap-4">
+    <!-- Tab Navigation -->
+    <div class="flex items-center gap-1 bg-white/75 dark:bg-gray-900/75 backdrop-blur-md border border-gray-200/80 dark:border-gray-800/80 p-1 rounded-xl w-fit self-start shadow-xs transition-all duration-300">
+      <button 
+        v-for="tab in tabs" 
+        :key="tab.id"
+        @click="activeTab = tab.id"
+        class="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 cursor-pointer"
+        :class="activeTab === tab.id 
+          ? 'bg-white dark:bg-gray-800 text-primary shadow-sm border border-gray-100/50 dark:border-gray-700/50 scale-[1.02]' 
+          : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-50/50 dark:hover:bg-gray-800/30'"
+      >
+        <UIcon :name="tab.icon" class="w-4 h-4 transition-transform duration-200" :class="activeTab === tab.id ? 'scale-110' : ''" />
+        {{ tab.label }}
+      </button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="flex-1 min-h-0">
+      <Transition 
+        mode="out-in" 
+        enter-active-class="transition duration-200 ease-out" 
+        enter-from-class="opacity-0 translate-y-1" 
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 translate-y-1"
+      >
+        <div :key="activeTab" class="h-full">
+          <WagesDashboard v-if="activeTab === 'dashboard'" />
+          <WagesCreate v-if="activeTab === 'create'" />
+          <WagesEdit v-if="activeTab === 'edit'" />
+          <AdvancesManagement v-if="activeTab === 'advance'" />
+          <WagesReport v-if="activeTab === 'report'" />
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
 
-<script setup lang="ts">
-definePageMeta({
-  layout: 'default'
-});
-</script>
+<style scoped>
+/* Ensure container takes full height minus header */
+</style>

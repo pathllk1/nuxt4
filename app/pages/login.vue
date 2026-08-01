@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute inset-0 flex items-center justify-center overflow-hidden bg-[url('https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center">
+  <div class="fixed inset-0 flex items-center justify-center overflow-hidden bg-[url('https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center z-50">
     
     <!-- Login Card with width 800px on medium and up -->
     <div class="relative z-10 w-full md:w-[800px] px-4 animate-fadeIn">
@@ -11,7 +11,7 @@
           <p class="text-white/90 text-lg">Sign in to continue your journey</p>
         </div>
 
-        <!-- Login Form using Nuxt UI Form components -->
+        <!-- Login Form -->
         <form class="space-y-5" @submit.prevent="onSubmit">
           
           <!-- Email Field -->
@@ -43,11 +43,11 @@
           </div>
 
           <!-- Error Message -->
-          <div v-if="error" class="bg-red-500/30 backdrop-blur-md text-white p-3 rounded-xl border border-red-500/50 text-sm">
+          <div v-if="error" class="bg-red-500/30 backdrop-blur-md text-white p-3.5 rounded-xl border border-red-500/50 text-sm font-medium text-center">
             {{ error }}
           </div>
 
-          <!-- Submit Button using Nuxt UI Button -->
+          <!-- Submit Button -->
           <UButton
             type="submit"
             size="xl"
@@ -71,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useAuth } from '../composables/useAuth';
 import { useRouter } from '#app';
 
@@ -84,19 +84,32 @@ const password = ref('');
 const loading = ref(false);
 const error = ref<string | null>(null);
 
-const { login } = useAuth();
+const { login, isAuthenticated, initAuth } = useAuth();
 const router = useRouter();
 
-const onSubmit = async () => {
+onMounted(() => {
+  initAuth();
+  if (isAuthenticated.value) {
+    router.replace('/dashboard');
+  }
+});
+
+const onSubmit = async (e?: Event) => {
+  if (e) e.preventDefault();
+  if (loading.value) return;
+
   loading.value = true;
   error.value = null;
 
   try {
-    await login({ email: email.value, password: password.value });
-    router.push('/dashboard');
+    const res = await login({ email: email.value, password: password.value });
+    if (res && res.accessToken) {
+      await router.push('/dashboard');
+    }
   } catch (err: any) {
     console.error('Login error:', err);
-    error.value = err.data?.message || 'Login failed. Please check your credentials.';
+    const msg = err.data?.statusMessage || err.data?.message || err.statusMessage || err.message || 'Login failed. Please check your credentials.';
+    error.value = msg;
   } finally {
     loading.value = false;
   }
@@ -104,7 +117,6 @@ const onSubmit = async () => {
 </script>
 
 <style>
-/* Custom overrides for Nuxt UI inputs inside glassmorphic cards */
 .nuxt-ui-glass-input input {
   background-color: rgba(255, 255, 255, 0.25) !important;
   color: white !important;

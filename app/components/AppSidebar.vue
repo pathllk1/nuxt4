@@ -14,6 +14,7 @@
           :exact-active-class="'bg-white/20 font-bold'"
           class="flex items-center text-white hover:text-blue-200 transition duration-300 group w-full px-2 py-2 rounded-lg cursor-pointer no-underline"
           :title="isSidebarCollapsed ? nav.label : ''"
+          @click="closeAllNestedMenus"
         >
           <!-- Icon Slot -->
           <div class="w-8 h-8 flex items-center justify-center text-xl shrink-0">
@@ -64,6 +65,7 @@
               exact-active-class="bg-white/20 font-bold"
               class="flex items-center text-white/80 hover:text-blue-200 transition duration-300 group px-2 py-1.5 rounded no-underline"
               :title="isSidebarCollapsed ? child.label : ''"
+              @click="closeNestedMenu(nav.label)"
             >
               <div class="w-6 h-6 flex items-center justify-center text-xs shrink-0">
                 <span>{{ child.icon }}</span>
@@ -146,5 +148,13 @@ const toggleNestedMenu = (label: string) => {
   } else {
     openNestedMenus.value.push(label);
   }
+};
+
+const closeNestedMenu = (label: string) => {
+  openNestedMenus.value = openNestedMenus.value.filter(m => m !== label);
+};
+
+const closeAllNestedMenus = () => {
+  openNestedMenus.value = [];
 };
 </script>

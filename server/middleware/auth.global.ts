@@ -1,6 +1,7 @@
 import { defineEventHandler, getHeader, setResponseHeader, sendError, createError } from 'h3';
 import User from '../models/User';
 import Session from '../models/Session';
+import { connectDB } from '../plugins/mongodb';
 import { 
   verifyAccessToken, 
   verifyRefreshToken, 
@@ -28,6 +29,9 @@ export default defineEventHandler(async (event) => {
   if (!isProtectedApiRoute) {
     return;
   }
+
+  // Ensure DB connection is established before querying models
+  await connectDB();
 
   const authHeader = getHeader(event, 'authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -113,8 +117,8 @@ export default defineEventHandler(async (event) => {
     }
 
     if (user.isAccountLocked) {
-      const lockedUntil = user.securitySettings.accountLockedUntil;
-      if (lockedUntil && lockedUntil > new Date()) {
+      const lockedUntil = user.securitySettings?.accountLockedUntil;
+      if (lockedUntil && new Date(lockedUntil) > new Date()) {
         await logSecurityEvent({
           userId: user._id.toString(),
           email: user.email,
@@ -132,7 +136,9 @@ export default defineEventHandler(async (event) => {
       } else {
         // Lock expired, unlock account
         user.isAccountLocked = false;
-        user.securitySettings.accountLockedUntil = undefined;
+        if (user.securitySettings) {
+          user.securitySettings.accountLockedUntil = undefined;
+        }
         await user.save();
       }
     }

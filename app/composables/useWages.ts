@@ -77,7 +77,7 @@ export const useWages = () => {
 
   const downloadBankReport = async (month: string, chequeNo?: string) => {
     let path = `/wages/bank-report?month=${month}`
-    if (chequeNo) path += `&chequeNo=${encodeURIComponent(chequeNo)}`
+    if (chequeNo && chequeNo !== 'all') path += `&chequeNo=${encodeURIComponent(chequeNo)}`
     const blob = await apiFetch<Blob>(buildUrl(path), { responseType: 'blob' })
     downloadBlob(blob, `Bank_Report_${month}.xlsx`)
   }
@@ -99,6 +99,12 @@ export const useWages = () => {
 
   const fetchBankAccounts = async () => {
     return await apiFetch(buildUrl('/banking'))
+  }
+
+  const fetchChequeNumbers = async (month?: string) => {
+    let path = '/wages/cheques'
+    if (month) path += `?month=${month}`
+    return await apiFetch(buildUrl(path))
   }
 
   const fetchEmployeeWageHistory = async (masterRollId: string) => {
@@ -131,6 +137,7 @@ export const useWages = () => {
     downloadWageSlip,
     downloadBulkWageSlips,
     fetchBankAccounts,
+    fetchChequeNumbers,
     fetchEmployeeWageHistory,
     exportEmployeeWageHistory
   }

@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute inset-0 flex items-center justify-center overflow-hidden bg-[url('https://images.unsplash.com/photo-1501854140801-50d01698950b?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center">
+  <div class="fixed inset-0 flex items-center justify-center overflow-hidden bg-[url('https://images.unsplash.com/photo-1501854140801-50d01698950b?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center z-50">
     
     <!-- Signup Card with width 800px on medium and up -->
     <div class="relative z-10 w-full md:w-[800px] px-4 animate-fadeIn">
@@ -120,10 +120,9 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 const success = ref(false);
 
-const { signup } = useAuth();
+const { signup, isAuthenticated, initAuth } = useAuth();
 const router = useRouter();
 
-// Transform firms data into Nuxt UI v4 Select format { label, value }
 const firmItems = computed(() => {
   return firms.value.map(firm => ({
     label: `${firm.name} (${firm.code})`,
@@ -132,6 +131,11 @@ const firmItems = computed(() => {
 });
 
 onMounted(async () => {
+  initAuth();
+  if (isAuthenticated.value) {
+    router.replace('/dashboard');
+    return;
+  }
   try {
     const res = await $fetch<{ data: any[] }>('/api/firms');
     firms.value = res.data || [];
@@ -167,7 +171,6 @@ const onSubmit = async () => {
 </script>
 
 <style>
-/* Custom overrides for Nuxt UI inputs inside glassmorphic cards */
 .nuxt-ui-glass-input input {
   background-color: rgba(255, 255, 255, 0.25) !important;
   color: white !important;

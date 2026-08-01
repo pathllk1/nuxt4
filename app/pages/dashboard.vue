@@ -75,9 +75,15 @@ const memberForm = reactive({
   role: 'standard'
 })
 
+const getFirmId = (firmObj: any) => {
+  if (!firmObj) return ''
+  if (typeof firmObj === 'string') return firmObj
+  return firmObj.id || firmObj._id || ''
+}
+
 const activeFirmGrade = computed(() => {
   if (!selectedFirmId.value || !user.value) return null
-  const f = user.value.firms?.find((x) => x.firm.id === selectedFirmId.value)
+  const f = user.value.firms?.find((x: any) => getFirmId(x.firm) === selectedFirmId.value)
   return f?.grade || null
 })
 
@@ -311,20 +317,20 @@ const deleteMember = async (userId: string) => {
           </div>
         </template>
         <div class="space-y-2">
-          <div v-for="f in user?.firms" :key="f.firm.id" 
+          <div v-for="f in user?.firms" :key="getFirmId(f.firm)" 
                class="flex items-center justify-between p-2.5 rounded-lg border transition"
-               :class="f.firm.id === selectedFirmId 
+               :class="getFirmId(f.firm) === selectedFirmId 
                  ? 'border-indigo-200 bg-indigo-50/30 ring-1 ring-indigo-100' 
                  : 'border-slate-100 hover:border-slate-200 bg-slate-50/40 hover:bg-slate-50'">
             <div class="flex items-center gap-3">
-              <div :class="`w-7 h-7 rounded flex items-center justify-center border ${f.firm.id === selectedFirmId ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-500'}`">
+              <div :class="`w-7 h-7 rounded flex items-center justify-center border ${getFirmId(f.firm) === selectedFirmId ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-500'}`">
                 <UIcon name="i-heroicons-building-office-2" class="w-4 h-4" />
               </div>
-              <span class="text-xs font-bold text-slate-700">{{ f.firm.name }}</span>
+              <span class="text-xs font-bold text-slate-700">{{ typeof f.firm === 'object' ? f.firm.name : 'Selected Firm' }}</span>
             </div>
             <div class="flex items-center gap-2">
               <UBadge variant="outline" color="primary" class="text-[9px] uppercase font-bold py-0 px-1.5">{{ f.grade }}</UBadge>
-              <UButton v-if="f.firm.id !== selectedFirmId" size="xs" variant="soft" color="primary" label="Switch" @click="selectFirm(f.firm.id)" class="text-[10px] font-bold px-2 py-0.5" />
+              <UButton v-if="getFirmId(f.firm) !== selectedFirmId" size="xs" variant="soft" color="primary" label="Switch" @click="selectFirm(getFirmId(f.firm))" class="text-[10px] font-bold px-2 py-0.5" />
             </div>
           </div>
         </div>
