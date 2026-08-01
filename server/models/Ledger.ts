@@ -94,4 +94,4 @@ const LedgerSchema = new Schema<ILedger>(
 LedgerSchema.index({ firmId: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, accountHead: 1, transactionDate: 1 });
 
-export default mongoose.models.Ledger || mongoose.model<ILedger>('Ledger', LedgerSchema);
+export default (mongoose.models.Ledger as mongoose.Model<ILedger>) || mongoose.model<ILedger>('Ledger', LedgerSchema);

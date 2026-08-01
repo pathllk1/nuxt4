@@ -5,7 +5,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       titleTemplate: '%s | BusinessPro Suite',
-      defaultTitle: 'BusinessPro Suite - Enterprise Management Portal',
+      title: 'BusinessPro Suite - Enterprise Management Portal',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },

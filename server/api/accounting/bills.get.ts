@@ -1,30 +1,49 @@
-import { defineEventHandler, createError, getQuery } from 'h3';
 import mongoose from 'mongoose';
+import Bill from '../../models/Bill';
+import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
-  try {
-    const query = getQuery(event);
-    const limit = query.limit ? parseInt(query.limit as string, 10) : 50;
+  const user = await requireAuthSession(event);
+  const query = getQuery(event);
+  const { btype, search, status, dateFrom, dateTo, limit, offset } = query;
 
-    let bills: any[] = [];
-    if (mongoose.connection.db) {
-      try {
-        bills = await mongoose.connection.db.collection('bills').find({}).limit(limit).toArray();
-      } catch (err) {
-        console.warn('Bills collection find failed:', err);
-      }
-    }
+  const filter: any = { firmId: new mongoose.Types.ObjectId(user.firm_id as string) };
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: bills
-    };
-  } catch (error: any) {
-    console.error('Get accounting bills error:', error);
-    throw createError({
-      statusCode: error.statusCode || 500,
-      statusMessage: error.statusMessage || 'Error fetching bills'
-    });
+  if (btype) {
+    filter.btype = (btype as string).toUpperCase();
   }
+  if (status) {
+    filter.status = (status as string).toUpperCase();
+  }
+  if (dateFrom || dateTo) {
+    filter.bdate = {};
+    if (dateFrom) filter.bdate.$gte = dateFrom;
+    if (dateTo) filter.bdate.$lte = dateTo;
+  }
+  if (search) {
+    const s = String(search).trim();
+    filter.$or = [
+      { bno: { $regex: s, $options: 'i' } },
+      { partyName: { $regex: s, $options: 'i' } },
+      { supplierBillNo: { $regex: s, $options: 'i' } },
+    ];
+  }
+
+  const limitNum = Math.min(parseInt(limit as string) || 100, 500);
+  const offsetNum = parseInt(offset as string) || 0;
+
+  const total = await Bill.countDocuments(filter);
+  const bills = await Bill.find(filter)
+    .sort({ bdate: -1, createdAt: -1 })
+    .skip(offsetNum)
+    .limit(limitNum)
+    .populate('partyId', 'name gstin contact state')
+    .lean();
+
+  return {
+    success: true,
+    total,
+    count: bills.length,
+    data: bills
+  };
 });

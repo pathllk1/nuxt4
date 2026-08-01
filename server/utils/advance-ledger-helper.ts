@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import mongoose from 'mongoose';
 import Ledger from '../models/Ledger';
-import { IAdvance } from '../models/Advance';
+import type { IAdvance } from '../models/Advance';
 import { resolveAccountHead, resolveBankAccount, getDefaultCashAccount, validateLedgerEntries } from './wages-ledger-helper';
 
 export async function postAdvanceLedger(advance: IAdvance, session: mongoose.ClientSession) {

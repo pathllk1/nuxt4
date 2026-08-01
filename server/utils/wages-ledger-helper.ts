@@ -4,7 +4,7 @@ import Ledger from '../models/Ledger';
 import ChartOfAccounts from '../models/ChartOfAccounts';
 import BankAccount from '../models/BankAccount';
 import MasterRoll from '../models/MasterRoll';
-import { IWage } from '../models/Wage';
+import type { IWage } from '../models/Wage';
 
 /* ─────────────────────────────────────────────────────────────────────────
    VALIDATION FUNCTIONS

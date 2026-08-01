@@ -91,6 +91,4 @@ bankAccountSchema.index(
   { unique: true, partialFilterExpression: { is_default: true } }
 );
 
-const BankAccount = mongoose.model<IBankAccount>('BankAccount', bankAccountSchema);
-
-export default BankAccount;
+export default (mongoose.models.BankAccount as mongoose.Model<IBankAccount>) || mongoose.model<IBankAccount>('BankAccount', bankAccountSchema);

@@ -53,4 +53,4 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
 
 chartOfAccountsSchema.index({ firm_id: 1, account_name: 1 }, { unique: true });
 
-export default mongoose.models.ChartOfAccounts || mongoose.model<IChartOfAccounts>('ChartOfAccounts', chartOfAccountsSchema);
+export default (mongoose.models.ChartOfAccounts as mongoose.Model<IChartOfAccounts>) || mongoose.model<IChartOfAccounts>('ChartOfAccounts', chartOfAccountsSchema);

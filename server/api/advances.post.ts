@@ -1,4 +1,4 @@
-import mongoose, { PipelineStage } from 'mongoose';
+import mongoose, { type PipelineStage } from 'mongoose';
 import Advance from '../models/Advance';
 import { postAdvanceLedger } from '../utils/advance-ledger-helper';
 import { requireAuthSession } from '../utils/auth';
