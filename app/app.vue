@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { isGlobalLoading } from './utils/api';
+import GlobalToolsHost from './components/tools/GlobalToolsHost.vue';
 
 const colorMode = useColorMode();
 colorMode.preference = 'light';
+
+useHead({
+  titleTemplate: (title) => (title ? `${title} - BusinessPro Suite` : 'BusinessPro Suite - Enterprise Management Portal')
+});
 
 onMounted(() => {
   if (import.meta.client) {
@@ -47,6 +52,8 @@ onMounted(() => {
           <span class="text-xs font-black tracking-wider uppercase text-teal-200">Syncing...</span>
         </div>
       </Transition>
+
+      <GlobalToolsHost />
     </ClientOnly>
 
     <NuxtLayout>

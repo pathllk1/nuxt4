@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import MasterRoll from '../../models/MasterRoll';
 import Wage from '../../models/Wage';
 import Advance from '../../models/Advance';
@@ -52,12 +53,15 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const employees = await MasterRoll.find({ firm_id: user.firm_id, status: 'Active' })
+  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+  const firmQuery = { $in: [user.firm_id, firmIdObj] };
+
+  const employees = await MasterRoll.find({ firm_id: firmQuery, status: 'Active' })
     .select('employee_name aadhar bank account_no p_day_wage project site date_of_joining date_of_exit')
     .sort({ employee_name: 1 })
     .lean();
 
-  const paidDocs = await Wage.find({ firm_id: user.firm_id, salary_month: month })
+  const paidDocs = await Wage.find({ firm_id: firmQuery, salary_month: month })
     .select('master_roll_id')
     .lean();
 

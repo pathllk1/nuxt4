@@ -7,9 +7,24 @@
     <!-- Sidebar Content: Padding top adjusts links below the top navbar -->
     <div class="pt-16 flex flex-col items-center md:items-start space-y-4 px-3 overflow-y-auto max-h-[calc(100vh-60px)]">
       <template v-for="nav in visibleNavLinks" :key="nav.label">
+        <!-- Button with custom action (e.g. Global Tools Launcher) -->
+        <button
+          v-if="nav.action === 'openTools'"
+          @click="openGlobalTools"
+          class="flex items-center text-white hover:text-blue-200 transition duration-300 group w-full px-2 py-2 rounded-lg cursor-pointer bg-transparent border-0 text-left"
+          :title="isSidebarCollapsed ? nav.label : ''"
+        >
+          <div class="w-8 h-8 flex items-center justify-center text-xl shrink-0">
+            <span class="text-white text-lg font-bold">{{ nav.icon }}</span>
+          </div>
+          <span v-if="!isSidebarCollapsed" class="ml-3 text-sm font-medium hover:underline truncate">
+            {{ nav.label }}
+          </span>
+        </button>
+
         <!-- Links without children -->
         <NuxtLink
-          v-if="!nav.children"
+          v-else-if="!nav.children"
           :to="nav.to"
           :exact-active-class="'bg-white/20 font-bold'"
           class="flex items-center text-white hover:text-blue-200 transition duration-300 group w-full px-2 py-2 rounded-lg cursor-pointer no-underline"
@@ -94,17 +109,20 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useAuth } from '../composables/useAuth';
-import { useAppLayout } from '../composables/useAppLayout';
+import { useAuth } from '~/composables/useAuth';
+import { useAppLayout } from '~/composables/useAppLayout';
+import { useGlobalTools } from '~/composables/useGlobalTools';
 
 const { isAuthenticated } = useAuth();
 const { isSidebarCollapsed, toggleSidebar } = useAppLayout();
+const { openLauncher } = useGlobalTools();
 
 const openNestedMenus = ref<string[]>([]);
 
 const navLinks = [
   { label: 'Home', to: '/', icon: '🏠', exact: true, restricted: false },
   { label: 'About', to: '/about', icon: 'ℹ️', restricted: false },
+  { label: 'Global Tools', action: 'openTools', icon: '🛠️', restricted: false },
   { label: 'Dashboard', to: '/dashboard', icon: '👤', restricted: true },
   { label: 'Docs', to: '/documents', icon: '📄', restricted: true },
   {
@@ -141,6 +159,10 @@ const visibleNavLinks = computed(() => {
   const isAuth = isAuthenticated.value;
   return navLinks.filter(nav => !nav.restricted || isAuth);
 });
+
+const openGlobalTools = () => {
+  openLauncher();
+};
 
 const toggleNestedMenu = (label: string) => {
   if (openNestedMenus.value.includes(label)) {

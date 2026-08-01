@@ -1,6 +1,5 @@
 /**
  * Persistence utility for Wage creation and editing
- * Stores temporary wage data in localStorage with expiration
  */
 
 const STORAGE_KEYS = {
@@ -17,6 +16,7 @@ interface PersistenceData {
 
 export const wagePersistence = {
   save(type: 'CREATE' | 'EDIT', data: any) {
+    if (!import.meta.client) return;
     try {
       const payload: PersistenceData = {
         timestamp: Date.now(),
@@ -29,6 +29,7 @@ export const wagePersistence = {
   },
 
   load(type: 'CREATE' | 'EDIT') {
+    if (!import.meta.client) return null;
     try {
       const item = localStorage.getItem(STORAGE_KEYS[type]);
       if (!item) return null;
@@ -49,10 +50,12 @@ export const wagePersistence = {
   },
 
   clear(type: 'CREATE' | 'EDIT') {
+    if (!import.meta.client) return;
     localStorage.removeItem(STORAGE_KEYS[type]);
   },
 
   getMetadata(type: 'CREATE' | 'EDIT') {
+    if (!import.meta.client) return null;
     try {
       const item = localStorage.getItem(STORAGE_KEYS[type]);
       if (!item) return null;

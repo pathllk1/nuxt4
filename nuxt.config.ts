@@ -1,8 +1,18 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   ssr: true,
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
+  app: {
+    head: {
+      titleTemplate: '%s | BusinessPro Suite',
+      defaultTitle: 'BusinessPro Suite - Enterprise Management Portal',
+      meta: [
+        { charset: 'utf-8' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        { name: 'description', content: 'Enterprise Management Portal for Wages, Inventory, Accounting, and Business Operations.' }
+      ]
+    }
+  },
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
   future: {

@@ -11,6 +11,10 @@ definePageMeta({
   middleware: 'auth'
 })
 
+useHead({
+  title: 'Employee Wages'
+})
+
 const activeTab = ref('dashboard')
 
 const tabs = [

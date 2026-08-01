@@ -115,10 +115,13 @@
 
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue';
-import { useAuth } from '../composables/useAuth';
-import { decodeTokenPayload } from '../utils/api';
+import { useAuth } from '~/composables/useAuth';
+import { decodeTokenPayload } from '~/utils/api';
+
+import { useGlobalTools } from '~/composables/useGlobalTools';
 
 const { user, accessToken, isAuthenticated, logout } = useAuth();
+const { openLauncher } = useGlobalTools();
 const isMobileMenuOpen = ref(false);
 
 // Countdown Timer logic for Access Token
@@ -184,6 +187,6 @@ const toggleMobileMenu = () => {
 };
 
 const openGlobalTools = () => {
-  alert('Global Tools are not implemented in the Nuxt app yet.');
+  openLauncher();
 };
 </script>
