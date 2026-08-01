@@ -12,10 +12,28 @@
       </div>
 
       <!-- Session / Token Timer (Desktop) -->
-      <div v-if="isAuthenticated" class="hidden lg:flex items-center space-x-4 text-xs text-white/90 bg-white/10 px-3 py-1 rounded-full border border-white/20">
+      <div v-if="isAuthenticated" class="hidden lg:flex items-center space-x-3 text-xs text-white/90 bg-white/10 px-3 py-1 rounded-full border border-white/20">
         <span>User: <strong class="text-white">{{ user?.name || user?.email }}</strong></span>
         <span class="text-white/40">|</span>
         <span>Role: <strong class="text-yellow-200 uppercase">{{ user?.role || 'user' }}</strong></span>
+        <span class="text-white/40">|</span>
+        <!-- Countdown Timer -->
+        <div 
+          class="text-[11px] font-mono px-2.5 py-0.5 rounded-full flex items-center gap-1.5 transition-all duration-300"
+          :class="[
+            remainingTime <= 120 
+              ? 'bg-amber-500/30 text-amber-200 border border-amber-400/50' 
+              : 'bg-teal-500/30 text-teal-100 border border-teal-300/40'
+          ]"
+          title="Access Token Expiry Countdown"
+        >
+          <UIcon 
+            name="i-heroicons-clock" 
+            class="w-3.5 h-3.5"
+            :class="{ 'animate-pulse text-amber-300': remainingTime <= 120 }" 
+          />
+          <span>Token: {{ formatTime(remainingTime) }}</span>
+        </div>
       </div>
 
       <!-- Desktop Navigation Links -->
@@ -58,6 +76,25 @@
       <button @click="openGlobalTools(); isMobileMenuOpen = false" class="w-full text-left px-3 py-1.5 rounded text-white hover:bg-white/20 bg-transparent border-0 cursor-pointer text-sm">🛠️ Tools</button>
 
       <template v-if="isAuthenticated">
+        <!-- Mobile User Session Info & Token Timer -->
+        <div class="px-3 py-2 bg-white/10 rounded-lg flex items-center justify-between text-xs text-white/90 mb-2 border border-white/10">
+          <div>
+            <div class="font-semibold text-white">{{ user?.name || user?.email }}</div>
+            <div class="text-[10px] text-yellow-200 uppercase">{{ user?.role || 'user' }}</div>
+          </div>
+          <div 
+            class="text-[10px] font-mono px-2 py-0.5 rounded-full flex items-center gap-1 border shrink-0 transition-colors"
+            :class="[
+              remainingTime <= 120 
+                ? 'bg-amber-500/30 text-amber-200 border-amber-400/50' 
+                : 'bg-teal-500/30 text-teal-100 border-teal-300/40'
+            ]"
+          >
+            <UIcon name="i-heroicons-clock" class="w-3 h-3" :class="{ 'animate-pulse text-amber-300': remainingTime <= 120 }" />
+            <span>{{ formatTime(remainingTime) }}</span>
+          </div>
+        </div>
+
         <NuxtLink v-if="user?.role === 'superadmin'" to="/superadmin" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-yellow-200 font-bold bg-white/20 no-underline text-sm">👑 Admin Panel</NuxtLink>
         <NuxtLink to="/dashboard" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-white hover:bg-white/20 no-underline text-sm">Dashboard</NuxtLink>
         <NuxtLink to="/documents" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-white hover:bg-white/20 no-underline text-sm">Docs</NuxtLink>
@@ -77,11 +114,70 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
 import { useAuth } from '../composables/useAuth';
+import { decodeTokenPayload } from '../utils/api';
 
-const { user, isAuthenticated, logout } = useAuth();
+const { user, accessToken, isAuthenticated, logout } = useAuth();
 const isMobileMenuOpen = ref(false);
+
+// Countdown Timer logic for Access Token
+const remainingTime = ref(0);
+let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+const formatTime = (seconds: number) => {
+  if (seconds <= 0) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+const updateTimer = (exp: number) => {
+  const now = Math.floor(Date.now() / 1000);
+  remainingTime.value = Math.max(0, exp - now);
+};
+
+const startTimer = () => {
+  stopTimer();
+  
+  const token = accessToken.value;
+  if (!token) {
+    remainingTime.value = 0;
+    return;
+  }
+
+  const payload = decodeTokenPayload(token);
+  if (!payload || !payload.exp) {
+    remainingTime.value = 0;
+    return;
+  }
+
+  const exp = payload.exp;
+  updateTimer(exp);
+
+  timerInterval = setInterval(() => {
+    updateTimer(exp);
+    if (remainingTime.value <= 0) {
+      stopTimer();
+    }
+  }, 1000);
+};
+
+const stopTimer = () => {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+};
+
+// Watch token changes (login, logout, proactive/reactive refreshes)
+watch(() => accessToken.value, () => {
+  startTimer();
+}, { immediate: true });
+
+onUnmounted(() => {
+  stopTimer();
+});
 
 const toggleMobileMenu = () => {
   isMobileMenuOpen.value = !isMobileMenuOpen.value;

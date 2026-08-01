@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue';
 import { useRouter, useCookie } from '#app';
+import { startRequest, endRequest } from '../utils/api';
 
 interface User {
   id: string;
@@ -133,6 +134,7 @@ export const useAuth = () => {
     }
 
     refreshPromise.value = (async () => {
+      startRequest();
       try {
         const response = await $fetch<{ accessToken: string; refreshToken?: string }>('/api/auth/refresh', {
           method: 'POST',
@@ -162,6 +164,7 @@ export const useAuth = () => {
         logout();
         throw e;
       } finally {
+        endRequest();
         refreshPromise.value = null;
       }
     })();
@@ -201,22 +204,32 @@ export const useAuth = () => {
   };
 
   const login = async (credentials: any) => {
-    const response = await $fetch<{ user: User; accessToken: string; refreshToken: string }>('/api/auth/login', {
-      method: 'POST',
-      body: credentials
-    });
+    startRequest();
+    try {
+      const response = await $fetch<{ user: User; accessToken: string; refreshToken: string }>('/api/auth/login', {
+        method: 'POST',
+        body: credentials
+      });
 
-    if (response && response.accessToken) {
-      setAuth(response.user, response.accessToken, response.refreshToken);
+      if (response && response.accessToken) {
+        setAuth(response.user, response.accessToken, response.refreshToken);
+      }
+      return response;
+    } finally {
+      endRequest();
     }
-    return response;
   };
 
   const signup = async (userData: any) => {
-    return await $fetch('/api/auth/signup', {
-      method: 'POST',
-      body: userData
-    });
+    startRequest();
+    try {
+      return await $fetch('/api/auth/signup', {
+        method: 'POST',
+        body: userData
+      });
+    } finally {
+      endRequest();
+    }
   };
 
   const logout = () => {
@@ -270,6 +283,7 @@ export const useAuth = () => {
       options.headers['X-Firm-ID'] = selectedFirmId.value;
     }
 
+    startRequest();
     try {
       const response = await $fetch.raw<T>(request, options);
 
@@ -294,6 +308,8 @@ export const useAuth = () => {
         }
       }
       throw error;
+    } finally {
+      endRequest();
     }
   };
 
