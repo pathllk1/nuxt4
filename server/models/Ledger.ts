@@ -11,6 +11,11 @@ export interface ILedger extends Document {
   refType?: string;
   refId?: mongoose.Types.ObjectId;
   voucherGroupId?: string;
+  voucherNo?: string;
+  voucherType?: string;
+  partyId?: mongoose.Types.ObjectId;
+  stockId?: mongoose.Types.ObjectId;
+  stockRegId?: mongoose.Types.ObjectId;
   bankAccountId?: mongoose.Types.ObjectId;
   paymentMode?: string;
   isWageEntry?: boolean;
@@ -66,6 +71,34 @@ const LedgerSchema = new Schema<ILedger>(
       default: null,
       index: true,
     },
+    voucherNo: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    voucherType: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    partyId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Party',
+      default: null,
+      index: true,
+    },
+    stockId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Stock',
+      default: null,
+      index: true,
+    },
+    stockRegId: {
+      type: Schema.Types.ObjectId,
+      ref: 'StockReg',
+      default: null,
+      index: true,
+    },
     bankAccountId: {
       type: Schema.Types.ObjectId,
       ref: 'BankAccount',
@@ -93,5 +126,6 @@ const LedgerSchema = new Schema<ILedger>(
 
 LedgerSchema.index({ firmId: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, accountHead: 1, transactionDate: 1 });
+LedgerSchema.index({ firmId: 1, voucherType: 1, voucherGroupId: 1 });
 
 export default (mongoose.models.Ledger as mongoose.Model<ILedger>) || mongoose.model<ILedger>('Ledger', LedgerSchema);

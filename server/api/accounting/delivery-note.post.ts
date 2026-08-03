@@ -2,16 +2,15 @@ import mongoose from 'mongoose';
 import Bill from '../../models/Bill';
 import Party from '../../models/Party';
 import StockReg from '../../models/StockReg';
-import { LedgerService } from '../../utils/accounting/ledger.service';
 import { StockService } from '../../utils/inventory/stock.service';
-import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const body = await readBody(event) || {};
-  const { meta, party, cart, otherCharges, consignee } = body;
+  const { meta = {}, party, cart, otherCharges = [], consignee } = body;
 
   if (!cart?.length) {
     throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
@@ -21,63 +20,35 @@ export default defineEventHandler(async (event) => {
   session.startTransaction();
 
   try {
-    const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
-    const partyId = party.id || party._id || party;
+    const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
     const username = user.username || user.email || 'system';
+    const partyId = party?.id || party?._id || party;
 
-    const partyDoc = await Party.findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
-    if (!partyDoc) {
-      throw createError({ statusCode: 404, statusMessage: 'Party not found' });
-    }
-
-    if (meta?.supplierBillNo) {
-      await ensureUniqueSupplierBillNo({
-        firmId: firmIdObj,
-        partyId: partyDoc._id as mongoose.Types.ObjectId,
-        supplierBillNo: meta.supplierBillNo
-      });
-    }
+    const partyDoc = await (Party as any).findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
+    if (!partyDoc) throw createError({ statusCode: 404, statusMessage: 'Party not found' });
 
     const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
-
-    const billType = (meta?.billType || 'intra-state').toLowerCase();
-    const billNo = await getNextBillNumber(firmIdObj, 'PURCHASE');
-    const voucherId = await getNextVoucherNumber(firmIdObj);
-
+    const billType = String(meta?.billType || 'intra-state').toLowerCase();
+    const billNo = await getNextBillNumber(firmIdObj, 'DELIVERY_NOTE');
     const gstEnabled = await isGstEnabled(firmIdObj);
     const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);
 
     const processedItems = cart.map((item: any) => {
       const qty = getEffectiveItemQty(item);
       const lineValue = qty * (item.rate || 0) * (1 - ((item.disc || 0) / 100));
-      let itemCgst = 0, itemSgst = 0, itemIgst = 0;
-      if (gstEnabled) {
-        const taxRate = parseFloat(item.grate) || 0;
-        if (billType === 'intra-state') {
-          itemCgst = lineValue * (taxRate / 200);
-          itemSgst = lineValue * (taxRate / 200);
-        } else {
-          itemIgst = lineValue * (taxRate / 100);
-        }
-      }
-      return {
-        ...item,
-        qty,
-        total: lineValue,
-        cgst: itemCgst,
-        sgst: itemSgst,
-        igst: itemIgst
-      };
+      const taxRate = parseFloat(item.grate) || 0;
+      const cgst = gstEnabled && billType === 'intra-state' ? lineValue * (taxRate / 200) : 0;
+      const sgst = gstEnabled && billType === 'intra-state' ? lineValue * (taxRate / 200) : 0;
+      const igst = gstEnabled && billType !== 'intra-state' ? lineValue * (taxRate / 100) : 0;
+      return { ...item, qty, total: lineValue, cgst, sgst, igst };
     });
 
-    const consigneeStateCode = consignee?.stateCode || 
-      consignee?.state_code || 
+    const consigneeStateCode = consignee?.stateCode || consignee?.state_code ||
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    const [newBill] = await Bill.create([{
+    const [newBill] = await (Bill as any).create([{
       firmId: firmIdObj,
-      voucherId: String(voucherId),
       bno: billNo,
       bdate: meta?.billDate || new Date().toISOString().split('T')[0],
       partyId: partyDoc._id,
@@ -89,18 +60,17 @@ export default defineEventHandler(async (event) => {
       partyPin: partyInfo.pin,
       firmGstin: firmLoc?.gst_number,
       firmState: firmLoc?.state,
-      firmStateCode: firmStateCode,
+      firmStateCode,
       grossTotal: totals.grossTotal,
       netTotal: totals.netTotal,
       roundOff: totals.roundOff,
       cgst: totals.cgst,
       sgst: totals.sgst,
       igst: totals.igst,
-      btype: 'PURCHASE',
+      btype: 'DELIVERY_NOTE',
       billSubtype: billType.toUpperCase(),
       items: processedItems,
-      otherCharges: otherCharges || [],
-      supplierBillNo: meta?.supplierBillNo,
+      otherCharges,
       orderNo: meta?.referenceNo,
       vehicleNo: meta?.vehicleNo,
       dispatchThrough: meta?.dispatchThrough,
@@ -116,17 +86,13 @@ export default defineEventHandler(async (event) => {
       status: 'ACTIVE'
     }], { session });
 
-    const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
-
     for (const item of processedItems) {
-      const isService = isServiceItem(item);
       const qty = item.qty;
       const lineValue = item.total;
-
-      if (isService) {
-        await StockReg.create([{
+      if (isServiceItem(item)) {
+        await (StockReg as any).create([{
           firm_id: firmIdObj,
-          type: 'PURCHASE',
+          type: 'DELIVERY_NOTE',
           bno: billNo,
           bdate: newBill.bdate,
           supply: partyDoc.name,
@@ -147,49 +113,22 @@ export default defineEventHandler(async (event) => {
         continue;
       }
 
-      await StockService.updateStockInward({
+      if (!item.stockId) throw new Error(`Stock ID is required for ${item.item}`);
+      await StockService.updateStockOutward({
         firmId: firmIdObj,
-        itemData: { ...item, qty, rate: item.rate * (1 - ((item.disc || 0) / 100)), narration: item.narration },
-        billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id as mongoose.Types.ObjectId, btype: 'PURCHASE' },
+        itemData: { stockId: new mongoose.Types.ObjectId(item.stockId), qty, rate: item.rate, grate: item.grate, batch: item.batch, narration: item.narration },
+        billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id, btype: 'DELIVERY_NOTE' },
         user: username,
         session
       });
-      const reg = await StockReg.findOne({ bill_id: newBill._id, item: item.item }).sort({ createdAt: -1 }).session(session);
-      purchasedItems.push({ stockId: reg?.stock_id, stockRegId: reg?._id, item: item.item, lineValue });
     }
 
-    // Post Purchase to Double-Entry Ledger
-    const ledgerParams = {
-      firmId: firmIdObj,
-      billId: newBill._id,
-      voucherId: String(voucherId),
-      billNo,
-      billDate: newBill.bdate,
-      party: { _id: partyDoc._id, name: partyDoc.name },
-      netTotal: totals.netTotal,
-      cgst: totals.cgst,
-      sgst: totals.sgst,
-      igst: totals.igst,
-      roundOff: totals.roundOff,
-      otherCharges: otherCharges || [],
-      purchasedItems,
-      createdBy: username,
-      session
-    };
-
-    await LedgerService.postPurchaseLedger(ledgerParams as any);
-
     await session.commitTransaction();
-    session.endSession();
-
-    return {
-      success: true,
-      message: 'Purchase bill created successfully',
-      data: newBill
-    };
+    return { success: true, message: 'Delivery note created successfully', data: newBill };
   } catch (err: any) {
     await session.abortTransaction();
+    throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message || 'Failed to create delivery note' });
+  } finally {
     session.endSession();
-    throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
   }
 });

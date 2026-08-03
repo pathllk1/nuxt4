@@ -1,8 +1,11 @@
 import mongoose from 'mongoose';
 import Bill from '../../models/Bill';
 import Party from '../../models/Party';
+import StockReg from '../../models/StockReg';
 import { LedgerService } from '../../utils/accounting/ledger.service';
-import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty } from '../../utils/accounting/bill-utils';
+import { StockService } from '../../utils/inventory/stock.service';
+import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
+import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -20,17 +23,21 @@ export default defineEventHandler(async (event) => {
   try {
     const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
     const partyId = party.id || party._id || party;
+    const username = user.username || user.email || 'system';
 
     const partyDoc = await Party.findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
     if (!partyDoc) {
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
     }
 
+    const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
+    const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
+
     const billType = (meta?.billType || 'intra-state').toLowerCase();
     const billNo = await getNextBillNumber(firmIdObj, 'SALES');
     const voucherId = await getNextVoucherNumber(firmIdObj);
 
-    const gstEnabled = true; // GST enabled by default
+    const gstEnabled = await isGstEnabled(firmIdObj);
     const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);
 
     const processedItems = cart.map((item: any) => {
@@ -56,6 +63,10 @@ export default defineEventHandler(async (event) => {
       };
     });
 
+    const consigneeStateCode = consignee?.stateCode || 
+      consignee?.state_code || 
+      (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
+
     const [newBill] = await Bill.create([{
       firmId: firmIdObj,
       voucherId: String(voucherId),
@@ -63,10 +74,14 @@ export default defineEventHandler(async (event) => {
       bdate: meta?.billDate || new Date().toISOString().split('T')[0],
       partyId: partyDoc._id,
       partyName: partyDoc.name,
-      partyGstin: partyDoc.gstin,
-      partyAddress: partyDoc.address,
-      partyState: partyDoc.state,
-      partyStateCode: partyDoc.stateCode,
+      partyGstin: partyInfo.gstin,
+      partyAddress: partyInfo.address,
+      partyState: partyInfo.state,
+      partyStateCode: partyInfo.stateCode,
+      partyPin: partyInfo.pin,
+      firmGstin: firmLoc?.gst_number,
+      firmState: firmLoc?.state,
+      firmStateCode: firmStateCode,
       grossTotal: totals.grossTotal,
       netTotal: totals.netTotal,
       roundOff: totals.roundOff,
@@ -84,11 +99,59 @@ export default defineEventHandler(async (event) => {
       consigneeGstin: consignee?.gstin,
       consigneeAddress: consignee?.address,
       consigneeState: consignee?.state,
+      consigneePin: consignee?.pin,
+      consigneeStateCode,
       narration: meta?.narration,
       reverseCharge: !!meta?.reverseCharge,
-      createdBy: user.username || user.email || 'system',
+      createdBy: username,
       status: 'ACTIVE'
     }], { session });
+
+    const cogsLines: Array<{ stockId: any; stockRegId: any; item: string; cogsValue: number }> = [];
+    let taxableItemsTotal = 0;
+
+    for (const item of processedItems) {
+      const isService = isServiceItem(item);
+      const qty = item.qty;
+      const lineValue = item.total;
+      taxableItemsTotal += lineValue;
+
+      if (isService) {
+        await StockReg.create([{
+          firm_id: firmIdObj,
+          type: 'SALE',
+          bno: billNo,
+          bdate: newBill.bdate,
+          supply: partyDoc.name,
+          item: item.item,
+          item_type: 'SERVICE',
+          qty,
+          uom: item.uom,
+          hsn: item.hsn,
+          rate: item.rate,
+          grate: item.grate,
+          disc: item.disc || 0,
+          total: lineValue,
+          bill_id: newBill._id,
+          user: username,
+          qtyh: 0,
+          item_narration: item.narration
+        }], { session });
+        continue;
+      }
+
+      if (item.stockId) {
+        const { cogsValue } = await StockService.updateStockOutward({
+          firmId: firmIdObj,
+          itemData: { ...item, stockId: new mongoose.Types.ObjectId(item.stockId), qty, narration: item.narration },
+          billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id as mongoose.Types.ObjectId, btype: 'SALE' },
+          user: username,
+          session
+        });
+        const reg = await StockReg.findOne({ bill_id: newBill._id, stock_id: item.stockId }).sort({ createdAt: -1 }).session(session);
+        cogsLines.push({ stockId: item.stockId, stockRegId: reg?._id, item: item.item, cogsValue });
+      }
+    }
 
     // Post to Double-Entry Ledger
     const ledgerParams = {
@@ -104,13 +167,13 @@ export default defineEventHandler(async (event) => {
       igst: totals.igst,
       roundOff: totals.roundOff,
       otherCharges: otherCharges || [],
-      taxableItemsTotal: totals.grossTotal - (totals.otherChargesTotal || 0),
-      cogsLines: [],
-      createdBy: user.username || user.email || 'system',
+      taxableItemsTotal,
+      cogsLines,
+      createdBy: username,
       session
     };
 
-    await LedgerService.postSalesLedger(ledgerParams);
+    await LedgerService.postSalesLedger(ledgerParams as any);
 
     await session.commitTransaction();
     session.endSession();

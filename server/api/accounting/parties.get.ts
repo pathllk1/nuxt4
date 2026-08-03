@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event);
   const { type, search } = query;
 
-  const filter: any = { firmId: new mongoose.Types.ObjectId(user.firm_id as string) };
+  const filter: any = { firmId: new mongoose.Types.ObjectId(String(user.firm_id)) };
 
   if (type) {
     filter.partyType = { $in: [(type as string).toUpperCase(), 'BOTH'] };

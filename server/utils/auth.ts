@@ -4,6 +4,8 @@ import mongoose from 'mongoose';
 export interface AuthSession {
   firm_id: mongoose.Types.ObjectId;
   _id: mongoose.Types.ObjectId;
+  username?: string;
+  email?: string;
 }
 
 export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
@@ -29,6 +31,8 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
 
   return {
     firm_id: new mongoose.Types.ObjectId(String(firmId)),
-    _id: new mongoose.Types.ObjectId(String(userId))
+    _id: new mongoose.Types.ObjectId(String(userId)),
+    username: userPayload?.username,
+    email: userPayload?.email
   };
 }

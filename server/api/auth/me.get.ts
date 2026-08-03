@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const user = await User.findById(userPayload.id).select('-password').populate('firms.firm');
+    const user = await User.findById(userPayload.id).select('-password').populate({ path: 'firms.firm', model: Firm });
     if (!user) {
       throw createError({
         statusCode: 404,

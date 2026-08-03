@@ -46,17 +46,26 @@ export const getLocationFromIP = (ip: string) => {
     return { country: 'Local', region: 'Local', city: 'Local' };
   }
   
-  const geo = geoip.lookup(cleanIP);
-  
-  if (!geo) {
+  try {
+    const lookupFn = (geoip as any)?.lookup || (geoip as any)?.default?.lookup;
+    if (typeof lookupFn !== 'function') {
+      return { country: 'Unknown', region: 'Unknown', city: 'Unknown' };
+    }
+    const geo = lookupFn(cleanIP);
+    
+    if (!geo) {
+      return { country: 'Unknown', region: 'Unknown', city: 'Unknown' };
+    }
+    
+    return {
+      country: geo.country || 'Unknown',
+      region: geo.region || 'Unknown',
+      city: geo.city || 'Unknown'
+    };
+  } catch (err) {
+    console.error('GeoIP lookup error:', err);
     return { country: 'Unknown', region: 'Unknown', city: 'Unknown' };
   }
-  
-  return {
-    country: geo.country || 'Unknown',
-    region: geo.region || 'Unknown',
-    city: geo.city || 'Unknown'
-  };
 };
 
 /**

@@ -5,10 +5,10 @@ import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
-  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+  const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
 
   // Initialize System Accounts if not initialized
-  await LedgerService.initializeChartOfAccounts(firmIdObj, new mongoose.Types.ObjectId(user._id as string));
+  await LedgerService.initializeChartOfAccounts(firmIdObj, new mongoose.Types.ObjectId(String(user._id)));
 
   const accounts = await ChartOfAccounts.find({ firm_id: firmIdObj, is_active: true })
     .sort({ account_type: 1, account_name: 1 })

@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Party name is required' });
   }
 
-  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+  const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
 
   const existing = await Party.findOne({ firmId: firmIdObj, name: body.name.trim() }).lean();
   if (existing) {

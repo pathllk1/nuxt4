@@ -1,11 +1,7 @@
 import mongoose from 'mongoose';
 import Bill from '../../../models/Bill';
 import Party from '../../../models/Party';
-import StockReg from '../../../models/StockReg';
-import Ledger from '../../../models/Ledger';
-import { LedgerService } from '../../../utils/accounting/ledger.service';
-import { StockService } from '../../../utils/inventory/stock.service';
-import { calcBillTotals, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../../utils/accounting/bill-utils';
+import { calcBillTotals, getEffectiveItemQty } from '../../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../../utils/auth';
 
@@ -28,8 +24,7 @@ export default defineEventHandler(async (event) => {
   session.startTransaction();
 
   try {
-    const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
-    const username = user.username || user.email || 'system';
+    const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
 
     const existingBill = await Bill.findOne({ _id: billId, firmId: firmIdObj }).session(session);
     if (!existingBill) {
@@ -40,9 +35,9 @@ export default defineEventHandler(async (event) => {
       await session.abortTransaction();
       throw createError({ statusCode: 400, statusMessage: 'Cancelled bills cannot be modified' });
     }
-    if (existingBill.btype !== 'PURCHASE') {
+    if (existingBill.btype !== 'PROFORMA') {
       await session.abortTransaction();
-      throw createError({ statusCode: 400, statusMessage: 'Only purchase bills can be updated' });
+      throw createError({ statusCode: 400, statusMessage: 'Only proforma bills can be updated' });
     }
 
     const partyId = party.id || party._id || party;
@@ -50,21 +45,6 @@ export default defineEventHandler(async (event) => {
     if (!partyDoc) {
       await session.abortTransaction();
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
-    }
-
-    const requestBillNo = meta?.bno || meta?.billNo;
-    if (requestBillNo && requestBillNo !== existingBill.bno) {
-      await session.abortTransaction();
-      throw createError({ statusCode: 400, statusMessage: 'Bill number cannot be changed' });
-    }
-
-    if (meta?.supplierBillNo) {
-      await ensureUniqueSupplierBillNo({
-        firmId: firmIdObj,
-        partyId: partyDoc._id as mongoose.Types.ObjectId,
-        supplierBillNo: meta.supplierBillNo,
-        excludeBillId: existingBill._id as mongoose.Types.ObjectId
-      });
     }
 
     const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
@@ -101,20 +81,6 @@ export default defineEventHandler(async (event) => {
       consignee?.state_code || 
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    // Step 1: Restore stock from old purchase (decrease atomically)
-    const billObjectId = new mongoose.Types.ObjectId(billId);
-    const stockRegFilter = {
-      firm_id: firmIdObj,
-      bill_id: billObjectId
-    };
-    const existingItems = await (StockReg as any).find(stockRegFilter).session(session);
-
-    for (const ei of existingItems) {
-      if (!ei.stock_id) continue;
-      await StockService.reverseMovement(ei._id as mongoose.Types.ObjectId, username, session);
-    }
-
-    // Step 2: Update bill header
     await Bill.findOneAndUpdate(
       { _id: billId, firmId: firmIdObj },
       {
@@ -139,7 +105,6 @@ export default defineEventHandler(async (event) => {
           billSubtype: billType.toUpperCase(),
           items: processedItems,
           otherCharges: otherCharges || [],
-          supplierBillNo: meta?.supplierBillNo,
           orderNo: meta?.referenceNo,
           vehicleNo: meta?.vehicleNo,
           dispatchThrough: meta?.dispatchThrough,
@@ -156,83 +121,12 @@ export default defineEventHandler(async (event) => {
       { session }
     );
 
-    // Step 3: Delete old StockReg entries
-    await (StockReg as any).deleteMany(stockRegFilter, { session });
-
-    // Step 4: Apply new stock inward (for GOODS items) and create new StockReg entries
-    const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
-
-    for (const item of processedItems) {
-      const isService = isServiceItem(item);
-      const qty = item.qty;
-      const lineValue = item.total;
-
-      if (isService) {
-        await StockReg.create([{
-          firm_id: firmIdObj,
-          type: 'PURCHASE',
-          bno: existingBill.bno,
-          bdate: meta?.billDate || existingBill.bdate,
-          supply: partyDoc.name,
-          item: item.item,
-          item_type: 'SERVICE',
-          qty,
-          uom: item.uom,
-          hsn: item.hsn,
-          rate: item.rate,
-          grate: item.grate,
-          disc: item.disc || 0,
-          total: lineValue,
-          bill_id: existingBill._id,
-          user: username,
-          qtyh: 0,
-          item_narration: item.narration
-        }], { session });
-        continue;
-      }
-
-      await StockService.updateStockInward({
-        firmId: firmIdObj,
-        itemData: { ...item, qty, rate: item.rate * (1 - ((item.disc || 0) / 100)), narration: item.narration },
-        billData: { bno: existingBill.bno, bdate: meta?.billDate || existingBill.bdate, supply: partyDoc.name, billId: existingBill._id as mongoose.Types.ObjectId, btype: 'PURCHASE' },
-        user: username,
-        session
-      });
-      const reg = await (StockReg as any).findOne({ bill_id: existingBill._id, item: item.item }).sort({ createdAt: -1 }).session(session);
-      purchasedItems.push({ stockId: reg?.stock_id, stockRegId: reg?._id, item: item.item, lineValue });
-    }
-
-    // Step 5: Delete old ledger entries and post new ones
-    await Ledger.deleteMany({
-      firmId: firmIdObj,
-      voucherGroupId: existingBill.voucherId,
-      voucherType: 'PURCHASE'
-    }, { session });
-
-    await LedgerService.postPurchaseLedger({
-      firmId: firmIdObj,
-      billId: existingBill._id as mongoose.Types.ObjectId,
-      voucherId: String(existingBill.voucherId),
-      billNo: existingBill.bno,
-      billDate: meta?.billDate || existingBill.bdate,
-      party: partyDoc,
-      netTotal: totals.netTotal,
-      cgst: totals.cgst,
-      sgst: totals.sgst,
-      igst: totals.igst,
-      roundOff: totals.roundOff,
-      otherCharges: otherCharges || [],
-      purchasedItems,
-      createdBy: username,
-      session
-    } as any);
-
     await session.commitTransaction();
     session.endSession();
 
     return {
       success: true,
-      message: 'Purchase bill updated successfully'
+      message: 'Proforma updated successfully'
     };
   } catch (err: any) {
     await session.abortTransaction();

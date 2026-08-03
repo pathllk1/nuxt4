@@ -1,10 +1,7 @@
 import mongoose from 'mongoose';
 import Bill from '../../models/Bill';
 import Party from '../../models/Party';
-import StockReg from '../../models/StockReg';
-import { LedgerService } from '../../utils/accounting/ledger.service';
-import { StockService } from '../../utils/inventory/stock.service';
-import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, calcBillTotals, getEffectiveItemQty } from '../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 
@@ -30,20 +27,11 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
     }
 
-    if (meta?.supplierBillNo) {
-      await ensureUniqueSupplierBillNo({
-        firmId: firmIdObj,
-        partyId: partyDoc._id as mongoose.Types.ObjectId,
-        supplierBillNo: meta.supplierBillNo
-      });
-    }
-
     const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
 
     const billType = (meta?.billType || 'intra-state').toLowerCase();
-    const billNo = await getNextBillNumber(firmIdObj, 'PURCHASE');
-    const voucherId = await getNextVoucherNumber(firmIdObj);
+    const billNo = await getNextBillNumber(firmIdObj, 'PROFORMA');
 
     const gstEnabled = await isGstEnabled(firmIdObj);
     const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);
@@ -77,7 +65,6 @@ export default defineEventHandler(async (event) => {
 
     const [newBill] = await Bill.create([{
       firmId: firmIdObj,
-      voucherId: String(voucherId),
       bno: billNo,
       bdate: meta?.billDate || new Date().toISOString().split('T')[0],
       partyId: partyDoc._id,
@@ -96,11 +83,10 @@ export default defineEventHandler(async (event) => {
       cgst: totals.cgst,
       sgst: totals.sgst,
       igst: totals.igst,
-      btype: 'PURCHASE',
+      btype: 'PROFORMA',
       billSubtype: billType.toUpperCase(),
       items: processedItems,
       otherCharges: otherCharges || [],
-      supplierBillNo: meta?.supplierBillNo,
       orderNo: meta?.referenceNo,
       vehicleNo: meta?.vehicleNo,
       dispatchThrough: meta?.dispatchThrough,
@@ -116,75 +102,12 @@ export default defineEventHandler(async (event) => {
       status: 'ACTIVE'
     }], { session });
 
-    const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
-
-    for (const item of processedItems) {
-      const isService = isServiceItem(item);
-      const qty = item.qty;
-      const lineValue = item.total;
-
-      if (isService) {
-        await StockReg.create([{
-          firm_id: firmIdObj,
-          type: 'PURCHASE',
-          bno: billNo,
-          bdate: newBill.bdate,
-          supply: partyDoc.name,
-          item: item.item,
-          item_type: 'SERVICE',
-          qty,
-          uom: item.uom,
-          hsn: item.hsn,
-          rate: item.rate,
-          grate: item.grate,
-          disc: item.disc || 0,
-          total: lineValue,
-          bill_id: newBill._id,
-          user: username,
-          qtyh: 0,
-          item_narration: item.narration
-        }], { session });
-        continue;
-      }
-
-      await StockService.updateStockInward({
-        firmId: firmIdObj,
-        itemData: { ...item, qty, rate: item.rate * (1 - ((item.disc || 0) / 100)), narration: item.narration },
-        billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id as mongoose.Types.ObjectId, btype: 'PURCHASE' },
-        user: username,
-        session
-      });
-      const reg = await StockReg.findOne({ bill_id: newBill._id, item: item.item }).sort({ createdAt: -1 }).session(session);
-      purchasedItems.push({ stockId: reg?.stock_id, stockRegId: reg?._id, item: item.item, lineValue });
-    }
-
-    // Post Purchase to Double-Entry Ledger
-    const ledgerParams = {
-      firmId: firmIdObj,
-      billId: newBill._id,
-      voucherId: String(voucherId),
-      billNo,
-      billDate: newBill.bdate,
-      party: { _id: partyDoc._id, name: partyDoc.name },
-      netTotal: totals.netTotal,
-      cgst: totals.cgst,
-      sgst: totals.sgst,
-      igst: totals.igst,
-      roundOff: totals.roundOff,
-      otherCharges: otherCharges || [],
-      purchasedItems,
-      createdBy: username,
-      session
-    };
-
-    await LedgerService.postPurchaseLedger(ledgerParams as any);
-
     await session.commitTransaction();
     session.endSession();
 
     return {
       success: true,
-      message: 'Purchase bill created successfully',
+      message: 'Proforma invoice created successfully',
       data: newBill
     };
   } catch (err: any) {

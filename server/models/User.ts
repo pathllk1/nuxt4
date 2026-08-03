@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import Firm from './Firm';
 import { hashPassword, verifyPassword } from '../utils/crypto-hash';
 
 export interface IUserFirm {
@@ -48,7 +49,7 @@ const UserSchema: Schema = new Schema({
   },
   firms: [
     {
-      firm: { type: Schema.Types.ObjectId, ref: 'Firm', required: true },
+      firm: { type: Schema.Types.ObjectId, ref: Firm, required: true },
       grade: {
         type: String,
         enum: ['Owner', 'Admin', 'Manager', 'Staff'],

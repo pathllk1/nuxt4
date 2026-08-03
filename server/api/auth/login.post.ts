@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const user = await User.findOne({ email } as any).populate('firms.firm');
+    const user = await User.findOne({ email } as any).populate({ path: 'firms.firm', model: Firm });
     if (!user) {
       await logSecurityEvent({
         email,
