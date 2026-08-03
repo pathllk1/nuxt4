@@ -58,10 +58,13 @@
             Sign In
           </UButton>
 
-          <!-- Register Link -->
-          <div class="mt-4 text-center">
-            <NuxtLink to="/signup" class="text-white hover:text-blue-200 transition-colors duration-300 text-sm font-medium no-underline">
+          <!-- Register & Home Links -->
+          <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm font-medium">
+            <NuxtLink to="/signup" class="text-white hover:text-blue-200 transition-colors duration-300 no-underline">
               Don't have an account? Register here
+            </NuxtLink>
+            <NuxtLink to="/" class="text-white/80 hover:text-white transition-colors duration-300 flex items-center gap-1 no-underline">
+              <span>← Back to Home</span>
             </NuxtLink>
           </div>
         </form>

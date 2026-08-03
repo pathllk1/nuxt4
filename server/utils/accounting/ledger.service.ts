@@ -241,7 +241,7 @@ export class LedgerService {
 
   static async postVoucherToLedger(voucherData: any, createdBy: string): Promise<ILedger[]> {
     const { firmId, voucherId, voucherType, voucherNo, transactionDate, narration, entries: voucherEntries, session } = voucherData;
-    const base = { firmId, voucherGroupId: voucherId.toString(), voucherType, voucherNo, transactionDate, refType: 'VOUCHER', createdBy };
+    const base = { firmId, voucherGroupId: voucherId.toString(), voucherType, voucherNo, transactionDate: transactionDate || new Date().toISOString().split('T')[0], refType: 'VOUCHER', createdBy };
     const ledgerEntries: LedgerEntryParams[] = [];
 
     for (const entry of voucherEntries) {

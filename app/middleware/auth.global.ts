@@ -7,7 +7,8 @@ export default defineNuxtRouteMiddleware((to) => {
   // Run initAuth on both SSR (reads cookies) and Client (reads cookies + localStorage fallback)
   initAuth();
 
-  const isPublicRoute = to.path === '/login' || to.path === '/signup';
+  const publicRoutes = ['/', '/login', '/signup', '/about', '/contact', '/weather', '/privacy', '/terms'];
+  const isPublicRoute = publicRoutes.includes(to.path) || Boolean(to.meta?.public);
 
   // If user is NOT authenticated and trying to access protected route, redirect to /login
   if (!isAuthenticated.value && !isPublicRoute) {
@@ -15,7 +16,7 @@ export default defineNuxtRouteMiddleware((to) => {
   }
 
   // If user IS authenticated and trying to access /login or /signup, redirect to /dashboard
-  if (isAuthenticated.value && isPublicRoute) {
+  if (isAuthenticated.value && (to.path === '/login' || to.path === '/signup')) {
     return navigateTo('/dashboard');
   }
 });

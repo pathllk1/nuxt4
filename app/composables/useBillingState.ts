@@ -1,4 +1,5 @@
 import { reactive, ref, computed } from 'vue';
+import { useApi } from '@/utils/api';
 
 export interface FirmLocation {
   gst_number: string;
@@ -60,6 +61,7 @@ export const INDIA_STATE_CODES: Record<string, string> = {
 };
 
 export const useBillingState = () => {
+  const api = useApi();
   const state = reactive<BillingState>({
     stocks: [],
     parties: [],
@@ -184,13 +186,22 @@ export const useBillingState = () => {
   const fetchData = async () => {
     loading.value = true;
     try {
-      const [stocksRes, partiesRes] = await Promise.all([
-        $fetch<{ success: boolean; data: any[] }>('/api/inventory/stock').catch(() => ({ success: false, data: [] })),
-        $fetch<{ success: boolean; data: any[] }>('/api/accounting/parties').catch(() => ({ success: false, data: [] }))
+      const [stocksRes, partiesRes, firmRes] = await Promise.all([
+        api.get('/inventory/stock').catch(() => ({ success: false, data: [] })),
+        api.get('/accounting/parties').catch(() => ({ success: false, data: [] })),
+        api.get('/firms/current').catch(() => ({ success: false, data: null }))
       ]);
 
       if (stocksRes.success) state.stocks = stocksRes.data || [];
       if (partiesRes.success) state.parties = partiesRes.data || [];
+      
+      if (firmRes.success && firmRes.data) {
+        const firm = firmRes.data;
+        state.currentFirmName = firm.name || 'Firm';
+        state.firmLocations = firm.locations || [];
+        state.activeFirmLocation = state.firmLocations.find(l => l.is_default) || state.firmLocations[0] || null;
+        state.gstEnabled = firm.gst_enabled !== false;
+      }
     } catch (err) {
       console.warn('Failed to load state dependencies:', err);
     } finally {
@@ -200,7 +211,7 @@ export const useBillingState = () => {
 
   const fetchNextBillNo = async (type = 'SALES') => {
     try {
-      const res = await $fetch<{ success: boolean; data: { bno: string } }>('/api/accounting/bills/get-next-number', { query: { type } });
+      const res = await api.get('/accounting/bills/get-next-number', { type });
       if (res.success && res.data?.bno) {
         state.meta.billNo = res.data.bno;
       }
