@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import '../models/register';
 
 let isConnecting = false;
 let reconnectAttempts = 0;
