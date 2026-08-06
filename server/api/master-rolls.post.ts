@@ -1,15 +1,40 @@
-import { defineEventHandler, createError, readBody, getHeader } from 'h3';
+import { defineEventHandler, createError, readBody } from 'h3';
 import MasterRoll from '../models/MasterRoll';
-import mongoose from 'mongoose';
+import { requireAuthSession } from '../utils/auth';
+
+// Fix #8: Allowlist to prevent mass assignment — matches [id].put.ts pattern
+const ALLOWED_FIELDS = [
+  'employee_name',
+  'aadhar',
+  'phone_no',
+  'bank',
+  'account_no',
+  'ifsc',
+  'branch',
+  'category',
+  'project',
+  'site',
+  'p_day_wage',
+  'date_of_joining',
+  'date_of_exit',
+  'status',
+] as const;
+
+function pickAllowed(data: Record<string, any>) {
+  const clean: Record<string, any> = {};
+  for (const field of ALLOWED_FIELDS) {
+    if (data[field] !== undefined) {
+      clean[field] = data[field];
+    }
+  }
+  return clean;
+}
 
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({ statusCode: 400, statusMessage: 'Firm context required' });
-    }
+    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
+    const user = await requireAuthSession(event);
 
-    const user = event.context.user;
     const body = await readBody(event);
 
     if (!body.employee_name || !body.aadhar || !body.phone_no || !body.bank || !body.account_no || !body.ifsc || !body.date_of_joining) {
@@ -17,10 +42,10 @@ export default defineEventHandler(async (event) => {
     }
 
     const employee = await MasterRoll.create({
-      ...body,
-      firm_id: new mongoose.Types.ObjectId(firmId),
-      created_by: user?.id ? new mongoose.Types.ObjectId(user.id) : null,
-      updated_by: user?.id ? new mongoose.Types.ObjectId(user.id) : null
+      ...pickAllowed(body),
+      firm_id: user.firm_id,
+      created_by: user._id,
+      updated_by: user._id
     });
 
     return {

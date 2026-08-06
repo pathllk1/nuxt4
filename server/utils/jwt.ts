@@ -2,8 +2,30 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import type { IUser } from '../models/User';
 
-const ACCESS_TOKEN_SECRET: string = process.env.ACCESS_TOKEN_SECRET || 'fallback_access_secret';
-const REFRESH_TOKEN_SECRET: string = process.env.REFRESH_TOKEN_SECRET || 'fallback_refresh_secret';
+const getSecret = (name: string): string => {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `[SECURITY] Missing required environment variable: ${name}. ` +
+      `Generate one with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+    );
+  }
+  return value;
+};
+
+// Lazy-initialized — validated on first use (Nitro loads env before handlers run)
+let _accessSecret: string | null = null;
+let _refreshSecret: string | null = null;
+
+export const getAccessTokenSecret = (): string => {
+  if (!_accessSecret) _accessSecret = getSecret('ACCESS_TOKEN_SECRET');
+  return _accessSecret;
+};
+
+export const getRefreshTokenSecret = (): string => {
+  if (!_refreshSecret) _refreshSecret = getSecret('REFRESH_TOKEN_SECRET');
+  return _refreshSecret;
+};
 
 export interface TokenPayload {
   id: string;
@@ -42,7 +64,7 @@ export const generateAccessToken = (
     jti: crypto.randomBytes(16).toString('hex')
   };
   
-  return jwt.sign(payload, ACCESS_TOKEN_SECRET, { 
+  return jwt.sign(payload, getAccessTokenSecret(), { 
     algorithm: 'HS256',
     expiresIn: process.env.ACCESS_TOKEN_EXPIRY || '15m',
     issuer: 'fastify-auth-server',
@@ -60,7 +82,7 @@ export const generateRefreshToken = (
     jti: crypto.randomBytes(16).toString('hex')
   };
   
-  return jwt.sign(payload, REFRESH_TOKEN_SECRET, { 
+  return jwt.sign(payload, getRefreshTokenSecret(), { 
     algorithm: 'HS512',
     expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d',
     issuer: 'fastify-auth-server',
@@ -70,7 +92,7 @@ export const generateRefreshToken = (
 
 export const verifyAccessToken = (token: string): TokenPayload => {
   try {
-    const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET, { 
+    const decoded = jwt.verify(token, getAccessTokenSecret(), { 
       algorithms: ['HS256'],
       issuer: 'fastify-auth-server',
       audience: 'fastify-client'
@@ -91,7 +113,7 @@ export const verifyAccessToken = (token: string): TokenPayload => {
 
 export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
   try {
-    const decoded = jwt.verify(token, REFRESH_TOKEN_SECRET, { 
+    const decoded = jwt.verify(token, getRefreshTokenSecret(), { 
       algorithms: ['HS512'],
       issuer: 'fastify-auth-server',
       audience: 'fastify-client'

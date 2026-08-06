@@ -49,22 +49,12 @@ export const useAuth = () => {
         selectedFirmId.value = cookieFirm.value;
       }
 
-      // 2. Client-side fallback to LocalStorage (also sync back to cookies if cookies missing)
+      // 2. Client-side: active_firm_id is kept in localStorage (not a secret)
       if (import.meta.client) {
         const storedUser = localStorage.getItem('user');
-        const storedAccess = localStorage.getItem('access_token');
-        const storedRefresh = localStorage.getItem('refresh_token');
         const storedFirm = localStorage.getItem('active_firm_id');
 
         if (!user.value && storedUser) user.value = JSON.parse(storedUser);
-        if (!accessToken.value && storedAccess) {
-          accessToken.value = storedAccess;
-          cookieAccess.value = storedAccess;
-        }
-        if (!refreshToken.value && storedRefresh) {
-          refreshToken.value = storedRefresh;
-          cookieRefresh.value = storedRefresh;
-        }
         if (!selectedFirmId.value && storedFirm && storedFirm !== 'undefined' && storedFirm !== 'null') {
           selectedFirmId.value = storedFirm;
           cookieFirm.value = storedFirm;
@@ -128,32 +118,22 @@ export const useAuth = () => {
       return refreshPromise.value;
     }
 
-    if (!refreshToken.value) {
-      logout();
-      return null;
-    }
-
     refreshPromise.value = (async () => {
       startRequest();
       try {
         const response = await $fetch<{ accessToken: string; refreshToken?: string }>('/api/auth/refresh', {
           method: 'POST',
-          body: { refreshToken: refreshToken.value }
+          body: { refreshToken: refreshToken.value || undefined },
+          credentials: 'include'
         });
 
-        if (response.accessToken) {
+        if (response && response.accessToken) {
           accessToken.value = response.accessToken;
           cookieAccess.value = response.accessToken;
-          if (import.meta.client) {
-            localStorage.setItem('access_token', response.accessToken);
-          }
           
           if (response.refreshToken) {
             refreshToken.value = response.refreshToken;
             cookieRefresh.value = response.refreshToken;
-            if (import.meta.client) {
-              localStorage.setItem('refresh_token', response.refreshToken);
-            }
           }
           
           scheduleTokenRefresh(response.accessToken);
@@ -161,6 +141,7 @@ export const useAuth = () => {
         }
         throw new Error('Refresh response missing token');
       } catch (e) {
+        console.warn('[Auth] Scheduled token refresh failed:', e);
         logout();
         throw e;
       } finally {
@@ -196,8 +177,6 @@ export const useAuth = () => {
 
     if (import.meta.client) {
       localStorage.setItem('user', JSON.stringify(newUser));
-      localStorage.setItem('access_token', newAccess);
-      localStorage.setItem('refresh_token', newRefresh);
     }
 
     scheduleTokenRefresh(newAccess);
@@ -258,8 +237,6 @@ export const useAuth = () => {
 
     if (import.meta.client) {
       localStorage.removeItem('user');
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
       localStorage.removeItem('active_firm_id');
     }
 
@@ -291,9 +268,6 @@ export const useAuth = () => {
       if (newAccessHeader) {
         accessToken.value = newAccessHeader;
         cookieAccess.value = newAccessHeader;
-        if (import.meta.client) {
-          localStorage.setItem('access_token', newAccessHeader);
-        }
         scheduleTokenRefresh(newAccessHeader);
       }
 
@@ -301,9 +275,6 @@ export const useAuth = () => {
       if (newRefreshHeader) {
         refreshToken.value = newRefreshHeader;
         cookieRefresh.value = newRefreshHeader;
-        if (import.meta.client) {
-          localStorage.setItem('refresh_token', newRefreshHeader);
-        }
       }
 
       return response._data as T;

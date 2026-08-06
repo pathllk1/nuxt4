@@ -1,7 +1,7 @@
-import { defineEventHandler, createError, getHeader, setResponseHeader } from 'h3';
+import { defineEventHandler, createError, setResponseHeader } from 'h3';
 import MasterRoll from '../../../models/MasterRoll';
-import mongoose from 'mongoose';
 import ExcelJS from 'exceljs';
+import { requireAuthSession } from '../../../utils/auth';
 
 /**
  * Export Data Quality Report endpoint
@@ -10,14 +10,12 @@ import ExcelJS from 'exceljs';
  */
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({ statusCode: 400, statusMessage: 'Firm context required' });
-    }
+    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
+    const user = await requireAuthSession(event);
 
     // Find all active employees (no exit date or empty exit date)
     const employees = await MasterRoll.find({ 
-      firm_id: new mongoose.Types.ObjectId(firmId as string), 
+      firm_id: user.firm_id, 
       status: 'Active',
       $or: [
         { date_of_exit: null }, 

@@ -9,6 +9,8 @@ import TokenBlacklist from '../models/TokenBlacklist';
 /**
  * Generate device fingerprint from H3Event request headers
  */
+// WARNING: Weak signal only — derived from 3 trivially-spoofable headers.
+// Do NOT use as a hard security gate. Use for risk scoring / anomaly detection.
 export const generateDeviceFingerprint = (event: H3Event): string => {
   const components = [
     getHeader(event, 'user-agent') || '',
@@ -160,7 +162,8 @@ export const validateSession = async (
     return { valid: false, reason: 'Session expired' };
   }
   
-  // Device fingerprint validation
+  // Fix #18: Fingerprint mismatch is now a WARNING, not a block.
+  // Spoofable headers cause too many false positives (browser updates, proxy changes).
   const currentFingerprint = generateDeviceFingerprint(event);
   if (session.deviceFingerprint !== currentFingerprint) {
     await logSecurityEvent({
@@ -168,13 +171,13 @@ export const validateSession = async (
       action: 'anomaly_detected',
       event,
       metadata: { 
-        reason: 'Device fingerprint mismatch',
+        reason: 'Device fingerprint mismatch (weak signal — not blocking)',
         expected: session.deviceFingerprint,
         received: currentFingerprint
       },
-      severity: 'high'
+      severity: 'medium'
     });
-    return { valid: false, reason: 'Device fingerprint mismatch' };
+    // Continue — don't block the request
   }
   
   // IP address change detection (warning only, not blocking)

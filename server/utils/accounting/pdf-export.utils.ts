@@ -1,9 +1,29 @@
 import pdfMake from 'pdfmake/build/pdfmake.js';
 import pdfFonts from 'pdfmake/build/vfs_fonts.js';
 
-if ((pdfMake as any).vfs === undefined) {
-  (pdfMake as any).vfs = (pdfFonts as any).pdfMake ? (pdfFonts as any).pdfMake.vfs : (pdfFonts as any).vfs;
+try {
+  const vfs = (pdfFonts as any)?.pdfMake?.vfs || (pdfFonts as any)?.vfs || (pdfFonts as any)?.default?.pdfMake?.vfs || (pdfFonts as any)?.default?.vfs;
+  if (vfs) {
+    (pdfMake as any).vfs = vfs;
+  }
+} catch (e) {
+  console.warn('pdfMake VFS initialization warning:', e);
 }
+
+const customFonts = {
+  Helvetica: {
+    normal: 'Helvetica',
+    bold: 'Helvetica-Bold',
+    italics: 'Helvetica-Oblique',
+    bolditalics: 'Helvetica-BoldOblique'
+  },
+  Roboto: {
+    normal: 'Helvetica',
+    bold: 'Helvetica-Bold',
+    italics: 'Helvetica-Oblique',
+    bolditalics: 'Helvetica-BoldOblique'
+  }
+};
 
 const C = {
   primary: '#1B3A6B',
@@ -36,7 +56,10 @@ const formatDate = (dateString: string | Date | undefined | null): string => {
 export async function createPdfBufferFromDocDef(docDefinition: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const pdfDoc = (pdfMake as any).createPdf(docDefinition);
+      if (!docDefinition.defaultStyle) docDefinition.defaultStyle = {};
+      if (!docDefinition.defaultStyle.font) docDefinition.defaultStyle.font = 'Helvetica';
+
+      const pdfDoc = (pdfMake as any).createPdf(docDefinition, null, customFonts);
       pdfDoc.getBuffer((buffer: Buffer) => {
         resolve(buffer);
       });

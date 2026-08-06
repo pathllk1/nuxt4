@@ -133,11 +133,14 @@ async function loadData() {
   loading.value = true;
   try {
     const res = await fetchSalesAnalysis(filters);
-    if (res.success) {
-      salesData.value = res.data;
+    if (res && res.success) {
+      salesData.value = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+    } else {
+      salesData.value = [];
     }
   } catch (err) {
-    console.error(err);
+    console.error('Failed to load sales analysis:', err);
+    salesData.value = [];
   } finally {
     loading.value = false;
   }
@@ -145,7 +148,7 @@ async function loadData() {
 
 watch(() => props.modelValue, (val) => {
   if (val) loadData();
-});
+}, { immediate: true });
 </script>
 
 <style scoped>

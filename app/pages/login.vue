@@ -113,7 +113,11 @@ const onSubmit = async (e?: Event) => {
   try {
     const res = await login({ email: email.value, password: password.value });
     if (res && res.accessToken) {
-      await router.push('/dashboard');
+      if (import.meta.client) {
+        window.location.href = '/dashboard';
+      } else {
+        await router.push('/dashboard');
+      }
     }
   } catch (err: any) {
     console.error('Login error:', err);

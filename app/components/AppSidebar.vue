@@ -151,6 +151,7 @@ const navLinks = [
       { label: 'Inventory Dashboard', to: '/inventory', icon: '🏢' },
       { label: 'Stock Register', to: '/inventory/stocks', icon: '📦' },
       { label: 'Stock Movements', to: '/inventory/movement', icon: '🔄' },
+      { label: 'Sales & Purchase Bills', to: '/inventory/bills', icon: '🧾' },
       { label: 'Inventory Reports', to: '/inventory/reports', icon: '📈' },
     ]
   },

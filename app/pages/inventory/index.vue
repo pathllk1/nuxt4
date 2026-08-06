@@ -49,6 +49,15 @@
           </div>
           <UButton
             color="primary"
+            variant="outline"
+            size="sm"
+            icon="i-heroicons-document-text"
+            label="Bills View"
+            class="font-bold text-xs h-8"
+            @click="$router.push('/inventory/bills')"
+          />
+          <UButton
+            color="primary"
             icon="i-heroicons-plus"
             size="sm"
             label="New Stock"

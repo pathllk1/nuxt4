@@ -1,11 +1,25 @@
 import { defineEventHandler, getQuery, readBody, setHeader, getRequestIP } from 'h3';
+import { sanitizeQueryParams, sanitizeObject } from '../utils/sanitizer';
 
-// Simple in-memory rate limiter store
+// Fix #10: Bounded LRU rate-limit store (prevents unbounded memory growth)
+// NOTE: For multi-instance/serverless deployments, migrate to Redis/Upstash
 interface RateLimitBucket {
   timestamps: number[];
   banUntil?: number;
 }
+const MAX_STORE_ENTRIES = 10000;
 const rateLimitStore = new Map<string, RateLimitBucket>();
+
+const evictOldEntries = () => {
+  if (rateLimitStore.size > MAX_STORE_ENTRIES) {
+    const toDelete = rateLimitStore.size - MAX_STORE_ENTRIES;
+    const iterator = rateLimitStore.keys();
+    for (let i = 0; i < toDelete; i++) {
+      const key = iterator.next().value;
+      if (key) rateLimitStore.delete(key);
+    }
+  }
+};
 
 const checkRateLimit = (
   ip: string,
@@ -22,6 +36,7 @@ const checkRateLimit = (
   if (!bucket) {
     bucket = { timestamps: [] };
     rateLimitStore.set(key, bucket);
+    evictOldEntries();
   }
 
   // Check if banned
@@ -58,43 +73,54 @@ const checkRateLimit = (
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
-  // 1. Add Security Headers for all responses
+  // 1. Security Headers
   setHeader(event, 'X-Content-Type-Options', 'nosniff');
   setHeader(event, 'X-Frame-Options', 'DENY');
-  setHeader(event, 'X-XSS-Protection', '1; mode=block');
-  setHeader(event, 'Referrer-Policy', 'strict-origin');
+  setHeader(event, 'Referrer-Policy', 'strict-origin-when-cross-origin');
   setHeader(event, 'Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 
-  // 2. Perform Rate Limiting for Auth API paths
+  // Content-Security-Policy (allows HTTPS images like freepik, randomuser, unsplash, etc.)
+  setHeader(event, 'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline' https:; " +
+    "font-src 'self' data: https:; " +
+    "img-src 'self' data: blob: https: http:; " +
+    "connect-src 'self' https: ws: wss:; " +
+    "frame-ancestors 'none';"
+  );
+  setHeader(event, 'Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+  // Fix #16: Removed deprecated X-XSS-Protection header (CSP replaces it)
+
+  // 2. Rate Limiting for Auth API paths
   if (path.startsWith('/api/auth/')) {
     const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
 
-    // Exempt localhost from rate limits to match fastify1 configurations
-    if (ip !== '127.0.0.1' && ip !== 'localhost' && ip !== '::1') {
-      let limitCheck = { allowed: true, retryAfter: 0 };
+    // Fix #11: Rate limit ALL IPs equally — no localhost exemption
+    let limitCheck = { allowed: true, retryAfter: 0 };
 
-      if (path.includes('/login')) {
-        // Login limit: 5 attempts per 15 minutes, ban after 15 failed logins
-        limitCheck = checkRateLimit(ip, 'login', 5, 15 * 60 * 1000, 15, 15 * 60 * 1000);
-      } else if (path.includes('/signup')) {
-        // Signup limit: 3 attempts per hour
-        limitCheck = checkRateLimit(ip, 'signup', 3, 60 * 60 * 1000);
-      } else if (path.includes('/refresh')) {
-        // Refresh limit: 20 per 15 minutes
-        limitCheck = checkRateLimit(ip, 'refresh', 20, 15 * 60 * 1000);
-      }
+    if (path.includes('/login')) {
+      // Login limit: 5 attempts per 15 minutes, ban after 15 failed logins
+      limitCheck = checkRateLimit(ip, 'login', 5, 15 * 60 * 1000, 15, 15 * 60 * 1000);
+    } else if (path.includes('/signup')) {
+      // Signup limit: 3 attempts per hour
+      limitCheck = checkRateLimit(ip, 'signup', 3, 60 * 60 * 1000);
+    } else if (path.includes('/refresh')) {
+      // Refresh limit: 20 per 15 minutes
+      limitCheck = checkRateLimit(ip, 'refresh', 20, 15 * 60 * 1000);
+    }
 
-      if (!limitCheck.allowed) {
-        setHeader(event, 'Retry-After', String(limitCheck.retryAfter) as any);
-        event.node.res.statusCode = 429;
-        return {
-          success: false,
-          statusCode: 429,
-          error: 'Too Many Requests',
-          message: `Too many requests. Please try again after ${limitCheck.retryAfter} seconds.`,
-          retryAfter: limitCheck.retryAfter
-        };
-      }
+    if (!limitCheck.allowed) {
+      setHeader(event, 'Retry-After', String(limitCheck.retryAfter) as any);
+      event.node.res.statusCode = 429;
+      return {
+        success: false,
+        statusCode: 429,
+        error: 'Too Many Requests',
+        message: `Too many requests. Please try again after ${limitCheck.retryAfter} seconds.`,
+        retryAfter: limitCheck.retryAfter
+      };
     }
   }
 

@@ -1,21 +1,17 @@
-import { defineEventHandler, createError, getHeader } from 'h3';
+import { defineEventHandler, createError } from 'h3';
 import MasterRoll from '../../models/MasterRoll';
-import mongoose from 'mongoose';
+import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({ statusCode: 400, statusMessage: 'Firm context required' });
-    }
-
-    const fid = new mongoose.Types.ObjectId(firmId);
+    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
+    const user = await requireAuthSession(event);
 
     const [projects, sites, categories, banks] = await Promise.all([
-      MasterRoll.distinct('project', { firm_id: fid, project: { $nin: [null, ''] } }),
-      MasterRoll.distinct('site', { firm_id: fid, site: { $nin: [null, ''] } }),
-      MasterRoll.distinct('category', { firm_id: fid, category: { $nin: [null, ''] } }),
-      MasterRoll.distinct('bank', { firm_id: fid, bank: { $nin: [null, ''] } })
+      MasterRoll.distinct('project', { firm_id: user.firm_id, project: { $nin: [null, ''] } }),
+      MasterRoll.distinct('site', { firm_id: user.firm_id, site: { $nin: [null, ''] } }),
+      MasterRoll.distinct('category', { firm_id: user.firm_id, category: { $nin: [null, ''] } }),
+      MasterRoll.distinct('bank', { firm_id: user.firm_id, bank: { $nin: [null, ''] } })
     ]);
 
     return {

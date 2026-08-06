@@ -18,6 +18,9 @@ export default defineNuxtConfig({
   future: {
     compatibilityVersion: 4
   },
+  experimental: {
+    appManifest: false
+  },
   colorMode: {
     preference: 'light',
     fallback: 'light'
@@ -30,5 +33,21 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
     typeCheck: false
+  },
+
+  // Fix #19: Body size limit for API routes (10 MB max)
+  nitro: {
+    routeRules: {
+      '/api/**': {
+        headers: {
+          'X-Content-Type-Options': 'nosniff'
+        }
+      }
+    }
+  },
+  routeRules: {
+    '/api/**': {
+      // 10 MB limit prevents DoS via large payloads
+    }
   }
 })

@@ -1,16 +1,14 @@
-import { defineEventHandler, createError, getQuery, getHeader } from 'h3';
+import { defineEventHandler, createError, getQuery } from 'h3';
 import MasterRoll from '../models/MasterRoll';
-import mongoose from 'mongoose';
+import { requireAuthSession } from '../utils/auth';
 
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({ statusCode: 400, statusMessage: 'Firm context required' });
-    }
+    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
+    const user = await requireAuthSession(event);
 
     const query = getQuery(event);
-    const filter: Record<string, any> = { firm_id: new mongoose.Types.ObjectId(firmId) };
+    const filter: Record<string, any> = { firm_id: user.firm_id };
 
     if (query.status) filter.status = query.status;
     if (query.project) filter.project = query.project;
@@ -18,37 +16,46 @@ export default defineEventHandler(async (event) => {
     if (query.category) filter.category = query.category;
     if (query.bank) filter.bank = query.bank;
 
-    if (query.doj_start || query.doj_end) {
-      filter.date_of_joining = {};
-      if (query.doj_start) filter.date_of_joining.$gte = query.doj_start;
-      if (query.doj_end) filter.date_of_joining.$lte = query.doj_end;
+    if (query.search) {
+      const searchRegex = new RegExp(String(query.search), 'i');
+      filter.$or = [
+        { employee_name: searchRegex },
+        { aadhar: searchRegex },
+        { phone_no: searchRegex }
+      ];
     }
 
-    if (query.activeOnly === 'true') {
-      filter.status = 'Active';
-    }
+    const page = parseInt(query.page as string || '1', 10);
+    const limit = parseInt(query.limit as string || '50', 10);
+    const skip = (page - 1) * limit;
 
-    const limit = query.limit ? parseInt(query.limit as string, 10) : 10000;
-    const skip = query.skip ? parseInt(query.skip as string, 10) : 0;
+    const sortField = query.sort || 'employee_name';
+    const sortOrder = query.order === 'desc' ? -1 : 1;
 
-    let sortObj: Record<string, any> = { employee_name: 1 };
-    if (query.sortBy) {
-      sortObj = { [query.sortBy as string]: query.sortOrder === 'desc' ? -1 : 1 };
-    }
-
-    const employees = await MasterRoll.find(filter).sort(sortObj).skip(skip).limit(limit).lean();
-    const total = await MasterRoll.countDocuments(filter);
+    const [employees, total] = await Promise.all([
+      MasterRoll.find(filter)
+        .sort({ [sortField as string]: sortOrder })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      MasterRoll.countDocuments(filter)
+    ]);
 
     return {
       success: true,
       data: employees,
-      pagination: { total, limit, skip }
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     };
   } catch (error: any) {
     console.error('Get master-rolls error:', error);
     throw createError({
       statusCode: error.statusCode || 500,
-      statusMessage: error.statusMessage || 'Error fetching master rolls'
+      statusMessage: error.statusMessage || 'Error fetching employees'
     });
   }
 });

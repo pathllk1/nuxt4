@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, reactive } from 'vue'
 import { useAuth } from '../composables/useAuth'
-import { useToast } from '#imports'
 
 definePageMeta({
   layout: 'default'

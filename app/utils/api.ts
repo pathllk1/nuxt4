@@ -51,14 +51,17 @@ const getCookieValue = (name: string): string | null => {
   return null
 }
 
+// Fix #5/#9: Tokens are now stored in HttpOnly cookies set by the server.
+// Client can still read non-HttpOnly cookies for backward compatibility during migration.
+// localStorage is no longer used for token storage (prevents XSS theft).
 const getAccessToken = (): string | null => {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem('access_token') || getCookieValue('access_token')
+  return getCookieValue('access_token')
 }
 
 const getRefreshToken = (): string | null => {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem('refresh_token') || getCookieValue('refresh_token')
+  return getCookieValue('refresh_token')
 }
 
 const getActiveFirmId = (): string | null => {
@@ -75,27 +78,22 @@ const refreshTokenLogic = async (): Promise<string | null> => {
 
   refreshPromise = (async () => {
     const latestRefreshToken = getRefreshToken()
-    if (!latestRefreshToken) return null
     try {
       const res = await fetch('/api/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: latestRefreshToken })
+        body: JSON.stringify({ refreshToken: latestRefreshToken || undefined }),
+        credentials: 'same-origin'
       })
       if (!res.ok) throw new Error('Refresh failed')
       const data = await res.json()
       if (data?.accessToken) {
         if (typeof window !== 'undefined') {
-          localStorage.setItem('access_token', data.accessToken)
-          document.cookie = `access_token=${encodeURIComponent(data.accessToken)}; path=/; max-age=${60 * 60 * 24 * 7}`
-          if (data.refreshToken) {
-            localStorage.setItem('refresh_token', data.refreshToken)
-            document.cookie = `refresh_token=${encodeURIComponent(data.refreshToken)}; path=/; max-age=${60 * 60 * 24 * 30}`
-          }
+          document.cookie = `access_token=${encodeURIComponent(data.accessToken)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
         }
         return data.accessToken
       }
-      return null
+      return 'refreshed'
     } catch {
       return null
     }
@@ -136,9 +134,8 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
     const response = await fetch(finalUrl, { ...options, headers })
 
     const newToken = response.headers.get('x-new-access-token') || response.headers.get('X-New-Access-Token')
-    if (newToken && typeof window !== 'undefined') {
-      localStorage.setItem('access_token', newToken)
-      document.cookie = `access_token=${encodeURIComponent(newToken)}; path=/; max-age=${60 * 60 * 24 * 7}`
+    if (newToken) {
+      // Server already sets HttpOnly cookie — just note the token was refreshed
     }
 
     if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh') && retry) {

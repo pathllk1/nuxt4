@@ -38,9 +38,10 @@ export const hashPassword = async (password: string): Promise<string> => {
 export const verifyPassword = async (password: string, encodedHash: string): Promise<boolean> => {
   if (!password || !encodedHash) return false;
 
-  // Plain text fallback (for initial seed/test accounts)
-  if (password === encodedHash) {
-    return true;
+  // Fix #17: Removed plain-text password backdoor
+  // If the stored hash is not a valid Argon2 PHC string, reject immediately
+  if (!encodedHash.startsWith('$argon2')) {
+    return false;
   }
 
   try {

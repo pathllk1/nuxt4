@@ -40,7 +40,7 @@
         </div>
       </div>
 
-      <!-- Consumption Report -->
+      <!-- Sales Analysis -->
       <div class="bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 hover:shadow-md transition-shadow cursor-pointer group" @click="generateReport('consumption')">
         <div class="w-12 h-12 bg-purple-50 dark:bg-purple-950 rounded-xl flex items-center justify-center text-purple-600 dark:text-purple-400 mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -51,6 +51,23 @@
         <p class="text-sm text-gray-500 dark:text-zinc-400 mt-2">Analyze which items are moving fast and their contribution to total revenue.</p>
         <div class="mt-4 flex items-center text-purple-600 dark:text-purple-400 text-sm font-bold">
           View Report
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+
+      <!-- Sales & Purchase Bills Report -->
+      <div class="bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 hover:shadow-md transition-shadow cursor-pointer group" @click="$router.push('/inventory/bills')">
+        <div class="w-12 h-12 bg-teal-50 dark:bg-teal-950 rounded-xl flex items-center justify-center text-teal-600 dark:text-teal-400 mb-4 group-hover:bg-teal-600 group-hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <h3 class="font-bold text-gray-900 dark:text-white text-lg">Sales & Purchase Bills</h3>
+        <p class="text-sm text-gray-500 dark:text-zinc-400 mt-2">View, search, and export all stock-related sales invoices and purchase bills.</p>
+        <div class="mt-4 flex items-center text-teal-600 dark:text-teal-400 text-sm font-bold">
+          View Bills Page
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>

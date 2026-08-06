@@ -1,10 +1,11 @@
-import { defineEventHandler, createError, getQuery, getHeader, setResponseHeader } from 'h3';
+import { defineEventHandler, createError, getQuery, setResponseHeader } from 'h3';
 import MasterRoll from '../../../models/MasterRoll';
 import Firm from '../../../models/Firm';
 import mongoose from 'mongoose';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+import { requireAuthSession } from '../../../utils/auth';
 
 /**
  * Export I-Cards endpoint
@@ -13,16 +14,14 @@ import QRCode from 'qrcode';
  */
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({ statusCode: 400, statusMessage: 'Firm context required' });
-    }
+    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
+    const user = await requireAuthSession(event);
 
     const query = getQuery(event);
     const { project, site, category, format = 'pdf', employeeId, selectedIds } = query;
 
     // Build filter
-    const filter: Record<string, any> = { firm_id: new mongoose.Types.ObjectId(firmId as string) };
+    const filter: Record<string, any> = { firm_id: user.firm_id };
     
     if (employeeId && mongoose.Types.ObjectId.isValid(employeeId as string)) {
       filter._id = new mongoose.Types.ObjectId(employeeId as string);
@@ -39,7 +38,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const employees = await MasterRoll.find(filter).sort({ employee_name: 1 }).lean();
-    const firm = await Firm.findById(firmId).lean();
+    const firm = await Firm.findById(user.firm_id).lean();
     const firmName = firm?.name ?? 'Your Company';
 
     if (!employees.length) {

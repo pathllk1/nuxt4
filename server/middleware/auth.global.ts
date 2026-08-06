@@ -1,4 +1,4 @@
-import { defineEventHandler, getHeader, getRequestIP, setResponseHeader, sendError, createError } from 'h3';
+import { defineEventHandler, getHeader, getCookie, getRequestIP, setResponseHeader, sendError, createError } from 'h3';
 import User from '../models/User';
 import Session from '../models/Session';
 import { connectDB } from '../plugins/mongodb';
@@ -39,11 +39,13 @@ export default defineEventHandler(async (event) => {
   await connectDB();
 
   const authHeader = getHeader(event, 'authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : getCookie(event, 'access_token');
+
+  if (!token) {
     await logSecurityEvent({
       action: 'invalid_token',
       event,
-      metadata: { reason: 'No authorization header' },
+      metadata: { reason: 'No authorization header or cookie provided' },
       severity: 'low'
     });
     
@@ -52,8 +54,6 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Unauthorized: No token provided'
     });
   }
-
-  const token = authHeader.split(' ')[1];
   
   // Check if token is blacklisted
   if (await isTokenBlacklisted(token as any)) {

@@ -1,15 +1,12 @@
-import { defineEventHandler, getHeader, readBody, createError } from 'h3';
+import { defineEventHandler, readBody, createError } from 'h3';
 import FirmSettings from '../../../models/FirmSettings';
+import { requireAuthSession } from '../../../utils/auth';
 
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'X-Firm-ID header is required'
-      });
-    }
+    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
+    const user = await requireAuthSession(event);
+    const firmId = user.firm_id.toString();
 
     const { enabled } = await readBody(event);
     if (enabled === undefined) {

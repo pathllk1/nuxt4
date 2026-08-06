@@ -1,4 +1,4 @@
-import { defineEventHandler } from 'h3';
+import { defineEventHandler, getQuery } from 'h3';
 import mongoose from 'mongoose';
 import { requireAuthSession } from '../../../utils/auth';
 import StockReg from '../../../models/StockReg';
@@ -10,43 +10,57 @@ export default defineEventHandler(async (event) => {
     firmIdStr = String(user.firm_id);
   } catch {}
 
-  const firmIdObj = firmIdStr && mongoose.Types.ObjectId.isValid(firmIdStr) ? new mongoose.Types.ObjectId(firmIdStr) : null;
-  const filter: any = { type: { $in: ['SALES', 'OUTWARD'] } };
-  if (firmIdStr) {
-    filter.$or = [
+  const queryParams = getQuery(event);
+  const startDate = queryParams.startDate ? String(queryParams.startDate) : '';
+  const endDate = queryParams.endDate ? String(queryParams.endDate) : '';
+
+  const matchFilter: any = {
+    type: { $in: ['SALE', 'SALES', 'OUTWARD'] }
+  };
+
+  if (firmIdStr && mongoose.Types.ObjectId.isValid(firmIdStr)) {
+    const fid = new mongoose.Types.ObjectId(firmIdStr);
+    matchFilter.$or = [
+      { firm_id: fid },
+      { firmId: fid },
       { firm_id: firmIdStr },
-      { firmId: firmIdStr },
-      ...(firmIdObj ? [{ firm_id: firmIdObj }, { firmId: firmIdObj }] : [])
+      { firmId: firmIdStr }
     ];
   }
 
-  let movements = await StockReg.find(filter).lean();
-  if (movements.length === 0) {
-    movements = await StockReg.find({ type: { $in: ['SALES', 'OUTWARD'] } }).lean();
+  if (startDate || endDate) {
+    matchFilter.createdAt = {};
+    if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
+    if (endDate) matchFilter.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
   }
 
-  const map = new Map<string, any>();
-  for (const m of movements) {
-    const key = m.item || 'Item';
-    const qty = parseFloat(m.qty as any) || 0;
-    const total = parseFloat(m.total as any) || (qty * (parseFloat(m.rate as any) || 0));
+  try {
+    const sales = await StockReg.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$stockId',
+          item: { $first: '$item' },
+          hsn: { $first: '$hsn' },
+          uom: { $first: '$uom' },
+          totalQty: { $sum: { $abs: '$qty' } },
+          totalRevenue: { $sum: { $ifNull: ['$total', { $multiply: ['$qty', '$rate'] }] } },
+          avgRate: { $avg: '$rate' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { totalRevenue: -1 } }
+    ]);
 
-    if (!map.has(key)) {
-      map.set(key, { item: key, hsn: m.hsn || '', totalSoldQty: 0, totalRevenue: 0, uom: m.uom || 'PCS' });
-    }
-    const entry = map.get(key);
-    entry.totalSoldQty += qty;
-    entry.totalRevenue += total;
+    return {
+      success: true,
+      data: sales
+    };
+  } catch (error: any) {
+    console.error('Sales analysis error:', error);
+    return {
+      success: true,
+      data: []
+    };
   }
-
-  const items = Array.from(map.values()).sort((a, b) => b.totalRevenue - a.totalRevenue);
-
-  return {
-    success: true,
-    data: {
-      items,
-      totalRevenue: items.reduce((acc, i) => acc + i.totalRevenue, 0),
-      totalQuantitySold: items.reduce((acc, i) => acc + i.totalSoldQty, 0)
-    }
-  };
 });

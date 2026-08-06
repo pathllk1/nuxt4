@@ -1,4 +1,4 @@
-import { defineEventHandler, readBody, createError, getRequestIP, getHeader } from 'h3';
+import { defineEventHandler, readBody, createError, getRequestIP, getHeader, getCookie, setCookie } from 'h3';
 import User from '../../models/User';
 import Session from '../../models/Session';
 import { 
@@ -18,8 +18,8 @@ import {
 } from '../../utils/security';
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  const { refreshToken } = body || {};
+  const body = await readBody(event).catch(() => ({}));
+  const refreshToken = (body && body.refreshToken) || getCookie(event, 'refresh_token');
 
   if (!refreshToken) {
     throw createError({
@@ -134,6 +134,25 @@ export default defineEventHandler(async (event) => {
       event,
       severity: 'low'
     });
+
+    // Set refreshed cookies
+    const isProduction = process.env.NODE_ENV === 'production';
+    setCookie(event, 'access_token', newAccessToken, {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7
+    });
+    if (shouldRotate) {
+      setCookie(event, 'refresh_token', newRefreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30
+      });
+    }
 
     return {
       accessToken: newAccessToken,

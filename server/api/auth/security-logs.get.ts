@@ -1,20 +1,43 @@
 import { defineEventHandler, createError, getQuery } from 'h3';
 import SecurityLog from '../../models/SecurityLog';
+import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
   try {
+    // Fix #14: Role-gate security logs — only superadmin can see all logs
+    const session = await requireAuthSession(event);
+    const userPayload = event.context.user;
+    const role = userPayload?.role;
+
     const query = getQuery(event);
     const limit = query.limit ? parseInt(query.limit as string, 10) : 5;
 
-    const logs = await SecurityLog.find({})
+    // Non-admin users can only see their own security events
+    const filter: Record<string, any> = {};
+    if (role !== 'superadmin') {
+      filter.userId = session._id.toString();
+    }
+
+    const logs = await SecurityLog.find(filter)
       .sort({ timestamp: -1 })
       .limit(limit)
       .lean();
 
+    // Strip sensitive fields for non-admin users
+    const sanitizedLogs = role === 'superadmin'
+      ? logs
+      : logs.map((log: any) => ({
+          _id: log._id,
+          action: log.action,
+          timestamp: log.timestamp,
+          severity: log.severity,
+          // Strip IP, fingerprint, raw user agent from non-admin view
+        }));
+
     return {
       success: true,
       statusCode: 200,
-      logs
+      logs: sanitizedLogs
     };
   } catch (error: any) {
     console.error('Get security logs error:', error);

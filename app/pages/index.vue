@@ -32,18 +32,20 @@
                 A comprehensive solution for managing your business operations, finances, inventory, and workforce - all in one place.
               </p>
               <div class="flex flex-wrap gap-4 justify-center md:justify-start animate-fadeIn animation-delay-300">
-                <NuxtLink v-if="!isAuthenticated" to="/login" class="px-6 py-3 bg-gradient-to-r from-green-500 via-yellow-500 to-purple-500 text-white rounded-lg hover:shadow-lg transform hover:scale-105 transition-all duration-300 flex items-center font-medium no-underline">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                  </svg>
-                  Get Started
-                </NuxtLink>
-                <NuxtLink v-else to="/dashboard" class="px-6 py-3 bg-gradient-to-r from-green-500 via-yellow-500 to-purple-500 text-white rounded-lg hover:shadow-lg transform hover:scale-105 transition-all duration-300 flex items-center font-medium no-underline">
-                  <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" />
-                  </svg>
-                  Go to Dashboard
-                </NuxtLink>
+                <ClientOnly>
+                  <NuxtLink v-if="!isAuthenticated" to="/login" class="px-6 py-3 bg-gradient-to-r from-green-500 via-yellow-500 to-purple-500 text-white rounded-lg hover:shadow-lg transform hover:scale-105 transition-all duration-300 flex items-center font-medium no-underline">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                    </svg>
+                    Get Started
+                  </NuxtLink>
+                  <NuxtLink v-else to="/dashboard" class="px-6 py-3 bg-gradient-to-r from-green-500 via-yellow-500 to-purple-500 text-white rounded-lg hover:shadow-lg transform hover:scale-105 transition-all duration-300 flex items-center font-medium no-underline">
+                    <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" />
+                    </svg>
+                    Go to Dashboard
+                  </NuxtLink>
+                </ClientOnly>
                 <NuxtLink to="/about" class="px-6 py-3 bg-white text-purple-600 border border-green-200 rounded-lg hover:bg-yellow-50 hover:shadow-md transform hover:scale-105 transition-all duration-300 flex items-center font-medium no-underline">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

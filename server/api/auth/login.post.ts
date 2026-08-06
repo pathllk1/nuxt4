@@ -1,4 +1,4 @@
-import { defineEventHandler, readBody, createError, getHeader, getRequestIP } from 'h3';
+import { defineEventHandler, readBody, createError, getHeader, getRequestIP, setCookie } from 'h3';
 import User from '../../models/User';
 import Firm from '../../models/Firm';
 import Session from '../../models/Session';
@@ -14,6 +14,8 @@ import {
   logSecurityEvent,
   detectSuspiciousActivity
 } from '../../utils/security';
+import { recordLoginIP } from '../../utils/trusted-ips';
+import { loginSchema, validateBody } from '../../utils/validation';
 
 export default defineEventHandler(async (event) => {
   await connectDB();
@@ -200,6 +202,9 @@ export default defineEventHandler(async (event) => {
       severity: 'low'
     });
 
+    // Fix #23: Record login IP in trustedIPs
+    await recordLoginIP(user._id.toString(), event);
+
     const firmsMapped = (user.firms || [])
       .filter((f: any) => Boolean(f && f.firm))
       .map((f: any) => ({
@@ -209,6 +214,23 @@ export default defineEventHandler(async (event) => {
         },
         grade: f.grade || 'Staff'
       }));
+
+    // Set cookies for tokens — access_token is readable by client JS for Authorization headers
+    const isProduction = process.env.NODE_ENV === 'production';
+    setCookie(event, 'access_token', accessToken, {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7 // 7 days
+    });
+    setCookie(event, 'refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30 // 30 days
+    });
 
     return {
       user: {
@@ -237,7 +259,7 @@ export default defineEventHandler(async (event) => {
 
     throw createError({
       statusCode: 500,
-      statusMessage: error.message || 'Server error during login'
+      statusMessage: 'An internal error occurred'
     });
   }
 });

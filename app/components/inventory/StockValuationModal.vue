@@ -126,7 +126,7 @@ watch(() => props.modelValue, async (val) => {
       loading.value = false;
     }
   }
-});
+}, { immediate: true });
 
 function exportToExcel() {
   if (!reportData.value) return;
