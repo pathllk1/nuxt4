@@ -51,4 +51,4 @@ SecurityLogSchema.index({ userId: 1, timestamp: -1 });
 SecurityLogSchema.index({ action: 1, timestamp: -1 });
 SecurityLogSchema.index({ severity: 1, timestamp: -1 });
 
-export default mongoose.models.SecurityLog || mongoose.model<ISecurityLog>('SecurityLog', SecurityLogSchema);
+export default (mongoose.models.SecurityLog || mongoose.model<ISecurityLog>('SecurityLog', SecurityLogSchema)) as mongoose.Model<ISecurityLog>;

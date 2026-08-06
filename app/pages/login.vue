@@ -1,8 +1,13 @@
 <template>
   <div class="fixed inset-0 flex items-center justify-center overflow-hidden bg-[url('https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center z-50">
-    
+
+    <!-- Sidebar -->
+    <ClientOnly>
+      <AppSidebar />
+    </ClientOnly>
+
     <!-- Login Card with width 800px on medium and up -->
-    <div class="relative z-10 w-full md:w-[800px] px-4 animate-fadeIn">
+    <div class="relative z-50 w-full md:w-[800px] px-4 animate-fadeIn">
       <div class="bg-white/15 backdrop-blur-xl rounded-2xl p-9 shadow-2xl border-2 border-white/30">
         
         <!-- Card Header -->
@@ -77,6 +82,7 @@
 import { ref, onMounted } from 'vue';
 import { useAuth } from '../composables/useAuth';
 import { useRouter } from '#app';
+import AppSidebar from '../components/AppSidebar.vue';
 
 definePageMeta({
   layout: 'default'

@@ -2,8 +2,8 @@ import { H3Event, getHeader, createError } from 'h3';
 import mongoose from 'mongoose';
 
 export interface AuthSession {
-  firm_id: mongoose.Types.ObjectId;
-  _id: mongoose.Types.ObjectId;
+  firm_id: any;
+  _id: any;
   username?: string;
   email?: string;
 }

@@ -1,14 +1,16 @@
 import mongoose from 'mongoose';
 import Wage from '../../models/Wage';
 import WageJob from '../../models/WageJob';
-import MasterRoll from '../../models/MasterRoll';
 import Advance from '../../models/Advance';
 import { postWageLedger } from '../../utils/wages-ledger-helper';
 import { processWageJob } from '../../utils/wage-job-processor';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const body = await readBody(event);
   const { month, wages } = body;
 
@@ -19,19 +21,32 @@ export default defineEventHandler(async (event) => {
     });
   }
 
+  // Bug #16: validate wage_days is a positive number for every item up front
+  const invalid = wages.find((w: any) => !w.wage_days || Number(w.wage_days) <= 0);
+  if (invalid) {
+    throw createError({
+      statusCode: 400,
+      message: 'Every wage entry must have wage_days greater than 0'
+    });
+  }
+
   if (wages.length > 5) {
+    // Bug #4: persist the wages payload on the job document itself so it
+    // survives a server restart/crash, instead of only living in memory.
     const job = new WageJob({
       firm_id: user.firm_id,
+      user_id: user._id,
       salary_month: month,
       total_wages: wages.length,
       status: 'PENDING',
+      wages_data: wages,
       created_by: user._id,
       updated_by: user._id
     });
     await job.save();
 
-    // Async background execution
-    processWageJob(job._id as any, new mongoose.Types.ObjectId(user.firm_id as string), new mongoose.Types.ObjectId(user._id as string), month, wages);
+    // Async background execution — processor now reads wages_data from the job itself
+    processWageJob(job._id as any);
 
     return {
       success: true,
@@ -57,7 +72,7 @@ export default defineEventHandler(async (event) => {
       const doc = new Wage({
         firm_id: user.firm_id,
         master_roll_id: item.master_roll_id,
-        p_day_wage: item.gross_salary / (item.wage_days || 1),
+        p_day_wage: item.gross_salary / item.wage_days,
         wage_days: item.wage_days,
         gross_salary: item.gross_salary,
         epf_deduction: item.epf_deduction || 0,
@@ -104,9 +119,18 @@ export default defineEventHandler(async (event) => {
     return { success: true, data: results };
   } catch (err: any) {
     await session.abortTransaction();
+
+    // Bug (report B4): distinguish validation-type failures from real server
+    // errors instead of always returning 500 with the raw message.
+    if (err.statusCode) {
+      throw err;
+    }
+    if (/validation failed|cannot exceed gross salary/i.test(err.message || '')) {
+      throw createError({ statusCode: 400, message: err.message });
+    }
     throw createError({
       statusCode: 500,
-      message: err.message
+      message: 'Failed to create wages. Please try again or contact support.'
     });
   } finally {
     session.endSession();

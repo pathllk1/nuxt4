@@ -103,7 +103,14 @@ const wageSchema = new Schema<IWage>(
       required: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    // Bug #18: enables Mongoose's built-in version check (__v) on every
+    // save() — a concurrent update to the same wage between another
+    // request's findOne() and save() will throw VersionError instead of
+    // silently overwriting the other write.
+    optimisticConcurrency: true,
+  }
 );
 
 // Compound indexes for performance
@@ -112,6 +119,6 @@ wageSchema.index({ firm_id: 1, master_roll_id: 1, salary_month: 1 }, { unique: t
 wageSchema.index({ firm_id: 1, status: 1 });
 wageSchema.index({ firm_id: 1, voucher_group_id: 1 });
 
-const Wage = mongoose.model<IWage>('Wage', wageSchema);
+const Wage = (mongoose.models.Wage || mongoose.model<IWage>('Wage', wageSchema)) as mongoose.Model<IWage>;
 
 export default Wage;

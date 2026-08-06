@@ -1,25 +1,22 @@
-import { defineEventHandler, createError, getHeader } from 'h3';
 import MasterRoll from '../../models/MasterRoll';
-import mongoose from 'mongoose';
+import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
   try {
-    const firmId = getHeader(event, 'x-firm-id');
-    if (!firmId) {
-      throw createError({ statusCode: 400, statusMessage: 'Firm context required' });
-    }
+    // Bug (report B3): use the verified session instead of the x-firm-id header
+    const user = await requireAuthSession(event);
 
-    const total = await MasterRoll.countDocuments({ firm_id: new mongoose.Types.ObjectId(firmId) });
-    const total_active = await MasterRoll.countDocuments({ firm_id: new mongoose.Types.ObjectId(firmId), status: 'Active' });
-    const left_employees = await MasterRoll.countDocuments({ firm_id: new mongoose.Types.ObjectId(firmId), status: 'Left' });
-    
-    const projectResult = await MasterRoll.distinct('project', { 
-      firm_id: new mongoose.Types.ObjectId(firmId), 
-      project: { $nin: [null, ''] } 
+    const total = await MasterRoll.countDocuments({ firm_id: user.firm_id });
+    const total_active = await MasterRoll.countDocuments({ firm_id: user.firm_id, status: 'Active' });
+    const left_employees = await MasterRoll.countDocuments({ firm_id: user.firm_id, status: 'Left' });
+
+    const projectResult = await MasterRoll.distinct('project', {
+      firm_id: user.firm_id,
+      project: { $nin: [null, ''] }
     });
-    const siteResult = await MasterRoll.distinct('site', { 
-      firm_id: new mongoose.Types.ObjectId(firmId), 
-      site: { $nin: [null, ''] } 
+    const siteResult = await MasterRoll.distinct('site', {
+      firm_id: user.firm_id,
+      site: { $nin: [null, ''] }
     });
 
     return {

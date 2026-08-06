@@ -1,6 +1,7 @@
 import Wage from '../../../models/Wage';
 import PDFDocument from 'pdfkit';
 import { requireAuthSession } from '../../../utils/auth';
+import { requireWageRole } from '../../../utils/wage-authz';
 
 function formatDate(date: any) {
   if (!date) return '';
@@ -13,6 +14,11 @@ function formatCurrency(amount: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(amount || 0);
+}
+
+// Bug #11: sanitize before it ever reaches a header value
+function safeFilenamePart(value: string | undefined | null, fallback: string) {
+  return (value || fallback).replace(/[^a-zA-Z0-9-]/g, '_');
 }
 
 async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
@@ -35,7 +41,7 @@ async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
     doc.fontSize(11).fillColor('#1F4E78').text('EMPLOYEE INFORMATION', { underline: true });
     doc.moveDown(0.5);
     doc.fontSize(10).fillColor('black');
-    
+
     const startY = doc.y;
     doc.text(`Employee Name: ${wage.master_roll_id?.employee_name || 'N/A'}`, 40, startY);
     doc.text(`Aadhar: ${wage.master_roll_id?.aadhar || 'N/A'}`, 300, startY);
@@ -45,7 +51,7 @@ async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
     doc.text(`Paid Date: ${formatDate(wage.paid_date) || 'N/A'}`, 300, startY + 30);
     doc.text(`Payment Mode: ${wage.payment_mode || 'N/A'}`, 40, startY + 45);
     doc.text(`Ref/Chq No: ${wage.cheque_no || 'N/A'}`, 300, startY + 45);
-    
+
     doc.moveDown(4);
     doc.strokeColor('#CCCCCC').moveTo(40, doc.y).lineTo(555, doc.y).stroke();
     doc.moveDown();
@@ -109,6 +115,8 @@ async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const id = getRouterParam(event, 'id');
 
   const wage = await Wage.findOne({ _id: id, firm_id: user.firm_id })
@@ -126,9 +134,12 @@ export default defineEventHandler(async (event) => {
   const firm = await Firm.findById(user.firm_id).lean();
   const pdfBuffer = await generateWageSlipPDF(wage, firm);
 
+  const safeName = safeFilenamePart((wage as any).master_roll_id?.employee_name, 'employee');
+  const safeMonth = safeFilenamePart(wage.salary_month, 'month');
+
   setResponseHeaders(event, {
     'Content-Type': 'application/pdf',
-    'Content-Disposition': `attachment; filename="wage-slip-${(wage as any).master_roll_id?.employee_name}-${wage.salary_month}.pdf"`
+    'Content-Disposition': `attachment; filename="wage-slip-${safeName}-${safeMonth}.pdf"`
   });
 
   return pdfBuffer;

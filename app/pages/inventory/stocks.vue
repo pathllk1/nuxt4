@@ -74,7 +74,7 @@
                 <td class="py-2 px-4">
                   <div class="flex items-center gap-2">
                     <div class="w-5 h-5 rounded-md bg-gray-100 dark:bg-zinc-800 flex items-center justify-center group-hover:bg-blue-100 dark:group-hover:bg-blue-900/50 transition-colors">
-                      <UIcon :name="expandedRows.has(stock.id || stock._id) ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-600 transition-all" />
+                      <UIcon :name="expandedRows.has(stock.id || stock._id || '') ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-600 transition-all" />
                     </div>
                     <div>
                       <div class="font-bold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">{{ stock.item }}</div>
@@ -118,7 +118,7 @@
                 </td>
               </tr>
               <!-- Expanded Batch Details -->
-              <tr v-if="expandedRows.has(stock.id || stock._id)" class="bg-gray-50/50 dark:bg-zinc-800/30">
+              <tr v-if="expandedRows.has(stock.id || stock._id || '')" class="bg-gray-50/50 dark:bg-zinc-800/30">
                 <td colspan="7" class="px-6 py-3">
                   <div class="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden">
                     <div class="px-4 py-2 bg-gray-50/50 dark:bg-zinc-800/50 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
@@ -204,7 +204,7 @@ const filteredStocks = computed(() => {
   );
 });
 
-function toggleExpand(id: string) {
+function toggleExpand(id: string | undefined) {
   if (!id) return;
   if (expandedRows.value.has(id)) {
     expandedRows.value.delete(id);

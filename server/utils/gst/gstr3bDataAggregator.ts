@@ -110,3 +110,17 @@ export async function getTable4(firmId: string, firmGstin: string, startDate: st
 
   return itc;
 }
+
+export async function getGSTR3BReport(firmId: string, firmGstin: string, startDate: string, endDate: string) {
+  const table_3_1 = await getTable31(firmId, firmGstin, startDate, endDate);
+  const table_4 = await getTable4(firmId, firmGstin, startDate, endDate);
+  const table_5 = { inter: 0, intra: 0 };
+  return {
+    period_start: startDate,
+    period_end: endDate,
+    firm_gstin: firmGstin,
+    table_3_1,
+    table_4,
+    table_5
+  };
+}

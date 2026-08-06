@@ -16,4 +16,4 @@ const VoucherSequenceSchema: Schema = new Schema({
 
 VoucherSequenceSchema.index({ firmId: 1, vtype: 1 }, { unique: true });
 
-export default mongoose.models.VoucherSequence || mongoose.model<IVoucherSequence>('VoucherSequence', VoucherSequenceSchema);
+export default (mongoose.models.VoucherSequence || mongoose.model<IVoucherSequence>('VoucherSequence', VoucherSequenceSchema)) as mongoose.Model<IVoucherSequence>;

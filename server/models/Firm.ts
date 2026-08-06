@@ -125,4 +125,4 @@ const firmSchema = new Schema(
   { timestamps: true }
 );
 
-export default mongoose.models.Firm || mongoose.model<IFirm>('Firm', firmSchema);
+export default (mongoose.models.Firm || mongoose.model<IFirm>('Firm', firmSchema)) as mongoose.Model<IFirm>;

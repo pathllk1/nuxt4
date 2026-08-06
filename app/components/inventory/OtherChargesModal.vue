@@ -3,5 +3,5 @@ import OtherChargesModal from '../accounting/OtherChargesModal.vue';
 </script>
 
 <template>
-  <OtherChargesModal v-bind="$attrs" />
+  <OtherChargesModal v-bind="($attrs as any)" />
 </template>

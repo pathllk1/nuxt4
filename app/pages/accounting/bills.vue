@@ -397,7 +397,7 @@ async function handleCancel(id: string) {
 
 async function downloadPDF(bill: any) {
   try {
-    await api.download(`/accounting/bills/${bill._id}/pdf`, `Invoice_${bill.bno}.pdf`);
+    await (api as any).download(`/accounting/bills/${bill._id}/pdf`, `Invoice_${bill.bno}.pdf`);
   } catch (err) {
     alert('PDF download failed.');
   }
@@ -409,7 +409,7 @@ async function exportPDF() {
     if (filters.btype && filters.btype !== 'ALL') params.btype = filters.btype;
     if (partySearch.value) params.searchTerm = partySearch.value;
 
-    await api.download('/accounting/bills/export/pdf', `Bills_Report.pdf`);
+    await (api as any).download('/accounting/bills/export/pdf', `Bills_Report.pdf`);
   } catch (err) {
     alert('PDF export failed.');
   }
@@ -420,7 +420,7 @@ async function exportExcel() {
     const params: any = {};
     if (filters.btype && filters.btype !== 'ALL') params.btype = filters.btype;
 
-    await api.download('/accounting/bills/export', `Bills_Export.xlsx`);
+    await (api as any).download('/accounting/bills/export', `Bills_Export.xlsx`);
   } catch (err) {
     alert('Excel export failed.');
   }

@@ -2,6 +2,7 @@ import Wage from '../../models/Wage';
 import Firm from '../../models/Firm';
 import PDFDocument from 'pdfkit';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 function formatDate(date: any) {
   if (!date) return '';
@@ -14,6 +15,12 @@ function formatCurrency(amount: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(amount || 0);
+}
+
+// Bug #11: strip anything that isn't safe for a filename / header value,
+// used both for the ZIP entry names and (in [id].get.ts) Content-Disposition.
+function safeFilenamePart(value: string | undefined | null, fallback: string) {
+  return (value || fallback).replace(/[^a-zA-Z0-9-]/g, '_');
 }
 
 async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
@@ -36,7 +43,7 @@ async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
     doc.fontSize(11).fillColor('#1F4E78').text('EMPLOYEE INFORMATION', { underline: true });
     doc.moveDown(0.5);
     doc.fontSize(10).fillColor('black');
-    
+
     const startY = doc.y;
     doc.text(`Employee Name: ${wage.master_roll_id?.employee_name || 'N/A'}`, 40, startY);
     doc.text(`Aadhar: ${wage.master_roll_id?.aadhar || 'N/A'}`, 300, startY);
@@ -46,7 +53,7 @@ async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
     doc.text(`Paid Date: ${formatDate(wage.paid_date) || 'N/A'}`, 300, startY + 30);
     doc.text(`Payment Mode: ${wage.payment_mode || 'N/A'}`, 40, startY + 45);
     doc.text(`Ref/Chq No: ${wage.cheque_no || 'N/A'}`, 300, startY + 45);
-    
+
     doc.moveDown(4);
     doc.strokeColor('#CCCCCC').moveTo(40, doc.y).lineTo(555, doc.y).stroke();
     doc.moveDown();
@@ -110,6 +117,8 @@ async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer> {
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const query = getQuery(event);
   const month = query.month as string;
 
@@ -134,7 +143,7 @@ export default defineEventHandler(async (event) => {
   const firm = await Firm.findById(user.firm_id).lean();
 
   // Dynamic import of archiver to prevent bundling issue
-  const archiverModule = await import('archiver');
+  const archiverModule = (await import('archiver')) as any;
   const archiver = archiverModule.default || archiverModule;
 
   const archive = archiver('zip', { zlib: { level: 9 } });
@@ -142,11 +151,12 @@ export default defineEventHandler(async (event) => {
 
   archive.on('data', (chunk: Buffer) => chunks.push(chunk));
 
+  const safeMonth = safeFilenamePart(month, 'month');
   for (const wage of wages) {
     const empName = (wage as any).master_roll_id?.employee_name || 'employee';
-    const safeName = empName.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeName = safeFilenamePart(empName, 'employee');
     const pdfBuffer = await generateWageSlipPDF(wage, firm);
-    archive.append(pdfBuffer, { name: `WageSlip_${safeName}_${month}.pdf` });
+    archive.append(pdfBuffer, { name: `WageSlip_${safeName}_${safeMonth}.pdf` });
   }
 
   await archive.finalize();
@@ -154,7 +164,7 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeaders(event, {
     'Content-Type': 'application/zip',
-    'Content-Disposition': `attachment; filename="WageSlips_${month}.zip"`
+    'Content-Disposition': `attachment; filename="WageSlips_${safeMonth}.zip"`
   });
 
   return zipBuffer;

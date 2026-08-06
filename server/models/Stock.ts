@@ -60,4 +60,4 @@ const stockSchema = new Schema(
 
 stockSchema.index({ firm_id: 1, item: 1 }, { unique: true });
 
-export default mongoose.models.Stock || mongoose.model<IStock>('Stock', stockSchema);
+export default (mongoose.models.Stock || mongoose.model<IStock>('Stock', stockSchema)) as mongoose.Model<IStock>;

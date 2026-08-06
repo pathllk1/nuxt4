@@ -16,4 +16,4 @@ const TokenBlacklistSchema: Schema = new Schema({
   expiresAt: { type: Date, required: true, index: { expires: 0 } } // TTL index
 }, { timestamps: true });
 
-export default mongoose.models.TokenBlacklist || mongoose.model<ITokenBlacklist>('TokenBlacklist', TokenBlacklistSchema);
+export default (mongoose.models.TokenBlacklist || mongoose.model<ITokenBlacklist>('TokenBlacklist', TokenBlacklistSchema)) as mongoose.Model<ITokenBlacklist>;

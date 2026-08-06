@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
     }
 
-    const [salesInvoice] = await Bill.create([{
+    const salesInvoice = (await Bill.create([{
       firmId: proformaBill.firmId,
       voucherId: String(voucherId),
       bno: billNo,
@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
       refBillId: proformaBill._id,
       createdBy: username,
       status: 'ACTIVE'
-    }], { session });
+    }], { session }))[0]!;
 
     const cogsLines: Array<{ stockId: any; stockRegId: any; item: string; cogsValue: number }> = [];
     let taxableItemsTotal = 0;

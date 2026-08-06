@@ -58,7 +58,7 @@ export default defineEventHandler(async (event) => {
     };
 
     // Generate filename
-    const cleanEmpName = employees.length === 1 
+    const cleanEmpName = employees.length === 1 && employees[0]
       ? employees[0].employee_name.replace(/[^a-zA-Z0-9]/g, '_') 
       : '';
     const extension = format === 'xlsx' ? 'xlsx' : 'pdf';

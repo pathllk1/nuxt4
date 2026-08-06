@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { LedgerEntryParams } from './ledger.service';
+import type { LedgerEntryParams } from './ledger.service';
 
 export class SmartVoucherConverter {
   static convertToLedgerEntries(

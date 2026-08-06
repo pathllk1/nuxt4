@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import Wage from '../../models/Wage';
 import MasterRoll from '../../models/MasterRoll';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 function formatDate(date: any) {
   if (!date) return '';
@@ -11,6 +12,8 @@ function formatDate(date: any) {
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const query = getQuery(event);
   const month = query.month as string;
 
@@ -27,7 +30,9 @@ export default defineEventHandler(async (event) => {
     .lean();
 
   const parts = month.split('-').map(Number);
-  const curDate = new Date(parts[0], parts[1] - 1, 1);
+  const yearPart = parts[0] ?? 2026;
+  const monthPart = parts[1] ?? 1;
+  const curDate = new Date(yearPart, monthPart - 1, 1);
   const prevDate = new Date(curDate.getFullYear(), curDate.getMonth() - 1, 1);
   const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
 
@@ -80,8 +85,8 @@ export default defineEventHandler(async (event) => {
 
     const joiningDisplay = (mr?.date_of_joining && mr.date_of_joining.startsWith(month)) ? mr.date_of_joining : '';
     const exitDisplay = (mr?.date_of_exit && mr.date_of_exit.startsWith(prevMonth)) ? mr.date_of_exit : '';
-    
-    const employerEpf = epf; 
+
+    const employerEpf = epf;
     const employerEsic = Math.ceil(gross * 0.0325);
     const totalEmployer = employerEpf + employerEsic;
     const grandTotal = (epf + esic) + totalEmployer;
@@ -151,7 +156,7 @@ export default defineEventHandler(async (event) => {
   const buffer = await workbook.xlsx.writeBuffer();
   setResponseHeaders(event, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': `attachment; filename="EPF_ESIC_Report_${month}.xlsx"`
+    'Content-Disposition': `attachment; filename="EPF_ESIC_Report_${month.replace(/[^a-zA-Z0-9-]/g, '')}.xlsx"`
   });
 
   return buffer;

@@ -61,4 +61,4 @@ stockRegSchema.index({ firm_id: 1, bill_id: 1 });
 stockRegSchema.index({ firm_id: 1, stock_id: 1, type: 1 });
 stockRegSchema.index({ firm_id: 1, type: 1 });
 
-export default mongoose.models.StockReg || mongoose.model<IStockReg>('StockReg', stockRegSchema);
+export default (mongoose.models.StockReg || mongoose.model<IStockReg>('StockReg', stockRegSchema)) as mongoose.Model<IStockReg>;

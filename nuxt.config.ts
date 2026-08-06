@@ -26,5 +26,9 @@ export default defineNuxtConfig({
     serverBundle: {
       collections: ['heroicons', 'lucide']
     }
+  },
+  typescript: {
+    strict: true,
+    typeCheck: false
   }
 })

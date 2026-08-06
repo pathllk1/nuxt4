@@ -36,7 +36,9 @@ const checkRateLimit = (
     let retryAfter = 0;
     if (bucket.timestamps.length > 0) {
       const oldestTs = bucket.timestamps[0];
-      retryAfter = Math.ceil((oldestTs + timeWindowMs - now) / 1000);
+      if (oldestTs !== undefined) {
+        retryAfter = Math.ceil((oldestTs + timeWindowMs - now) / 1000);
+      }
     }
     
     // Apply temporary ban if threshold exceeded
@@ -83,7 +85,7 @@ export default defineEventHandler(async (event) => {
       }
 
       if (!limitCheck.allowed) {
-        setHeader(event, 'Retry-After', String(limitCheck.retryAfter));
+        setHeader(event, 'Retry-After', String(limitCheck.retryAfter) as any);
         event.node.res.statusCode = 429;
         return {
           success: false,

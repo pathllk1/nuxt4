@@ -90,6 +90,6 @@ const wageJobSchema = new Schema<IWageJob>(
 wageJobSchema.index({ firm_id: 1, status: 1 });
 wageJobSchema.index({ firm_id: 1, createdAt: -1 });
 
-const WageJob = mongoose.model<IWageJob>('WageJob', wageJobSchema);
+const WageJob = (mongoose.models.WageJob || mongoose.model<IWageJob>('WageJob', wageJobSchema)) as mongoose.Model<IWageJob>;
 
 export default WageJob;

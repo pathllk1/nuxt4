@@ -1,8 +1,15 @@
 import Wage from '../../models/Wage';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  // Bug (report B7): Staff removed — this endpoint populates Aadhar and bank
+  // account details, which shouldn't be visible at Staff grade. If Staff
+  // genuinely need to see wage records without the PII, the better fix is a
+  // separate populate string rather than widening the role list back out.
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const query = getQuery(event);
   const month = query.month as string;
 

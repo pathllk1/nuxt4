@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { IUser } from '../models/User';
+import type { IUser } from '../models/User';
 
 const ACCESS_TOKEN_SECRET: string = process.env.ACCESS_TOKEN_SECRET || 'fallback_access_secret';
 const REFRESH_TOKEN_SECRET: string = process.env.REFRESH_TOKEN_SECRET || 'fallback_refresh_secret';

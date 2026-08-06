@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import Wage from '../../models/Wage';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 function formatDate(date: any) {
   if (!date) return '';
@@ -10,6 +11,8 @@ function formatDate(date: any) {
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const query = getQuery(event);
   const month = query.month as string;
   const chequeNo = query.chequeNo as string;
@@ -94,7 +97,7 @@ export default defineEventHandler(async (event) => {
   const buffer = await workbook.xlsx.writeBuffer();
   setResponseHeaders(event, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': `attachment; filename="Bank_Report_${month}${chequeNo ? `_${chequeNo}` : ''}.xlsx"`
+    'Content-Disposition': `attachment; filename="Bank_Report_${month.replace(/[^a-zA-Z0-9-]/g, '')}${chequeNo ? `_${chequeNo.replace(/[^a-zA-Z0-9-]/g, '')}` : ''}.xlsx"`
   });
 
   return buffer;

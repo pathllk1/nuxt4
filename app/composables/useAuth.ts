@@ -297,6 +297,15 @@ export const useAuth = () => {
         scheduleTokenRefresh(newAccessHeader);
       }
 
+      const newRefreshHeader = response.headers.get('x-new-refresh-token');
+      if (newRefreshHeader) {
+        refreshToken.value = newRefreshHeader;
+        cookieRefresh.value = newRefreshHeader;
+        if (import.meta.client) {
+          localStorage.setItem('refresh_token', newRefreshHeader);
+        }
+      }
+
       return response._data as T;
     } catch (error: any) {
       const status = error.status || error.statusCode;

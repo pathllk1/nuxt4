@@ -161,6 +161,20 @@ export default defineEventHandler(async (event) => {
     const userAgent = getHeader(event, 'user-agent') || 'unknown';
     const clientIP = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
     const deviceInfo = parseDeviceInfo(userAgent);
+    // Enforce max active session limit (RT-B12)
+    const MAX_ACTIVE_SESSIONS = 5;
+    const activeSessions = await Session.find({ userId: user._id, isActive: true }).sort({ createdAt: 1 });
+    if (activeSessions.length >= MAX_ACTIVE_SESSIONS) {
+      const excessCount = activeSessions.length - MAX_ACTIVE_SESSIONS + 1;
+      const sessionsToDeactivate = activeSessions.slice(0, excessCount);
+      for (const s of sessionsToDeactivate) {
+        s.isActive = false;
+        s.revokedAt = new Date();
+        s.revokedReason = 'Exceeded maximum active sessions limit';
+        await s.save();
+      }
+    }
+
     const location = getLocationFromIP(clientIP);
 
     await Session.create({

@@ -1,8 +1,11 @@
 import WageJob from '../../../models/WageJob';
 import { requireAuthSession } from '../../../utils/auth';
+import { requireWageRole } from '../../../utils/wage-authz';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const jobId = getRouterParam(event, 'jobId');
 
   const job = await WageJob.findOne({

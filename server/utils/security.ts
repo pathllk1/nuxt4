@@ -108,7 +108,10 @@ export const logSecurityEvent = async (params: {
  * Check if token is blacklisted
  */
 export const isTokenBlacklisted = async (token: string): Promise<boolean> => {
-  const blacklisted = await TokenBlacklist.findOne({ token });
+  const blacklisted = await TokenBlacklist.findOne({
+    token,
+    expiresAt: { $gt: new Date() }
+  });
   return !!blacklisted;
 };
 
@@ -132,6 +135,7 @@ export const blacklistToken = async (
     });
   } catch (error) {
     console.error('Failed to blacklist token:', error);
+    throw error;
   }
 };
 
@@ -139,11 +143,11 @@ export const blacklistToken = async (
  * Validate session and detect anomalies
  */
 export const validateSession = async (
-  sessionId: string,
+  refreshToken: string,
   event: H3Event
 ): Promise<{ valid: boolean; reason?: string }> => {
   const session = await Session.findOne({ 
-    refreshToken: sessionId, 
+    refreshToken, 
     isActive: true 
   });
   

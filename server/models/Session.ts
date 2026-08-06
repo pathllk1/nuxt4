@@ -50,4 +50,4 @@ const SessionSchema: Schema = new Schema({
 SessionSchema.index({ userId: 1, isActive: 1 });
 SessionSchema.index({ userId: 1, deviceFingerprint: 1 });
 
-export default mongoose.models.Session || mongoose.model<ISession>('Session', SessionSchema);
+export default (mongoose.models.Session || mongoose.model<ISession>('Session', SessionSchema)) as mongoose.Model<ISession>;

@@ -14,4 +14,4 @@ const FirmSettingsSchema: Schema = new Schema({
 
 FirmSettingsSchema.index({ firmId: 1, settingKey: 1 }, { unique: true });
 
-export default mongoose.models.FirmSettings || mongoose.model<IFirmSettings>('FirmSettings', FirmSettingsSchema);
+export default (mongoose.models.FirmSettings || mongoose.model<IFirmSettings>('FirmSettings', FirmSettingsSchema)) as mongoose.Model<IFirmSettings>;

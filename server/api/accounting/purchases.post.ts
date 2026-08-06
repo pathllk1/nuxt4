@@ -75,7 +75,7 @@ export default defineEventHandler(async (event) => {
       consignee?.state_code || 
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    const [newBill] = await Bill.create([{
+    const newBill = (await Bill.create([{
       firmId: firmIdObj,
       voucherId: String(voucherId),
       bno: billNo,
@@ -114,7 +114,7 @@ export default defineEventHandler(async (event) => {
       reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
       status: 'ACTIVE'
-    }], { session });
+    }], { session }))[0]!;
 
     const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
 

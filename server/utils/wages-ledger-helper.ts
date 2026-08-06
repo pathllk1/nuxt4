@@ -116,7 +116,7 @@ export async function resolveAccountHead(firmId: mongoose.Types.ObjectId, accoun
     updated_by: userId,
   }], { session });
   
-  return createdAccounts[0].toObject();
+  return createdAccounts[0]!.toObject();
 }
 
 export async function resolveBankAccount(firmId: mongoose.Types.ObjectId, bankAccountId: mongoose.Types.ObjectId, userId: mongoose.Types.ObjectId | string, session: mongoose.ClientSession | null = null) {
@@ -161,7 +161,7 @@ export async function getDefaultCashAccount(firmId: mongoose.Types.ObjectId, use
     updated_by: userId,
   }], { session });
   
-  return createdAccounts[0].toObject();
+  return createdAccounts[0]!.toObject();
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

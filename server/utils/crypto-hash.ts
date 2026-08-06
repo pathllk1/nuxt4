@@ -46,10 +46,15 @@ export const verifyPassword = async (password: string, encodedHash: string): Pro
   try {
     const parts = encodedHash.split('$');
     // PHC format: $argon2id$v=19$m=65536,t=3,p=4$salt$hash
-    if (parts.length >= 6 && parts[1].startsWith('argon2')) {
-      const params = parts[3].split(',').reduce((acc, curr) => {
-        const [key, val] = curr.split('=');
-        acc[key] = parseInt(val, 10);
+    if (parts.length >= 6 && parts[1] && parts[1].startsWith('argon2')) {
+      const part3 = parts[3];
+      const params = (part3 || '').split(',').reduce((acc, curr) => {
+        const items = curr.split('=');
+        const key = items[0];
+        const val = items[1];
+        if (key && val) {
+          acc[key] = parseInt(val, 10);
+        }
         return acc;
       }, {} as Record<string, number>);
 
@@ -57,7 +62,8 @@ export const verifyPassword = async (password: string, encodedHash: string): Pro
       const iterations = params.t || 3;
       const parallelism = params.p || 4;
 
-      const salt = fromBase64Any(parts[4]);
+      const saltPart = parts[4];
+      const salt = fromBase64Any(saltPart || '');
 
       // Compute raw binary hash
       const computedHashBytes = await argon2id({
@@ -70,7 +76,8 @@ export const verifyPassword = async (password: string, encodedHash: string): Pro
         outputType: 'binary',
       });
 
-      const storedHashBytes = fromBase64Any(parts[5]);
+      const hashPart = parts[5];
+      const storedHashBytes = fromBase64Any(hashPart || '');
 
       if (computedHashBytes.length !== storedHashBytes.length) {
         return false;

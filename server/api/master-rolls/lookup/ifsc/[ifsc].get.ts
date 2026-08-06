@@ -1,6 +1,6 @@
-import { defineEventHandler, createError, getRouterParam } from 'h3';
+import { defineEventHandler, createError, getRouterParam, H3Event } from 'h3';
 
-export default defineEventHandler(async (event) => {
+const handler = defineEventHandler(async (event: H3Event): Promise<any> => {
   try {
     const ifsc = getRouterParam(event, 'ifsc');
     
@@ -23,3 +23,5 @@ export default defineEventHandler(async (event) => {
     });
   }
 });
+
+export default handler;

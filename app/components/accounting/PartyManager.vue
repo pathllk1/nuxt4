@@ -3,5 +3,5 @@ import PartyManager from '../inventory/PartyManager.vue';
 </script>
 
 <template>
-  <PartyManager v-bind="$attrs" />
+  <PartyManager v-bind="($attrs as any)" />
 </template>

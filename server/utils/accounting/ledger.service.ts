@@ -224,7 +224,7 @@ export class LedgerService {
 
   static async postStockAdjustmentLedger(params: any) {
     const { firmId, voucherId, type, item, qty, total, reference, createdBy, stockId, stockRegId, session } = params;
-    const base = { firmId, transactionDate: new Date().toISOString().split('T')[0], voucherGroupId: voucherId, voucherType: 'STOCK_ADJUSTMENT', voucherNo: reference || `SA-${voucherId}`, refType: 'STOCK_MOVEMENT', refId: stockRegId, createdBy, stockId, stockRegId };
+    const base = { firmId, transactionDate: new Date().toISOString().split('T')[0] || '', voucherGroupId: voucherId, voucherType: 'STOCK_ADJUSTMENT', voucherNo: reference || `SA-${voucherId}`, refType: 'STOCK_MOVEMENT', refId: stockRegId, createdBy, stockId, stockRegId };
     const docs: LedgerEntryParams[] = [];
 
     docs.push({ ...base, accountHead: 'Inventory', accountType: 'ASSET', debitAmount: total, creditAmount: 0, narration: `${type} of ${item}: ${qty} units - ${reference || 'Manual Adjustment'}` });
@@ -241,7 +241,7 @@ export class LedgerService {
 
   static async postVoucherToLedger(voucherData: any, createdBy: string): Promise<ILedger[]> {
     const { firmId, voucherId, voucherType, voucherNo, transactionDate, narration, entries: voucherEntries, session } = voucherData;
-    const base = { firmId, voucherGroupId: voucherId.toString(), voucherType, voucherNo, transactionDate: transactionDate || new Date().toISOString().split('T')[0], refType: 'VOUCHER', createdBy };
+    const base = { firmId, voucherGroupId: voucherId.toString(), voucherType, voucherNo, transactionDate: transactionDate || new Date().toISOString().split('T')[0] || '', refType: 'VOUCHER', createdBy };
     const ledgerEntries: LedgerEntryParams[] = [];
 
     for (const entry of voucherEntries) {
@@ -372,5 +372,129 @@ export class LedgerService {
     ]);
 
     return summaries;
+  }
+
+  static async getLedger(firmId: mongoose.Types.ObjectId, accountHead: string, fromDate?: string, toDate?: string) {
+    const startingBalQuery: any = { firmId, accountHead };
+    if (fromDate) startingBalQuery.transactionDate = { $lt: fromDate };
+    const startingRes = await Ledger.aggregate([
+      { $match: startingBalQuery },
+      { $group: { _id: null, totalDr: { $sum: '$debitAmount' }, totalCr: { $sum: '$creditAmount' } } }
+    ]);
+    const rawBal = (startingRes[0]?.totalDr || 0) - (startingRes[0]?.totalCr || 0);
+    const startingBal = {
+      rawBalance: rawBal,
+      balance: Math.abs(rawBal),
+      balanceType: rawBal >= 0 ? 'DR' : 'CR'
+    };
+
+    const query: any = { firmId, accountHead };
+    if (fromDate || toDate) {
+      query.transactionDate = {};
+      if (fromDate) query.transactionDate.$gte = fromDate;
+      if (toDate) query.transactionDate.$lte = toDate;
+    }
+
+    const entries = await Ledger.find(query).sort({ transactionDate: 1, createdAt: 1 }).lean();
+    let runningBal = rawBal;
+    const mappedEntries = entries.map((entry: any) => {
+      runningBal += (entry.debitAmount || 0) - (entry.creditAmount || 0);
+      return {
+        ...entry,
+        runningBalance: Math.abs(runningBal),
+        runningBalanceType: runningBal >= 0 ? 'DR' : 'CR'
+      };
+    });
+
+    const totalDebits = entries.reduce((s: number, e: any) => s + (e.debitAmount || 0), 0);
+    const totalCredits = entries.reduce((s: number, e: any) => s + (e.creditAmount || 0), 0);
+    const finalBalance = Math.abs(runningBal);
+    const finalBalanceType = runningBal >= 0 ? 'DR' : 'CR';
+
+    return {
+      startingBal,
+      entries: mappedEntries,
+      totalDebits,
+      totalCredits,
+      finalBalance,
+      finalBalanceType
+    };
+  }
+
+  static async getProfitAndLossModel(firmId: mongoose.Types.ObjectId, fromDate?: string, toDate?: string) {
+    const trialBalance = await this.getTrialBalance(firmId, fromDate, toDate);
+    const isCOGS = (head: string, type: string) => {
+      if (type === 'COGS') return true;
+      const h = head.toLowerCase();
+      return ['cogs', 'cost of goods', 'purchase', 'inventory'].some(k => h.includes(k)) && (type === 'EXPENSE' || type === 'COGS');
+    };
+
+    const plAccounts = trialBalance.filter(a =>
+      ['INCOME', 'EXPENSE', 'COGS', 'GENERAL'].includes(a.accountType)
+    ).map(a => {
+      const netDr = a.totalDebit - a.totalCredit;
+      const netCr = a.totalCredit - a.totalDebit;
+      return { head: a.accountHead, type: a.accountType, netDr, netCr };
+    });
+
+    const income = plAccounts.filter(a => a.type === 'INCOME');
+    const expense = plAccounts.filter(a => a.type === 'EXPENSE' || a.type === 'COGS');
+    const general = plAccounts.filter(a => a.type === 'GENERAL');
+
+    const drCOGS = expense.filter(a => isCOGS(a.head, a.type) && a.netDr > 0);
+    const drOpex = expense.filter(a => !isCOGS(a.head, a.type) && a.netDr > 0);
+    const crRevenue = income.filter(a => a.netCr > 0);
+    const crGeneral = general.filter(a => a.netCr > 0);
+    const drGeneral = general.filter(a => a.netDr > 0);
+
+    const totalCOGS = drCOGS.reduce((s, a) => s + a.netDr, 0);
+    const totalOpex = drOpex.reduce((s, a) => s + a.netDr, 0) + drGeneral.reduce((s, a) => s + a.netDr, 0);
+    const totalRevenueCr = crRevenue.reduce((s, a) => s + a.netCr, 0);
+    const totalIncomeCr = totalRevenueCr + crGeneral.reduce((s, a) => s + a.netCr, 0);
+    const totalExpensesDr = totalCOGS + totalOpex;
+
+    const netProfit = totalIncomeCr - totalExpensesDr;
+    const drGrand = totalExpensesDr + (netProfit > 0 ? netProfit : 0);
+    const crGrand = totalIncomeCr + (netProfit < 0 ? Math.abs(netProfit) : 0);
+
+    return {
+      drCOGS, drOpex, crRevenue, crGeneral, drGeneral,
+      totalCOGS, totalOpex, totalRevenueCr, totalIncomeCr, totalExpensesDr,
+      netProfit, drGrand, crGrand
+    };
+  }
+
+  static async getBalanceSheetModel(firmId: mongoose.Types.ObjectId, asOfDate?: string) {
+    const trialBalance = await this.getTrialBalance(firmId, undefined, asOfDate);
+    const plModel = await this.getProfitAndLossModel(firmId, undefined, asOfDate);
+
+    const assetAccounts = trialBalance.filter(a => ['ASSET', 'BANK', 'CASH'].includes(a.accountType));
+    const liabAccounts = trialBalance.filter(a => ['LIABILITY', 'EQUITY', 'CAPITAL'].includes(a.accountType));
+
+    const totalAssets = assetAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
+    const totalLiab = liabAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
+
+    const capital = totalLiab;
+    const totalOtherA = totalAssets;
+    const totalStock = 0;
+    const totalCred = 0;
+    const totalDebtors = 0;
+    const totalCashBank = 0;
+    const totalLiabSide = capital + plModel.netProfit;
+
+    return {
+      capital,
+      totalLiab,
+      totalAssets,
+      totalOtherA,
+      totalStock,
+      totalCred,
+      totalDebtors,
+      totalCashBank,
+      totalDebtorCreditBalances: 0,
+      totalCashBankCreditBalances: 0,
+      totalLiabSide,
+      netProfit: plModel.netProfit
+    };
   }
 }

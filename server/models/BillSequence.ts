@@ -16,4 +16,4 @@ const BillSequenceSchema: Schema = new Schema({
 
 BillSequenceSchema.index({ firmId: 1, btype: 1 }, { unique: true });
 
-export default mongoose.models.BillSequence || mongoose.model<IBillSequence>('BillSequence', BillSequenceSchema);
+export default (mongoose.models.BillSequence || mongoose.model<IBillSequence>('BillSequence', BillSequenceSchema)) as mongoose.Model<IBillSequence>;

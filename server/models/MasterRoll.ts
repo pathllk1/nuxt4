@@ -80,6 +80,6 @@ const masterRollSchema = new Schema<IMasterRoll>(
 // Unique index for aadhar within a firm
 masterRollSchema.index({ firm_id: 1, aadhar: 1 }, { unique: true });
 
-const MasterRoll = mongoose.models.MasterRoll || mongoose.model<IMasterRoll>('MasterRoll', masterRollSchema);
+const MasterRoll = (mongoose.models.MasterRoll || mongoose.model<IMasterRoll>('MasterRoll', masterRollSchema)) as mongoose.Model<IMasterRoll>;
 
 export default MasterRoll;

@@ -128,4 +128,4 @@ UserSchema.virtual('isLocked').get(function(this: IUser) {
 });
 
 // Avoid Mongoose Model compilation errors if hot-reloaded by Nitro/Next.js
-export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
+export default (mongoose.models.User || mongoose.model<IUser>('User', UserSchema)) as mongoose.Model<IUser>;

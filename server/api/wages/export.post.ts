@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 function formatDate(date: any) {
   if (!date) return '';
@@ -9,6 +10,8 @@ function formatDate(date: any) {
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const body = await readBody(event);
   const { month, data } = body;
 
@@ -116,9 +119,10 @@ export default defineEventHandler(async (event) => {
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
+  const safeMonth = (month || 'export').replace(/[^a-zA-Z0-9-]/g, '');
   setResponseHeaders(event, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': `attachment; filename="Wages_${month}.xlsx"`
+    'Content-Disposition': `attachment; filename="Wages_${safeMonth}.xlsx"`
   });
 
   return buffer;

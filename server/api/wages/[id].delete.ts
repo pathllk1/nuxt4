@@ -3,9 +3,12 @@ import Wage from '../../models/Wage';
 import Advance from '../../models/Advance';
 import { deleteWageLedger } from '../../utils/wages-ledger-helper';
 import { requireAuthSession } from '../../utils/auth';
+import { requireWageRole } from '../../utils/wage-authz';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin']);
+
   const id = getRouterParam(event, 'id');
 
   const session = await mongoose.startSession();
@@ -14,7 +17,6 @@ export default defineEventHandler(async (event) => {
   try {
     const wage = await Wage.findOne({ _id: id, firm_id: user.firm_id }).session(session);
     if (!wage) {
-      await session.abortTransaction();
       throw createError({
         statusCode: 404,
         message: 'Wage not found'
@@ -22,7 +24,6 @@ export default defineEventHandler(async (event) => {
     }
 
     if (wage.status === 'LOCKED') {
-      await session.abortTransaction();
       throw createError({
         statusCode: 403,
         message: 'Cannot delete locked wage'
@@ -37,6 +38,7 @@ export default defineEventHandler(async (event) => {
     return { message: 'Wage deleted' };
   } catch (err: any) {
     await session.abortTransaction();
+    if (err.statusCode) throw err;
     throw createError({
       statusCode: 500,
       message: err.message

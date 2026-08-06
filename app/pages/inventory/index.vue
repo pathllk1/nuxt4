@@ -29,7 +29,7 @@
         <div class="flex flex-wrap items-center gap-2 lg:shrink-0">
           <div class="flex items-center gap-2 rounded-[18px] border border-slate-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-850/80 p-1.5">
             <UButton
-              color="teal"
+              color="success"
               variant="outline"
               size="sm"
               icon="i-heroicons-plus"
@@ -38,7 +38,7 @@
               @click="$router.push('/accounting/purchases/new')"
             />
             <UButton
-              color="rose"
+              color="error"
               variant="outline"
               size="sm"
               icon="i-heroicons-plus"

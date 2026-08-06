@@ -3,5 +3,5 @@ import EditStockModal from '../inventory/EditStockModal.vue';
 </script>
 
 <template>
-  <EditStockModal v-bind="$attrs" />
+  <EditStockModal v-bind="($attrs as any)" />
 </template>

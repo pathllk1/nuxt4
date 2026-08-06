@@ -3,5 +3,5 @@ import CreateStockModal from '../inventory/CreateStockModal.vue';
 </script>
 
 <template>
-  <CreateStockModal v-bind="$attrs" />
+  <CreateStockModal v-bind="($attrs as any)" />
 </template>

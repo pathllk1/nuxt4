@@ -5,9 +5,9 @@ export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const query = getQuery(event);
 
-  const startDate = (query.startDate as string) || `${new Date().getFullYear()}-01-01`;
-  const endDate = (query.endDate as string) || new Date().toISOString().split('T')[0];
-  const firmGstin = (query.gstin as string) || '';
+  const startDate = String(query.startDate || `${new Date().getFullYear()}-01-01`);
+  const endDate = String(query.endDate || new Date().toISOString().split('T')[0]);
+  const firmGstin = String(query.gstin || '');
 
   const b2b = await getB2BSupplies(user.firm_id as string, firmGstin, startDate, endDate);
   const b2c = await getB2CSupplies(user.firm_id as string, firmGstin, startDate, endDate);

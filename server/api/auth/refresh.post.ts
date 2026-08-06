@@ -79,11 +79,21 @@ export default defineEventHandler(async (event) => {
 
     // 4. Fetch User
     const user = await (User as any).findById(decoded.id);
-    if (!user || user.status === 'suspended') {
+    if (!user || user.status === 'suspended' || user.status === 'pending') {
       throw createError({
         statusCode: 401,
-        statusMessage: 'Unauthorized: User not found or suspended'
+        statusMessage: 'Unauthorized: User not found, pending, or suspended'
       });
+    }
+
+    if (user.isAccountLocked) {
+      const lockedUntil = user.securitySettings?.accountLockedUntil;
+      if (lockedUntil && new Date(lockedUntil) > new Date()) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: 'Account locked due to suspicious activity'
+        });
+      }
     }
 
     // 5. Generate new access token

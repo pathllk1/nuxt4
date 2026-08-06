@@ -2,9 +2,12 @@ import ExcelJS from 'exceljs';
 import MasterRoll from '../../../../models/MasterRoll';
 import Wage from '../../../../models/Wage';
 import { requireAuthSession } from '../../../../utils/auth';
+import { requireWageRole } from '../../../../utils/wage-authz';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
+  await requireWageRole(event, user, ['Owner', 'Admin', 'Manager']);
+
   const masterRollId = getRouterParam(event, 'masterRollId');
 
   const employee = await MasterRoll.findOne({ _id: masterRollId, firm_id: user.firm_id }).lean();
@@ -15,9 +18,9 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const wages = await Wage.find({ 
-    firm_id: user.firm_id, 
-    master_roll_id: masterRollId 
+  const wages = await Wage.find({
+    firm_id: user.firm_id,
+    master_roll_id: masterRollId
   })
   .sort({ salary_month: -1 })
   .lean();
@@ -110,8 +113,8 @@ export default defineEventHandler(async (event) => {
   const tableHeaderRow = worksheet.getRow(7);
   tableHeaderRow.height = 26;
   const cols = [
-    'MONTH', 'DAYS', 'RATE (DAILY)', 'GROSS SALARY', 'EPF DEDUCTION', 
-    'ESIC DEDUCTION', 'ADVANCE DEDUCTION', 'OTHER DEDUCTIONS', 
+    'MONTH', 'DAYS', 'RATE (DAILY)', 'GROSS SALARY', 'EPF DEDUCTION',
+    'ESIC DEDUCTION', 'ADVANCE DEDUCTION', 'OTHER DEDUCTIONS',
     'OTHER BENEFITS', 'NET SALARY', 'PAYMENT MODE', 'PAYMENT DATE', 'STATUS'
   ];
   cols.forEach((col, idx) => {
@@ -181,7 +184,7 @@ export default defineEventHandler(async (event) => {
 
     totalRow.height = 26;
     totalRow.font = { bold: true, size: 10 };
-    
+
     totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
       cell.border = borderStyle;
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
@@ -195,7 +198,7 @@ export default defineEventHandler(async (event) => {
         cell.alignment = { vertical: 'middle', horizontal: 'right' };
         cell.numFmt = '₹#,##0.00';
       }
-      
+
       if (colNumber === 10) {
         cell.font = { bold: true, size: 10, color: { argb: 'FF047857' } };
       }
@@ -203,8 +206,9 @@ export default defineEventHandler(async (event) => {
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const safeName = employee.employee_name.replace(/[^a-zA-Z0-9]/g, '_');
-  
+  // Bug #11: sanitize the employee name before it lands in a response header
+  const safeName = (employee.employee_name || 'employee').replace(/[^a-zA-Z0-9]/g, '_');
+
   setResponseHeaders(event, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'Content-Disposition': `attachment; filename="Wages_Statement_${safeName}.xlsx"`

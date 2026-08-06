@@ -1,16 +1,21 @@
-import { defineEventHandler, getHeader, setResponseHeader, sendError, createError } from 'h3';
+import { defineEventHandler, getHeader, getRequestIP, setResponseHeader, sendError, createError } from 'h3';
 import User from '../models/User';
 import Session from '../models/Session';
 import { connectDB } from '../plugins/mongodb';
 import { 
   verifyAccessToken, 
   verifyRefreshToken, 
-  generateAccessToken 
+  generateAccessToken,
+  generateRefreshToken,
+  getTokenExpiration
 } from '../utils/jwt';
 import { 
   generateDeviceFingerprint, 
+  parseDeviceInfo,
+  getLocationFromIP,
   logSecurityEvent, 
   isTokenBlacklisted,
+  blacklistToken,
   validateSession 
 } from '../utils/security';
 
@@ -194,9 +199,58 @@ export default defineEventHandler(async (event) => {
           if (session) {
             const user = await (User as any).findById(decodedRefresh.id);
             if (user) {
+              // RT-B2: Enforce status and account lock checks during silent refresh
+              if (user.role !== 'superadmin') {
+                if (user.status === 'pending') {
+                  throw createError({
+                    statusCode: 403,
+                    statusMessage: 'Your account is pending administrator approval before you can log in.'
+                  });
+                }
+                if (user.status === 'suspended') {
+                  const oldExp = getTokenExpiration(refreshTokenValue) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                  await blacklistToken(refreshTokenValue, 'refresh', user._id.toString(), 'User suspended', oldExp);
+                  throw createError({
+                    statusCode: 403,
+                    statusMessage: 'Your account has been suspended by an administrator.'
+                  });
+                }
+              }
+
+              if (user.isAccountLocked) {
+                const lockedUntil = user.securitySettings?.accountLockedUntil;
+                if (lockedUntil && new Date(lockedUntil) > new Date()) {
+                  throw createError({
+                    statusCode: 403,
+                    statusMessage: 'Account locked due to suspicious activity'
+                  });
+                }
+              }
+
               const deviceFingerprint = generateDeviceFingerprint(event);
               const newAccessToken = generateAccessToken(user, deviceFingerprint);
-              
+
+              // RT-B1: Support token rotation in silent refresh when enabled
+              let newRefreshToken = refreshTokenValue;
+              const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
+              if (shouldRotate) {
+                newRefreshToken = generateRefreshToken(user, deviceFingerprint);
+                const oldExp = getTokenExpiration(refreshTokenValue) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                await blacklistToken(refreshTokenValue, 'refresh', user._id.toString(), 'Token rotated (silent)', oldExp);
+                session.refreshToken = newRefreshToken;
+                session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+              }
+
+              // RT-B3: Update session metadata (IP, user agent, device info, location, last activity)
+              const clientIP = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
+              const userAgent = getHeader(event, 'user-agent') || 'unknown';
+              session.ipAddress = clientIP;
+              session.userAgent = userAgent;
+              session.deviceInfo = parseDeviceInfo(userAgent);
+              session.location = getLocationFromIP(clientIP);
+              session.lastActivity = new Date();
+              await session.save();
+
               // Log token refresh
               await logSecurityEvent({
                 userId: user._id.toString(),
@@ -206,8 +260,14 @@ export default defineEventHandler(async (event) => {
                 severity: 'low'
               });
               
-              // Return new token in header
+              // RT-B5 & Auto-Refresh: Expose headers via CORS so client script can read new tokens
               setResponseHeader(event, 'x-new-access-token', newAccessToken);
+              if (shouldRotate) {
+                setResponseHeader(event, 'x-new-refresh-token', newRefreshToken);
+                setResponseHeader(event, 'Access-Control-Expose-Headers', 'x-new-access-token, x-new-refresh-token');
+              } else {
+                setResponseHeader(event, 'Access-Control-Expose-Headers', 'x-new-access-token');
+              }
               
               // Proceed with the request using the new token's payload
               const newDecoded = verifyAccessToken(newAccessToken);
@@ -215,7 +275,10 @@ export default defineEventHandler(async (event) => {
               return;
             }
           }
-        } catch (refreshError) {
+        } catch (refreshError: any) {
+          if (refreshError.statusCode) {
+            throw refreshError;
+          }
           await logSecurityEvent({
             action: 'invalid_token',
             event,
