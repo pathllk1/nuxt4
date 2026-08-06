@@ -26,8 +26,9 @@ export default defineNuxtConfig({
     fallback: 'light'
   },
   icon: {
-    serverBundle: {
-      collections: ['heroicons', 'lucide']
+    serverBundle: 'local',
+    clientBundle: {
+      scan: true
     }
   },
   typescript: {
