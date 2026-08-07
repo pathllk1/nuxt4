@@ -38,6 +38,10 @@ export default defineNuxtConfig({
 
   // Fix #19: Body size limit for API routes (10 MB max)
   nitro: {
+    externals: {
+      inline: [],
+      external: ['pdfmake']
+    },
     routeRules: {
       '/api/**': {
         headers: {

@@ -53,11 +53,8 @@ export default defineEventHandler(async (event) => {
   const financialYear = getCurrentFinancialYear();
 
   // Fetch Opening Balances
-  const obs = await OpeningBalance.find({
-    $or: [
-      { firmId: firmIdObj },
-      { firmId: firmIdStr }
-    ],
+  const obs = await (OpeningBalance as any).find({
+    firmId: { $in: [firmIdObj, firmIdStr] },
     financialYear
   }).lean();
 
@@ -70,10 +67,7 @@ export default defineEventHandler(async (event) => {
   const ledgerBalances = await Ledger.aggregate([
     {
       $match: {
-        $or: [
-          { firmId: firmIdObj },
-          { firmId: firmIdStr }
-        ]
+        firmId: { $in: [firmIdObj, firmIdStr] }
       }
     },
     {

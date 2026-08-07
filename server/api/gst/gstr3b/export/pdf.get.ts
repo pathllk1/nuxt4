@@ -1,7 +1,7 @@
 import { defineEventHandler, getQuery, setHeader } from 'h3';
 import Firm from '../../../../models/Firm';
 import { requireAuthSession } from '../../../../utils/auth';
-import { getGSTR3BReport } from '../../../../utils/gst/gstr3bDataAggregator';
+import { fetchFullGSTR3BData } from '../../../../utils/gst/gstr3bDataAggregator';
 import { getGSTR3BPDFDefinition } from '../../../../utils/gst/gstPdfGenerator';
 import { createPdfBufferFromDocDef } from '../../../../utils/accounting/pdf-export.utils';
 
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const endDate = String(query.endDate || new Date().toISOString().split('T')[0]);
   const firmGstin = String(query.gstin || query.firmGstin || '');
 
-  const reportData = await getGSTR3BReport(session.firm_id as string, firmGstin, startDate, endDate);
+  const reportData = await fetchFullGSTR3BData(session.firm_id as string, firmGstin, startDate, endDate);
   const firm = await Firm.findById(session.firm_id).lean();
 
   const docDefinition = getGSTR3BPDFDefinition(reportData, firm);

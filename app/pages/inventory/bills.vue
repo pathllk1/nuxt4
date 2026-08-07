@@ -13,7 +13,7 @@
       </div>
       <div class="flex items-center gap-3">
         <UButton
-          color="teal"
+          color="success"
           variant="soft"
           icon="i-heroicons-plus"
           size="md"

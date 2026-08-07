@@ -210,7 +210,7 @@
     </div>
 
     <!-- Tab 2: Details View -->
-    <div v-show="activeTab === 'details'" class="flex-1 min-h-0 flex flex-col gap-3">
+    <div v-show="activeTab === 'details'" class="flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto pr-0.5">
       <!-- Filters/Search Bar -->
       <DocFilters 
         v-model:searchQuery="searchQuery"
@@ -218,7 +218,7 @@
       />
 
       <!-- Table Container -->
-      <div class="flex-1 min-h-0">
+      <div class="min-h-0">
         <DocTable 
           :documents="paginatedDocuments"
           :loading="loading"
@@ -240,12 +240,12 @@
     </div>
 
     <!-- Modal Form (Add / Edit Document) using @nuxt/ui UModal -->
-    <UModal v-model:open="isModalOpen">
+    <UModal v-model:open="isModalOpen" :ui="{ content: 'w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl' }">
       <template #content>
         <div class="bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-100 dark:border-gray-800 flex flex-col max-h-[90vh]">
           <!-- Modal Header -->
-          <div class="px-5 py-3.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white flex justify-between items-center shrink-0">
-            <h2 class="text-sm font-bold uppercase tracking-wider flex items-center gap-1.5">
+          <div class="px-6 py-4 bg-gradient-to-r from-teal-500 to-cyan-500 text-white flex justify-between items-center shrink-0">
+            <h2 class="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
               <UIcon :name="isEditMode ? 'i-lucide-edit-3' : 'i-lucide-plus-circle'" class="w-4 h-4" />
               <span>{{ isEditMode ? 'Edit Document' : 'Add New Document' }}</span>
             </h2>
@@ -260,29 +260,29 @@
           </div>
 
           <!-- Modal Body (Form Fields) -->
-          <div class="p-5 space-y-3.5 overflow-y-auto flex-1 text-xs">
-            <!-- Name & Ref No -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Document Name*</label>
-                <UInput 
-                  v-model="form.name"
-                  type="text" 
-                  placeholder="Enter document name"
-                  size="sm"
-                  class="w-full font-semibold"
-                />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Reference Number*</label>
-                <UInput 
-                  v-model="form.referenceNumber"
-                  type="text" 
-                  placeholder="Enter reference code/ID"
-                  size="sm"
-                  class="w-full font-semibold"
-                />
-              </div>
+          <div class="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
+            <!-- Document Name (Full Width) -->
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Document Name*</label>
+              <UInput 
+                v-model="form.name"
+                type="text" 
+                placeholder="Enter document name"
+                size="sm"
+                class="w-full font-semibold"
+              />
+            </div>
+
+            <!-- Reference Number (Full Width) -->
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Reference Number*</label>
+              <UInput 
+                v-model="form.referenceNumber"
+                type="text" 
+                placeholder="Enter reference code/ID"
+                size="sm"
+                class="w-full font-semibold"
+              />
             </div>
 
             <!-- Description -->
@@ -297,8 +297,8 @@
               />
             </div>
 
-            <!-- Dates Row 1: Start Date & Original Expiry Date -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Dates Row: Start Date, Original Expiry, Extended Expiry, Closed Date -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div class="space-y-1">
                 <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Start Date</label>
                 <UInput 
@@ -317,19 +317,6 @@
                   class="w-full font-semibold cursor-pointer"
                 />
               </div>
-            </div>
-
-            <!-- Dates Row 2: Closed Date & Extended Expiry Date -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Closed Date</label>
-                <UInput 
-                  v-model="form.closedDate"
-                  type="date" 
-                  size="sm"
-                  class="w-full font-semibold cursor-pointer"
-                />
-              </div>
               <div class="space-y-1">
                 <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Extended Expiry Date</label>
                 <UInput 
@@ -339,10 +326,19 @@
                   class="w-full font-semibold cursor-pointer"
                 />
               </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Closed Date</label>
+                <UInput 
+                  v-model="form.closedDate"
+                  type="date" 
+                  size="sm"
+                  class="w-full font-semibold cursor-pointer"
+                />
+              </div>
             </div>
 
-            <!-- Value & Status -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Value, Status & File Upload Row -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
               <div class="space-y-1">
                 <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Value (INR)*</label>
                 <UInput 
@@ -363,20 +359,17 @@
                   class="w-full font-semibold cursor-pointer"
                 />
               </div>
-            </div>
-
-            <!-- File Upload Section -->
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">File Upload (Max size: 500 KB)</label>
-              <div class="border border-dashed border-gray-200 dark:border-gray-700 hover:border-teal-400 p-3 rounded-lg flex flex-col items-center justify-center transition bg-gray-50/50 dark:bg-gray-800/50">
-                <input 
-                  :key="uploadInputKey"
-                  type="file" 
-                  @change="handleFileChange"
-                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx"
-                  class="text-xs text-gray-500 focus:outline-none w-full file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:bg-teal-50 dark:file:bg-teal-950/60 file:text-teal-700 dark:file:text-teal-400 hover:file:bg-teal-100 cursor-pointer"
-                />
-                <p class="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Permitted formats: PDF, Images, Word, Excel (Max: 500 KB)</p>
+              <div class="space-y-1 sm:col-span-2 lg:col-span-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Attachment (Max 500 KB)</label>
+                <div class="border border-dashed border-gray-200 dark:border-gray-700 hover:border-teal-400 p-2 rounded-lg flex flex-col items-center justify-center transition bg-gray-50/50 dark:bg-gray-800/50">
+                  <input 
+                    :key="uploadInputKey"
+                    type="file" 
+                    @change="handleFileChange"
+                    accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx"
+                    class="text-xs text-gray-500 focus:outline-none w-full file:mr-2 file:py-0.5 file:px-2 file:rounded file:border-0 file:text-[9px] file:font-bold file:bg-teal-50 dark:file:bg-teal-950/60 file:text-teal-700 dark:file:text-teal-400 hover:file:bg-teal-100 cursor-pointer"
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-xs flex flex-col h-full">
+  <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-xs flex flex-col">
     <!-- Loading State -->
     <div v-if="loading" class="flex-1 flex flex-col items-center justify-center p-12 space-y-3">
       <UIcon name="i-lucide-loader-2" class="w-8 h-8 text-teal-500 animate-spin" />
@@ -14,7 +14,7 @@
     </div>
 
     <!-- Table content -->
-    <div v-else class="flex-1 overflow-auto">
+    <div v-else class="overflow-auto">
       <table class="w-full text-left border-collapse table-fixed min-w-full">
         <thead>
           <tr class="bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-800 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">

@@ -3,8 +3,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
+    "build": "node --max-old-space-size=4096 node_modules/nuxt/bin/nuxt.mjs build",
+    "dev": "node --max-old-space-size=4096 node_modules/nuxt/bin/nuxt.mjs dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare"
@@ -40,9 +40,10 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.0",
     "nuxt": "^4.5.1",
-    "postgres": "^3.4.9",
+    "pdfjs-dist": "^6.2.108",
     "pdfkit": "^0.19.1",
     "pdfmake": "^0.3.11",
+    "postgres": "^3.4.9",
     "qrcode": "^1.5.4",
     "tailwindcss": "^4.3.3",
     "ua-parser-js": "^2.0.10",

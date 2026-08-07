@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { initLaborPgTables } from './pg-labor-schema';
 
 let sql: postgres.Sql<any> | null = null;
 let pgReady = false;
@@ -28,8 +29,9 @@ export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
     console.log('✅ PostgreSQL (postgres-js) connected in Nuxt server');
     pgReady = true;
 
-    // Auto-migrate Documents table if not created yet
+    // Auto-migrate Documents & Labor tables if not created yet
     await initDocumentsPgTable(sql);
+    await initLaborPgTables(sql);
 
   } catch (err: any) {
     console.error('⚠️ PostgreSQL connection failed:', err.message);

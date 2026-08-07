@@ -1,3 +1,4 @@
+import { defineEventHandler, getQuery } from 'h3';
 import { getB2BSupplies, getB2CSupplies, getCreditDebitNotes } from '../../../utils/gst/gstr1DataAggregator';
 import { requireAuthSession } from '../../../utils/auth';
 
@@ -15,15 +16,15 @@ export default defineEventHandler(async (event) => {
 
   const totals = {
     b2bCount: b2b.length,
-    b2bTaxable: b2b.reduce((sum, item) => sum + item.taxable_value, 0),
-    b2bTax: b2b.reduce((sum, item) => sum + item.cgst + item.sgst + item.igst, 0),
+    b2bTaxable: b2b.reduce((sum: any, item: any) => sum + item.taxable_value, 0),
+    b2bTax: b2b.reduce((sum: any, item: any) => sum + item.cgst + item.sgst + item.igst, 0),
 
     b2cTaxable: b2c.reduce((sum: any, item: any) => sum + item.taxable_value, 0),
     b2cTax: b2c.reduce((sum: any, item: any) => sum + item.cgst + item.sgst + item.igst, 0),
 
     cdnCount: cdn.length,
-    cdnTaxable: cdn.reduce((sum, item) => sum + item.taxable_value, 0),
-    cdnTax: cdn.reduce((sum, item) => sum + item.cgst + item.sgst + item.igst, 0),
+    cdnTaxable: cdn.reduce((sum: any, item: any) => sum + item.taxable_value, 0),
+    cdnTax: cdn.reduce((sum: any, item: any) => sum + item.cgst + item.sgst + item.igst, 0),
   };
 
   return {

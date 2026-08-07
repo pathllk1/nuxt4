@@ -125,36 +125,8 @@ const navLinks = [
   { label: 'Global Tools', action: 'openTools', icon: '🛠️', restricted: false },
   { label: 'Dashboard', to: '/dashboard', icon: '👤', restricted: true },
   { label: 'Docs', to: '/documents', icon: '📄', restricted: true },
-  {
-    label: 'Financial Management',
-    icon: '💵',
-    restricted: true,
-    children: [
-      { label: 'Ledger Dashboard', to: '/accounting/ledger', icon: '📊' },
-      { label: 'Invoices & Bills', to: '/accounting/bills', icon: '📄' },
-      { label: 'Create Sale', to: '/accounting/sales/new', icon: '💰' },
-      { label: 'Record Purchase', to: '/accounting/purchases/new', icon: '📦' },
-      { label: 'Customers & Suppliers', to: '/accounting/parties', icon: '👥' },
-      { label: 'GST Returns', to: '/accounting/gst-returns', icon: '📋' },
-      { label: 'Chart of Accounts', to: '/accounting/coa', icon: '🗂️' },
-      { label: 'General Ledger', to: '/accounting/ledger-view', icon: '📜' },
-      { label: 'Banking & Treasury', to: '/accounting/banking', icon: '🏦' },
-      { label: 'Trial Balance', to: '/accounting/trial-balance', icon: '⚖️' },
-      { label: 'Financial Statements', to: '/accounting/statements', icon: '📈' },
-    ]
-  },
-  {
-    label: 'Inventory',
-    icon: '📦',
-    restricted: true,
-    children: [
-      { label: 'Inventory Dashboard', to: '/inventory', icon: '🏢' },
-      { label: 'Stock Register', to: '/inventory/stocks', icon: '📦' },
-      { label: 'Stock Movements', to: '/inventory/movement', icon: '🔄' },
-      { label: 'Sales & Purchase Bills', to: '/inventory/bills', icon: '🧾' },
-      { label: 'Inventory Reports', to: '/inventory/reports', icon: '📈' },
-    ]
-  },
+  { label: 'Financial Management', to: '/accounting/ledger', icon: '💵', restricted: true },
+  { label: 'Inventory', to: '/inventory', icon: '📦', restricted: true },
   {
     label: 'Employee Wages',
     icon: '💰',

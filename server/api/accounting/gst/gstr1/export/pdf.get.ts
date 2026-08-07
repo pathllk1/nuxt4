@@ -1,7 +1,9 @@
 import { defineEventHandler, getQuery, setHeader, createError } from 'h3';
-import PDFDocument from 'pdfkit';
+import Firm from '../../../../../models/Firm';
 import { requireAuthSession } from '../../../../../utils/auth';
-import Bill from '../../../../../models/Bill';
+import { fetchFullGSTR1Data } from '../../../../../utils/gst/gstr1DataAggregator';
+import { getGSTR1PDFDefinition } from '../../../../../utils/gst/gstPdfGenerator';
+import { createPdfBufferFromDocDef } from '../../../../../utils/accounting/pdf-export.utils';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -14,49 +16,14 @@ export default defineEventHandler(async (event) => {
     const endDate = query.endDate ? String(query.endDate) : '';
     const firmGstin = query.firmGstin ? String(query.firmGstin) : '';
 
-    const filter: any = {
-      $or: [
-        { firmId: firmIdObj },
-        { firmId: firmIdStr },
-        { firm_id: firmIdObj },
-        { firm_id: firmIdStr }
-      ],
-      btype: 'SALES',
-      status: { $ne: 'CANCELLED' }
-    };
-    if (startDate && endDate) filter.bdate = { $gte: startDate, $lte: endDate };
-    if (firmGstin) filter.firmGstin = firmGstin;
+    const firm = await Firm.findById(firmIdObj).lean();
+    const { summary, tables } = await fetchFullGSTR1Data(firmIdStr, firmGstin, startDate, endDate);
 
-    const bills = await Bill.find(filter).lean();
-
-    const doc = new PDFDocument({ margin: 30, size: 'A4' });
-    const chunks: Buffer[] = [];
-
-    doc.on('data', chunk => chunks.push(chunk));
-
-    // Title
-    doc.fontSize(16).text('GSTR-1 SUMMARY REPORT', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(10).text(`GSTIN: ${firmGstin || 'N/A'}`);
-    doc.text(`Period: ${startDate} to ${endDate}`);
-    doc.text(`Total Invoices: ${bills.length}`);
-    doc.moveDown();
-
-    const totalGross = bills.reduce((acc, b) => acc + (b.grossTotal || 0), 0);
-    const totalTax = bills.reduce((acc, b) => acc + (b.cgst || 0) + (b.sgst || 0) + (b.igst || 0), 0);
-    const totalNet = bills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
-
-    doc.fontSize(12).text(`Total Taxable Amount: Rs. ${totalGross.toFixed(2)}`);
-    doc.text(`Total Tax Amount: Rs. ${totalTax.toFixed(2)}`);
-    doc.text(`Total Invoice Value: Rs. ${totalNet.toFixed(2)}`);
-
-    doc.end();
-
-    await new Promise(resolve => doc.on('end', resolve));
-    const pdfBuffer = Buffer.concat(chunks);
+    const docDefinition = getGSTR1PDFDefinition({ summary, tables }, firm);
+    const pdfBuffer = await createPdfBufferFromDocDef(docDefinition);
 
     setHeader(event, 'Content-Type', 'application/pdf');
-    setHeader(event, 'Content-Disposition', `attachment; filename="GSTR1_${firmGstin}_${startDate}.pdf"`);
+    setHeader(event, 'Content-Disposition', `attachment; filename="GSTR1_${firmGstin || 'REPORT'}_${startDate || 'all'}.pdf"`);
 
     return pdfBuffer;
   } catch (error: any) {
