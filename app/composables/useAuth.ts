@@ -51,56 +51,57 @@ export const useAuth = () => {
           selectedFirmId.value = storedFirm;
           cookieFirm.value = storedFirm;
         }
+      }
 
-        // If user state is empty on client mount, recover user profile securely via HttpOnly cookie
-        if (!user.value) {
-          try {
-            const userData = await $fetch<any>('/api/auth/me', { credentials: 'include' });
-            if (userData && (userData.id || userData._id)) {
-              user.value = {
-                ...userData,
-                id: userData.id || userData._id
-              };
-              if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
-                const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
-                if (defaultFirmId) {
-                  selectedFirmId.value = defaultFirmId;
-                  cookieFirm.value = defaultFirmId;
-                }
+      // If user state is empty, recover user profile securely via HttpOnly cookie (works on both SSR and Client)
+      if (!user.value) {
+        const fetcher = import.meta.server ? useRequestFetch() : $fetch;
+        try {
+          const userData = await fetcher<any>('/api/auth/me', { credentials: 'include' });
+          if (userData && (userData.id || userData._id)) {
+            user.value = {
+              ...userData,
+              id: userData.id || userData._id
+            };
+            if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
+              const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
+              if (defaultFirmId) {
+                selectedFirmId.value = defaultFirmId;
+                cookieFirm.value = defaultFirmId;
               }
-            } else {
-              logout({ redirect: false });
             }
-          } catch {
-            // Profile fetch failed — attempt quiet silent refresh without redirecting public route visitors
-            const refreshed = await rotateToken({ redirectIfFailed: false }).catch(() => null);
-            if (refreshed && refreshed.accessToken) {
-              try {
-                const userData = await $fetch<any>('/api/auth/me', {
-                  credentials: 'include',
-                  headers: { Authorization: `Bearer ${refreshed.accessToken}` }
-                });
-                if (userData && (userData.id || userData._id)) {
-                  user.value = {
-                    ...userData,
-                    id: userData.id || userData._id
-                  };
-                  if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
-                    const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
-                    if (defaultFirmId) {
-                      selectedFirmId.value = defaultFirmId;
-                      cookieFirm.value = defaultFirmId;
-                    }
+          } else {
+            logout({ redirect: false });
+          }
+        } catch {
+          // Profile fetch failed — attempt quiet silent refresh
+          const refreshed = await rotateToken({ redirectIfFailed: false }).catch(() => null);
+          if (refreshed && refreshed.accessToken) {
+            try {
+              const userData = await fetcher<any>('/api/auth/me', {
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${refreshed.accessToken}` }
+              });
+              if (userData && (userData.id || userData._id)) {
+                user.value = {
+                  ...userData,
+                  id: userData.id || userData._id
+                };
+                if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
+                  const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
+                  if (defaultFirmId) {
+                    selectedFirmId.value = defaultFirmId;
+                    cookieFirm.value = defaultFirmId;
                   }
-                } else {
-                  logout({ redirect: false });
                 }
-              } catch {
+              } else {
                 logout({ redirect: false });
               }
-            } else {
+            } catch {
               logout({ redirect: false });
             }
+          } else {
+            logout({ redirect: false });
           }
         }
       }
@@ -112,11 +113,7 @@ export const useAuth = () => {
     }
   };
 
-  const isAuthenticated = computed(() => {
-    if (user.value) return true;
-    if (!isInitialized.value && accessToken.value) return true;
-    return false;
-  });
+  const isAuthenticated = computed(() => !!user.value);
 
   const selectFirm = (firmId: string) => {
     selectedFirmId.value = firmId;
