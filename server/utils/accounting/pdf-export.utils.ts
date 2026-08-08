@@ -662,14 +662,14 @@ export async function exportLedgerToPdfBuffer(data: {
               { text: 'Credit (₹)', style: 'tblHdr', alignment: 'right' },
               { text: 'Running Bal', style: 'tblHdr', alignment: 'right' },
             ],
-            [
+            ...(data.startingBal.balance > 0 || data.periodText !== 'All Time' ? [[
               { text: '—', alignment: 'center', fontSize: 8 },
               { text: 'OPENING BAL', bold: true, fontSize: 8 },
               { text: 'Brought forward balance', fontSize: 8 },
               { text: data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8 },
               { text: data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8 },
               { text: `${formatCurrency(data.startingBal.balance)} ${data.startingBal.balanceType}`, alignment: 'right', bold: true, fontSize: 8 },
-            ],
+            ]] : []),
             ...data.mappedEntries.map((e) => [
               { text: formatDate(e.transactionDate), alignment: 'center', fontSize: 8 },
               { text: e.voucherNo || e.refType || '', fontSize: 8 },
@@ -866,6 +866,66 @@ export async function exportBalanceSheetToPdfBuffer(data: {
               { text: formatCurrency(data.bsModel.totalAssets), alignment: 'right', bold: true },
             ]
           ]
+        }
+      }
+    ],
+    styles: {
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+    }
+  };
+  return createPdfBufferFromDocDef(docDefinition);
+}
+
+export async function exportDrillDownToPdfBuffer(data: {
+  firmName: string;
+  periodText: string;
+  categoryTitle: string;
+  accounts: Array<{ accountHead: string; totalDebit: number; totalCredit: number; balance: number; balanceType: string }>;
+  grandTotalDebit: number;
+  grandTotalCredit: number;
+}): Promise<Buffer> {
+  const tableBody: any[] = [
+    [
+      { text: '#', style: 'tblHdr' },
+      { text: 'ACCOUNT HEAD', style: 'tblHdr' },
+      { text: 'DEBITS (₹)', style: 'tblHdr', alignment: 'right' },
+      { text: 'CREDITS (₹)', style: 'tblHdr', alignment: 'right' },
+      { text: 'NET BALANCE (₹)', style: 'tblHdr', alignment: 'right' },
+    ]
+  ];
+
+  data.accounts.forEach((acc, idx) => {
+    tableBody.push([
+      { text: String(idx + 1), alignment: 'center' },
+      { text: acc.accountHead, bold: true },
+      { text: formatCurrency(acc.totalDebit), alignment: 'right', color: acc.totalDebit > 0 ? C.green : C.textDark },
+      { text: formatCurrency(acc.totalCredit), alignment: 'right', color: acc.totalCredit > 0 ? C.red : C.textDark },
+      { text: `${formatCurrency(acc.balance)} ${acc.balanceType}`, alignment: 'right', bold: true }
+    ]);
+  });
+
+  tableBody.push([
+    { text: 'GRAND TOTAL', colSpan: 2, bold: true, alignment: 'right' },
+    {},
+    { text: formatCurrency(data.grandTotalDebit), alignment: 'right', bold: true, color: C.green },
+    { text: formatCurrency(data.grandTotalCredit), alignment: 'right', bold: true, color: C.red },
+    { text: `${formatCurrency(Math.abs(data.grandTotalDebit - data.grandTotalCredit))} ${data.grandTotalDebit >= data.grandTotalCredit ? 'DR' : 'CR'}`, alignment: 'right', bold: true }
+  ]);
+
+  const docDefinition: any = {
+    pageSize: 'A4',
+    pageOrientation: 'portrait',
+    pageMargins: [30, 30, 30, 30],
+    defaultStyle: { fontSize: 8.5, color: C.textDark },
+    content: [
+      { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
+      { text: `DRILL-DOWN STATEMENT: ${data.categoryTitle.toUpperCase()}`, fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
+      { text: data.periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      {
+        table: {
+          headerRows: 1,
+          widths: [25, '*', 100, 100, 110],
+          body: tableBody
         }
       }
     ],

@@ -289,51 +289,12 @@
       </div>
     </template>
 
-    <!-- Sub-Ledger Modal -->
-    <div v-if="showDrillModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" @click.self="showDrillModal = false">
-       <UCard class="w-full max-w-4xl max-h-[90vh] overflow-hidden border border-gray-150 dark:border-zinc-800 shadow-2xl flex flex-col" :ui="{ body: 'p-4 overflow-y-auto flex-1', header: 'p-4 py-3 bg-gray-50 dark:bg-zinc-800/80 border-b border-gray-100 dark:border-zinc-800 flex justify-between items-center' }">
-          <template #header>
-             <div>
-                <span class="text-[9px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-widest leading-none">{{ drillType }}</span>
-                <h2 class="text-sm font-black text-gray-900 dark:text-white uppercase tracking-tight leading-none mt-1">Drill-Down: {{ drillType?.replace(/_/g, ' ') }}</h2>
-             </div>
-             <UButton 
-               size="xs" 
-               variant="ghost" 
-               color="neutral" 
-               icon="i-heroicons-x-mark" 
-               class="h-7 w-7 flex items-center justify-center p-0"
-               @click="showDrillModal = false" 
-             />
-          </template>
-          
-          <table class="w-full text-left text-xs divide-y divide-gray-100 dark:divide-zinc-800">
-             <thead>
-                <tr class="text-[10px] font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wider bg-gray-50/20 dark:bg-zinc-800/20">
-                   <th class="py-2 px-3">Account Head</th>
-                   <th class="py-2 px-3 text-right">Debits</th>
-                   <th class="py-2 px-3 text-right">Credits</th>
-                   <th class="py-2 px-3 text-right">Balance</th>
-                </tr>
-             </thead>
-             <tbody class="divide-y divide-gray-100 dark:divide-zinc-800">
-                <tr v-for="h in drillAccounts" :key="h.accountHead" class="group hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-all cursor-pointer" @click="viewLedger(h.accountHead)">
-                   <td class="py-2 px-3">
-                      <div class="font-bold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">{{ h.accountHead }}</div>
-                   </td>
-                   <td class="py-2 px-3 text-right font-mono text-xs text-emerald-600 font-bold">₹{{ h.totalDebit.toLocaleString() }}</td>
-                   <td class="py-2 px-3 text-right font-mono text-xs text-rose-600 font-bold">₹{{ h.totalCredit.toLocaleString() }}</td>
-                   <td class="py-2 px-3 text-right">
-                      <div class="flex items-center justify-end gap-1.5">
-                         <span class="font-black font-mono text-xs" :class="h.balanceType === 'DR' ? 'text-emerald-700' : 'text-rose-700'">₹{{ h.balance.toLocaleString() }}</span>
-                         <UBadge size="sm" variant="subtle" :color="h.balanceType === 'DR' ? 'success' : 'error'" class="text-[8px] px-1.5 py-0 font-bold rounded-md">{{ h.balanceType }}</UBadge>
-                      </div>
-                   </td>
-                </tr>
-             </tbody>
-          </table>
-       </UCard>
-    </div>
+    <!-- Sub-Ledger Drill-Down Modal -->
+    <DrillDownModal 
+      v-model="showDrillModal" 
+      :drill-type="drillType" 
+      :initial-to-date="toDate" 
+    />
 
     <VoucherModal v-model="showVoucherModal" @saved="refreshData" />
   </div>
@@ -344,6 +305,7 @@ import { ref, computed, onMounted, nextTick, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
 import VoucherModal from '@/components/accounting/VoucherModal.vue';
+import DrillDownModal from '@/components/accounting/DrillDownModal.vue';
 import Chart from 'chart.js/auto';
 
 const router = useRouter();

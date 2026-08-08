@@ -254,6 +254,30 @@ export const useAccounting = () => {
     await api.download(url, `Ledger_${safeHead}_${params.toDate || new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const exportDrillDownPdf = async (type: string, params?: { fromDate?: string; toDate?: string }) => {
+    let url = '/accounting/ledger/drilldown/pdf';
+    const query = new URLSearchParams();
+    query.append('type', type);
+    if (params?.fromDate) query.append('fromDate', params.fromDate);
+    if (params?.toDate) query.append('toDate', params.toDate);
+    url += '?' + query.toString();
+
+    const safeType = type.replace(/[^a-zA-Z0-9]/g, '_');
+    await api.download(url, `DrillDown_${safeType}_${params?.toDate || new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  const exportDrillDownExcel = async (type: string, params?: { fromDate?: string; toDate?: string }) => {
+    let url = '/accounting/ledger/drilldown/excel';
+    const query = new URLSearchParams();
+    query.append('type', type);
+    if (params?.fromDate) query.append('fromDate', params.fromDate);
+    if (params?.toDate) query.append('toDate', params.toDate);
+    url += '?' + query.toString();
+
+    const safeType = type.replace(/[^a-zA-Z0-9]/g, '_');
+    await api.download(url, `DrillDown_${safeType}_${params?.toDate || new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return {
     loading,
     error,
@@ -278,9 +302,11 @@ export const useAccounting = () => {
     exportProfitLossPdf,
     exportBalanceSheetPdf,
     exportLedgerPdf,
+    exportDrillDownPdf,
     exportTrialBalanceExcel,
     exportProfitLossExcel,
     exportBalanceSheetExcel,
     exportLedgerExcel,
+    exportDrillDownExcel,
   };
 };

@@ -259,31 +259,33 @@ export async function generateLedgerExcel(data: {
     };
   });
 
-  const opRow = ws.addRow([
-    data.periodText.split('to')[0]?.trim() || '—',
-    'OPENING BAL',
-    'Brought forward balance',
-    data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? data.startingBal.balance : '',
-    data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? data.startingBal.balance : '',
-    `${data.startingBal.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} ${data.startingBal.balanceType}`,
-  ]);
-  opRow.height = 22;
-  opRow.eachCell((cell, colIdx) => {
-    cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF64748B' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.slateLight } };
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-      bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-      left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-      right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-    };
-    if (colIdx === 1) formatCenterDateCell(cell);
-    if (colIdx === 4 || colIdx === 5) formatCurrencyCell(cell);
-    if (colIdx === 6) {
-      cell.alignment = { horizontal: 'right', vertical: 'middle' };
-      cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: data.startingBal.balanceType === 'DR' ? 'FF' + COLORS.greenText : 'FF' + COLORS.redText } };
-    }
-  });
+  if (data.startingBal.balance > 0 || data.periodText !== 'All Time') {
+    const opRow = ws.addRow([
+      data.periodText.includes('to') ? data.periodText.split('to')[0]?.trim() || '—' : '—',
+      'OPENING BAL',
+      'Brought forward balance',
+      data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? data.startingBal.balance : '',
+      data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? data.startingBal.balance : '',
+      `${data.startingBal.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} ${data.startingBal.balanceType}`,
+    ]);
+    opRow.height = 22;
+    opRow.eachCell((cell, colIdx) => {
+      cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF64748B' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.slateLight } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      };
+      if (colIdx === 1) formatCenterDateCell(cell);
+      if (colIdx === 4 || colIdx === 5) formatCurrencyCell(cell);
+      if (colIdx === 6) {
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: data.startingBal.balanceType === 'DR' ? 'FF' + COLORS.greenText : 'FF' + COLORS.redText } };
+      }
+    });
+  }
 
   data.mappedEntries.forEach((row, idx) => {
     const isEven = idx % 2 === 0;
@@ -768,6 +770,114 @@ export async function generateBalanceSheetExcel(data: {
   autoFitColumns(ws, 15);
   ws.getColumn(1).width = 30;
   ws.getColumn(3).width = 30;
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+export async function generateDrillDownExcel(data: {
+  firmName: string;
+  periodText: string;
+  categoryTitle: string;
+  accounts: Array<{ accountHead: string; totalDebit: number; totalCredit: number; balance: number; balanceType: string }>;
+  grandTotalDebit: number;
+  grandTotalCredit: number;
+}): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'BusinessPro Accounting';
+  const ws = workbook.addWorksheet('Drill-Down Summary');
+
+  // Title Block
+  const row1 = ws.getRow(1);
+  row1.getCell(1).value = (data.firmName || 'Company').toUpperCase();
+  row1.getCell(1).font = { name: 'Segoe UI', size: 13, bold: true, color: { argb: 'FF475569' } };
+  row1.height = 20;
+
+  const row2 = ws.getRow(2);
+  row2.getCell(1).value = `DRILL-DOWN STATEMENT: ${data.categoryTitle.toUpperCase()}`;
+  row2.getCell(1).font = { name: 'Segoe UI', size: 16, bold: true, color: { argb: COLORS.navy } };
+  row2.height = 25;
+
+  const row3 = ws.getRow(3);
+  row3.getCell(1).value = data.periodText;
+  row3.getCell(1).font = { name: 'Segoe UI', size: 9.5, italic: true, color: { argb: 'FF64748B' } };
+  row3.height = 18;
+
+  ws.addRow([]);
+
+  const headerRow = ws.addRow(['#', 'ACCOUNT HEAD', 'DEBITS (₹)', 'CREDITS (₹)', 'NET BALANCE (₹)', 'TYPE']);
+  headerRow.height = 24;
+  headerRow.eachCell(cell => {
+    cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.navy } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  });
+
+  data.accounts.forEach((acc, idx) => {
+    const row = ws.addRow([
+      idx + 1,
+      acc.accountHead,
+      acc.totalDebit,
+      acc.totalCredit,
+      acc.balance,
+      acc.balanceType
+    ]);
+    row.height = 20;
+    const isEven = idx % 2 === 0;
+    const rowBg = isEven ? 'FFFFFFFF' : 'FF' + COLORS.slateLight;
+
+    row.eachCell((cell, colIdx) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      };
+      if (colIdx === 1) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (colIdx === 2) cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF1E293B' } };
+      if (colIdx === 3 || colIdx === 4 || colIdx === 5) {
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '₹ #,##0.00;[Red]-₹ #,##0.00;₹ 0.00';
+        }
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        if (colIdx === 3 && acc.totalDebit > 0) cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.emerald } };
+        if (colIdx === 4 && acc.totalCredit > 0) cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.rose } };
+      }
+      if (colIdx === 6) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+  });
+
+  const grandRow = ws.addRow([
+    '',
+    'GRAND TOTAL',
+    data.grandTotalDebit,
+    data.grandTotalCredit,
+    Math.abs(data.grandTotalDebit - data.grandTotalCredit),
+    data.grandTotalDebit >= data.grandTotalCredit ? 'DR' : 'CR'
+  ]);
+  grandRow.height = 24;
+  grandRow.eachCell((cell, colIdx) => {
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.grayBg } };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+      bottom: { style: 'double', color: { argb: COLORS.slateDark } },
+      left: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+      right: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+    };
+    if (colIdx >= 3 && colIdx <= 5 && typeof cell.value === 'number') {
+      cell.numFmt = '₹ #,##0.00;[Red]-₹ #,##0.00;₹ 0.00';
+      cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    }
+  });
+
+  ws.getColumn(1).width = 8;
+  ws.getColumn(2).width = 35;
+  ws.getColumn(3).width = 18;
+  ws.getColumn(4).width = 18;
+  ws.getColumn(5).width = 20;
+  ws.getColumn(6).width = 10;
+
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }

@@ -31,6 +31,8 @@ const accountTypes = [
   { label: 'Liability', value: 'LIABILITY' },
   { label: 'Cash', value: 'CASH' },
   { label: 'Bank', value: 'BANK' },
+  { label: 'Sundry Debtors (Customer)', value: 'SUNDRY_DEBTORS' },
+  { label: 'Sundry Creditors (Supplier)', value: 'SUNDRY_CREDITORS' },
   { label: 'Debtor', value: 'DEBTOR' },
   { label: 'Creditor', value: 'CREDITOR' },
   { label: 'Labor Leader', value: 'LABOR_LEADER' },

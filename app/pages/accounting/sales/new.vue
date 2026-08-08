@@ -582,13 +582,19 @@ async function saveInvoice() {
 }
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 8px;
+  gap: 0;
+  padding: 8px 12px 8px 0;
   background: white;
   border-bottom: 1px solid #dbe3ee;
   flex-wrap: wrap;
+}
+.title-block {
+  width: 256px;
+  flex: 0 0 256px;
+  box-sizing: border-box;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 .title-block p,
 .eyebrow {
@@ -605,8 +611,21 @@ h1 {
   line-height: 1;
   font-weight: 800;
 }
-.header-fields,
-.header-actions,
+.header-fields {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding-left: 0;
+}
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .field-grid {
   display: flex;
   gap: 10px;

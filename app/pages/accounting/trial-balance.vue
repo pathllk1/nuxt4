@@ -38,6 +38,15 @@ const onExportExcel = async () => {
 const fromDate = ref('');
 const toDate = ref(new Date().toISOString().split('T')[0]);
 const searchQuery = ref('');
+const selectedCategoryTab = ref('all');
+
+const categoryTabs = [
+  { label: 'All', value: 'all' },
+  { label: 'Assets', value: 'ASSET' },
+  { label: 'Liabilities', value: 'LIABILITY' },
+  { label: 'Income', value: 'INCOME' },
+  { label: 'Expenses', value: 'EXPENSE' }
+];
 
 const loadData = async () => {
   const params: { fromDate?: string; toDate?: string } = {};
@@ -50,13 +59,26 @@ const clearFilters = async () => {
   fromDate.value = '';
   toDate.value = new Date().toISOString().split('T')[0];
   searchQuery.value = '';
+  selectedCategoryTab.value = 'all';
   await loadData();
 };
 
 const filteredAccounts = computed(() => {
+  let list = trialBalance.value;
+  if (selectedCategoryTab.value !== 'all') {
+    const cat = selectedCategoryTab.value;
+    list = list.filter(a => {
+      const type = (a.accountType || '').toUpperCase();
+      if (cat === 'ASSET') return ['ASSET', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CASH', 'BANK', 'BANK_ACCOUNT'].includes(type);
+      if (cat === 'LIABILITY') return ['LIABILITY', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CAPITAL', 'LABOR_LEADER'].includes(type);
+      if (cat === 'INCOME') return ['INCOME', 'INDIRECT_INCOME'].includes(type);
+      if (cat === 'EXPENSE') return ['EXPENSE', 'COGS', 'INDIRECT_EXPENSE'].includes(type);
+      return true;
+    });
+  }
   const query = searchQuery.value.toLowerCase().trim();
-  if (!query) return trialBalance.value;
-  return trialBalance.value.filter(
+  if (!query) return list;
+  return list.filter(
     (a) =>
       a.accountHead.toLowerCase().includes(query) ||
       (a.accountType && a.accountType.toLowerCase().includes(query))
@@ -155,39 +177,53 @@ onMounted(loadData);
       </p>
     </div>
 
-    <!-- Filters -->
-    <div class="flex flex-wrap items-center gap-2.5 bg-white dark:bg-zinc-900 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-zinc-800 print:hidden">
-      <div class="flex-1 min-w-[240px]">
-        <UInput 
-          v-model="searchQuery" 
-          icon="i-heroicons-magnifying-glass"
-          placeholder="Search account heads..."
-          size="sm"
-          class="w-full"
-        />
+    <!-- Category Tabs & Search Filters -->
+    <div class="space-y-2 print:hidden">
+      <div class="flex items-center gap-1 overflow-x-auto bg-slate-100 dark:bg-zinc-800/60 p-1 rounded-xl w-fit">
+        <button
+          v-for="t in categoryTabs"
+          :key="t.value"
+          @click="selectedCategoryTab = t.value"
+          class="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all"
+          :class="selectedCategoryTab === t.value ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'"
+        >
+          {{ t.label }}
+        </button>
       </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-[9px] font-black uppercase text-slate-400 dark:text-zinc-500 ml-1">From</span>
-        <UInput type="date" v-model="fromDate" size="sm" class="w-36" />
-        <span class="text-[9px] font-black uppercase text-slate-400 dark:text-zinc-500 ml-1">To</span>
-        <UInput type="date" v-model="toDate" size="sm" class="w-36" />
-      </div>
-      <div class="flex gap-1.5">
-        <UButton 
-          color="primary" 
-          label="Apply" 
-          size="sm" 
-          class="font-bold text-xs h-8"
-          @click="loadData"
-        />
-        <UButton 
-          color="neutral" 
-          variant="ghost" 
-          label="Reset" 
-          size="sm" 
-          class="font-bold text-xs h-8"
-          @click="clearFilters"
-        />
+
+      <div class="flex flex-wrap items-center gap-2.5 bg-white dark:bg-zinc-900 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-zinc-800">
+        <div class="flex-1 min-w-[240px]">
+          <UInput 
+            v-model="searchQuery" 
+            icon="i-heroicons-magnifying-glass"
+            placeholder="Search account heads..."
+            size="sm"
+            class="w-full"
+          />
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-[9px] font-black uppercase text-slate-400 dark:text-zinc-500 ml-1">From</span>
+          <UInput type="date" v-model="fromDate" size="sm" class="w-36" />
+          <span class="text-[9px] font-black uppercase text-slate-400 dark:text-zinc-500 ml-1">To</span>
+          <UInput type="date" v-model="toDate" size="sm" class="w-36" />
+        </div>
+        <div class="flex gap-1.5">
+          <UButton 
+            color="primary" 
+            label="Apply" 
+            size="sm" 
+            class="font-bold text-xs h-8"
+            @click="loadData"
+          />
+          <UButton 
+            color="neutral" 
+            variant="ghost" 
+            label="Reset" 
+            size="sm" 
+            class="font-bold text-xs h-8"
+            @click="clearFilters"
+          />
+        </div>
       </div>
     </div>
 

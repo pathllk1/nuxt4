@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
+import StatementModal from '@/components/accounting/StatementModal.vue';
 
 const router = useRouter();
 const { trialBalance, fetchTrialBalance, exportProfitLossPdf, exportBalanceSheetPdf, exportProfitLossExcel, exportBalanceSheetExcel, loading, error } = useAccounting();
@@ -90,9 +91,12 @@ const isGSTRec = (head: string) => {
   return ['gst', 'cgst', 'sgst', 'igst', 'tax receivable', 'input credit', 'input tax'].some(k => h.includes(k));
 };
 
+const isIncomeType = (type: string) => ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type?.toUpperCase() || '');
+const isExpenseType = (type: string) => ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS'].includes(type?.toUpperCase() || '');
+
 const plModel = computed(() => {
   const plAccounts = trialBalance.value.filter(a => 
-    ['INCOME', 'EXPENSE', 'COGS', 'GENERAL'].includes(a.accountType)
+    ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL'].includes(a.accountType)
   ).map(a => {
     const netDr = a.totalDebit - a.totalCredit;
     const netCr = a.totalCredit - a.totalDebit;
@@ -104,8 +108,8 @@ const plModel = computed(() => {
     };
   });
 
-  const income = plAccounts.filter(a => a.type === 'INCOME');
-  const expense = plAccounts.filter(a => a.type === 'EXPENSE' || a.type === 'COGS');
+  const income = plAccounts.filter(a => isIncomeType(a.type));
+  const expense = plAccounts.filter(a => isExpenseType(a.type));
   const general = plAccounts.filter(a => a.type === 'GENERAL');
 
   const cogs = expense.filter(a => isCOGS(a.head, a.type));
@@ -153,9 +157,16 @@ const plModel = computed(() => {
   };
 });
 
+const isDebtorType = (type: string) => ['DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(type?.toUpperCase() || '');
+const isCreditorType = (type: string) => ['CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE'].includes(type?.toUpperCase() || '');
+const isCashBankType = (type: string) => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(type?.toUpperCase() || '');
+
+const isDebtorsExpanded = ref(true);
+const isCreditorsExpanded = ref(true);
+
 const bsModel = computed(() => {
   const bsAccounts = trialBalance.value.filter(a => 
-    ['ASSET', 'LIABILITY', 'DEBTOR', 'CREDITOR', 'CASH', 'BANK', 'PAYABLE', 'CAPITAL', 'LABOR_LEADER'].includes(a.accountType)
+    ['ASSET', 'LIABILITY', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'CAPITAL', 'LABOR_LEADER'].includes(a.accountType)
   ).map(a => {
     const netDr = a.totalDebit - a.totalCredit;
     const netCr = a.totalCredit - a.totalDebit;
@@ -167,14 +178,14 @@ const bsModel = computed(() => {
     };
   });
 
-  const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'DEBTOR'].includes(a.type));
-  const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'LABOR_LEADER'].includes(a.type));
+  const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(a.type));
+  const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL'].includes(a.type));
 
   const stockAssets = assetsRaw.filter(a => isStock(a.head) && a.netDr > 0);
   const gstAssets = assetsRaw.filter(a => !isStock(a.head) && isGSTRec(a.head) && a.netDr > 0);
   const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type === 'ASSET' && a.netDr > 0);
-  const debtors = assetsRaw.filter(a => a.type === 'DEBTOR' && a.netDr > 0);
-  const cashBank = assetsRaw.filter(a => ['CASH', 'BANK'].includes(a.type) && a.netDr > 0);
+  const debtors = assetsRaw.filter(a => isDebtorType(a.type) && a.netDr > 0);
+  const cashBank = assetsRaw.filter(a => isCashBankType(a.type) && a.netDr > 0);
   const liabilityDebitBalances = liabilitiesRaw.filter(a => a.netDr > 0);
 
   const totalStock = stockAssets.reduce((s, a) => s + a.netDr, 0);
@@ -186,11 +197,11 @@ const bsModel = computed(() => {
 
   const totalAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank + totalLiabilityDebitBalances;
 
-  const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'PAYABLE', 'LABOR_LEADER'].includes(a.type) && a.netCr > 0);
-  const creditors = liabilitiesRaw.filter(a => a.type === 'CREDITOR' && a.netCr > 0);
+  const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER'].includes(a.type) && a.netCr > 0);
+  const creditors = liabilitiesRaw.filter(a => isCreditorType(a.type) && a.netCr > 0);
   const assetCreditBalances = assetsRaw.filter(a => a.type === 'ASSET' && a.netCr > 0);
-  const debtorCreditBalances = assetsRaw.filter(a => a.type === 'DEBTOR' && a.netCr > 0);
-  const cashBankCreditBalances = assetsRaw.filter(a => ['CASH', 'BANK'].includes(a.type) && a.netCr > 0);
+  const debtorCreditBalances = assetsRaw.filter(a => isDebtorType(a.type) && a.netCr > 0);
+  const cashBankCreditBalances = assetsRaw.filter(a => isCashBankType(a.type) && a.netCr > 0);
 
   const totalLiab = liabilities.reduce((s, a) => s + a.netCr, 0);
   const totalCred = creditors.reduce((s, a) => s + a.netCr, 0);
@@ -206,6 +217,12 @@ const bsModel = computed(() => {
 
   const balanced = Math.abs(totalAssets - totalLiabSide) < 0.02;
 
+  const currentAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank;
+  const currentLiabilities = totalLiab + totalCred + totalDebtorCreditBalances + totalCashBankCreditBalances;
+  const currentRatio = currentLiabilities > 0 ? (currentAssets / currentLiabilities) : (currentAssets > 0 ? 99 : 0);
+  const quickRatio = currentLiabilities > 0 ? ((currentAssets - totalStock) / currentLiabilities) : (currentAssets - totalStock > 0 ? 99 : 0);
+  const workingCapital = currentAssets - currentLiabilities;
+
   const assetSideCount = stockAssets.length + gstAssets.length + otherAssets.length + debtors.length + cashBank.length + liabilityDebitBalances.length;
   const liabilitySideCount = liabilities.length + creditors.length + assetCreditBalances.length + debtorCreditBalances.length + cashBankCreditBalances.length;
 
@@ -215,18 +232,23 @@ const bsModel = computed(() => {
     liabilities, creditors, assetCreditBalances, debtorCreditBalances, cashBankCreditBalances,
     totalLiab, totalCred, totalAssetCreditBalances, totalDebtorCreditBalances, totalCashBankCreditBalances, totalExtLib,
     capital, netProfit,
+    currentAssets, currentLiabilities, currentRatio, quickRatio, workingCapital,
     assetSideCount, liabilitySideCount,
     totalLiabSide, balanced,
     isEmpty: bsAccounts.length === 0
   };
 });
 
+const showStatementModal = ref(false);
+const selectedAccountHead = ref('');
+
 const triggerPrint = () => {
   window.print();
 };
 
 const viewLedger = (head: string) => {
-  router.push({ path: '/accounting/ledger-view', query: { head } });
+  selectedAccountHead.value = head;
+  showStatementModal.value = true;
 };
 
 onMounted(loadData);
@@ -569,6 +591,22 @@ onMounted(loadData);
           </UCard>
         </div>
 
+        <!-- Financial Ratios Bar -->
+        <div class="grid grid-cols-3 gap-2 bg-slate-900 dark:bg-zinc-950 p-2.5 rounded-xl border border-slate-800 text-white print:hidden">
+          <div class="flex items-center justify-between px-2 py-1 bg-white/5 rounded-lg">
+            <span class="text-[9px] font-bold uppercase text-slate-400">Current Ratio:</span>
+            <span class="text-xs font-mono font-black" :class="bsModel.currentRatio >= 1.5 ? 'text-emerald-400' : 'text-amber-400'">{{ bsModel.currentRatio.toFixed(2) }}</span>
+          </div>
+          <div class="flex items-center justify-between px-2 py-1 bg-white/5 rounded-lg">
+            <span class="text-[9px] font-bold uppercase text-slate-400">Quick Ratio:</span>
+            <span class="text-xs font-mono font-black" :class="bsModel.quickRatio >= 1.0 ? 'text-emerald-400' : 'text-amber-400'">{{ bsModel.quickRatio.toFixed(2) }}</span>
+          </div>
+          <div class="flex items-center justify-between px-2 py-1 bg-white/5 rounded-lg">
+            <span class="text-[9px] font-bold uppercase text-slate-400">Working Capital:</span>
+            <span class="text-xs font-mono font-black" :class="bsModel.workingCapital >= 0 ? 'text-emerald-400' : 'text-rose-400'">{{ formatINR(bsModel.workingCapital) }}</span>
+          </div>
+        </div>
+
         <!-- Balance sheet warning/balanced tag -->
         <div class="flex items-center gap-2 print:hidden">
           <UBadge 
@@ -593,7 +631,7 @@ onMounted(loadData);
           <div class="bg-slate-950 dark:bg-zinc-900 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 text-white">
             <div>
               <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Balance Sheet</p>
-              <p class="text-[8px] text-slate-300 font-bold">Double-entry balancing statement</p>
+              <p class="text-[8px] text-slate-300 font-bold">Double-entry balancing statement (Schedule III GAAP)</p>
             </div>
             <div class="flex items-center gap-4 text-[10px] font-mono font-bold">
               <div class="text-right">
@@ -657,18 +695,26 @@ onMounted(loadData);
                 </div>
               </div>
 
-              <!-- Creditors -->
+              <!-- Sundry Creditors (Trade Payables) Accordion -->
               <div v-if="bsModel.creditors.length > 0">
-                <div class="py-1.5 px-4 bg-slate-50/20 dark:bg-zinc-800/10 text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between leading-none">
-                  <span>Sundry Creditors</span>
-                  <span>{{ bsModel.creditors.length }} A/Cs</span>
+                <div 
+                  @click="isCreditorsExpanded = !isCreditorsExpanded"
+                  class="py-1.5 px-4 bg-slate-50/40 dark:bg-zinc-800/30 text-[8px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between items-center cursor-pointer select-none leading-none hover:bg-slate-100 dark:hover:bg-zinc-800"
+                >
+                  <div class="flex items-center gap-1">
+                    <UIcon :name="isCreditorsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 text-slate-400" />
+                    <span>Trade Payables (Sundry Creditors)</span>
+                  </div>
+                  <span>{{ bsModel.creditors.length }} Supplier(s)</span>
                 </div>
-                <div v-for="a in bsModel.creditors" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
-                  <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-bold">{{ a.head }}</span>
-                  <span class="font-mono font-bold">{{ formatINR(a.netCr) }}</span>
+                <div v-show="isCreditorsExpanded">
+                  <div v-for="a in bsModel.creditors" :key="a.head" class="py-1.5 px-6 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
+                    <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-bold">{{ a.head }}</span>
+                    <span class="font-mono font-bold">{{ formatINR(a.netCr) }}</span>
+                  </div>
                 </div>
                 <div class="py-1.5 px-4 bg-amber-50/30 dark:bg-amber-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
-                  <span>Total Creditors</span>
+                  <span>Total Sundry Creditors</span>
                   <span class="font-mono text-amber-700 dark:text-amber-400 font-bold">{{ formatINR(bsModel.totalCred) }}</span>
                 </div>
               </div>
@@ -710,7 +756,7 @@ onMounted(loadData);
               <!-- Fixed / Other Assets -->
               <div v-if="bsModel.otherAssets.length > 0">
                 <div class="py-1.5 px-4 bg-slate-50/20 dark:bg-zinc-800/10 text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between leading-none">
-                  <span>Fixed &amp; Other Assets</span>
+                  <span>Fixed &amp; Non-Current Assets</span>
                   <span>{{ bsModel.otherAssets.length }} A/Cs</span>
                 </div>
                 <div v-for="a in bsModel.otherAssets" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
@@ -726,7 +772,7 @@ onMounted(loadData);
               <!-- Stock & Inventory -->
               <div v-if="bsModel.stockAssets.length > 0">
                 <div class="py-1.5 px-4 bg-slate-50/20 dark:bg-zinc-800/10 text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between leading-none">
-                  <span>Stock &amp; Inventory</span>
+                  <span>Inventories (Closing Stock)</span>
                   <span>{{ bsModel.stockAssets.length }} A/Cs</span>
                 </div>
                 <div v-for="a in bsModel.stockAssets" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
@@ -734,7 +780,7 @@ onMounted(loadData);
                   <span class="font-mono font-bold">{{ formatINR(a.netDr) }}</span>
                 </div>
                 <div class="py-1.5 px-4 bg-teal-50/30 dark:bg-teal-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
-                  <span>Total Stock Pool</span>
+                  <span>Total Inventories</span>
                   <span class="font-mono text-teal-700 dark:text-teal-400 font-bold">{{ formatINR(bsModel.totalStock) }}</span>
                 </div>
               </div>
@@ -755,18 +801,26 @@ onMounted(loadData);
                 </div>
               </div>
 
-              <!-- Sundry Debtors -->
+              <!-- Sundry Debtors (Trade Receivables) Accordion -->
               <div v-if="bsModel.debtors.length > 0">
-                <div class="py-1.5 px-4 bg-slate-50/20 dark:bg-zinc-800/10 text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between leading-none">
-                  <span>Sundry Debtors</span>
-                  <span>{{ bsModel.debtors.length }} A/Cs</span>
+                <div 
+                  @click="isDebtorsExpanded = !isDebtorsExpanded"
+                  class="py-1.5 px-4 bg-slate-50/40 dark:bg-zinc-800/30 text-[8px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between items-center cursor-pointer select-none leading-none hover:bg-slate-100 dark:hover:bg-zinc-800"
+                >
+                  <div class="flex items-center gap-1">
+                    <UIcon :name="isDebtorsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 text-slate-400" />
+                    <span>Trade Receivables (Sundry Debtors)</span>
+                  </div>
+                  <span>{{ bsModel.debtors.length }} Customer(s)</span>
                 </div>
-                <div v-for="a in bsModel.debtors" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
-                  <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-bold">{{ a.head }}</span>
-                  <span class="font-mono font-bold">{{ formatINR(a.netDr) }}</span>
+                <div v-show="isDebtorsExpanded">
+                  <div v-for="a in bsModel.debtors" :key="a.head" class="py-1.5 px-6 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
+                    <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-bold">{{ a.head }}</span>
+                    <span class="font-mono font-bold">{{ formatINR(a.netDr) }}</span>
+                  </div>
                 </div>
                 <div class="py-1.5 px-4 bg-blue-50/30 dark:bg-blue-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
-                  <span>Total Debtors</span>
+                  <span>Total Trade Receivables</span>
                   <span class="font-mono text-blue-700 dark:text-blue-400 font-bold">{{ formatINR(bsModel.totalDebtors) }}</span>
                 </div>
               </div>
@@ -774,7 +828,7 @@ onMounted(loadData);
               <!-- Cash & Bank -->
               <div v-if="bsModel.cashBank.length > 0">
                 <div class="py-1.5 px-4 bg-slate-50/20 dark:bg-zinc-800/10 text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between leading-none">
-                  <span>Cash &amp; Bank Balances</span>
+                  <span>Cash &amp; Cash Equivalents</span>
                   <span>{{ bsModel.cashBank.length }} A/Cs</span>
                 </div>
                 <div v-for="a in bsModel.cashBank" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
@@ -782,7 +836,7 @@ onMounted(loadData);
                   <span class="font-mono font-bold">{{ formatINR(a.netDr) }}</span>
                 </div>
                 <div class="py-1.5 px-4 bg-emerald-50/30 dark:bg-emerald-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
-                  <span>Total Cash &amp; Bank</span>
+                  <span>Total Cash &amp; Cash Equivalents</span>
                   <span class="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{{ formatINR(bsModel.totalCashBank) }}</span>
                 </div>
               </div>
@@ -812,6 +866,13 @@ onMounted(loadData);
         </UCard>
       </div>
 
+    <!-- Statement Record Modal -->
+    <StatementModal
+      v-model="showStatementModal"
+      :account-head="selectedAccountHead"
+      :initial-from-date="fromDate"
+      :initial-to-date="toDate"
+    />
     </div>
   </div>
 </template>

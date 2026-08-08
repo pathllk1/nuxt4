@@ -70,8 +70,8 @@ export class StockService {
     const newTotal = stock.total + lineValue;
     const blendedRate = newQty > 0 ? this.roundRate(newTotal / newQty) : stock.rate;
 
-    const batchIdentifier = { 'elem.batch': itemData.batch || null };
-    const batchExists = stock.batches && stock.batches.some((b: any) => b.batch === (itemData.batch || null));
+    const targetBatch = itemData.batch || null;
+    const batchExists = Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
 
     let updateQuery: any;
     let arrayFilters: any[] = [];
@@ -91,12 +91,12 @@ export class StockService {
           user: user
         }
       };
-      arrayFilters = [batchIdentifier];
+      arrayFilters = [{ 'elem.batch': targetBatch }];
     } else {
       updateQuery = {
         $push: {
           batches: {
-            batch: itemData.batch || null,
+            batch: targetBatch,
             qty: itemData.qty,
             uom: itemData.uom || 'PCS',
             rate: itemData.rate,
@@ -120,10 +120,15 @@ export class StockService {
     const updatedStock = await StockModel.findOneAndUpdate(
       { _id: stock._id, firm_id: firmId },
       updateQuery,
-      { session, arrayFilters, new: true }
+      { session, ...(arrayFilters.length ? { arrayFilters } : {}), new: true }
     );
 
     if (!updatedStock) throw new Error(`Failed to update stock for item ${itemData.item}`);
+
+    if (updatedStock.qty <= 0) {
+      updatedStock.total = 0;
+      await updatedStock.save({ session });
+    }
 
     // Register movement
     await StockRegModel.create([{
@@ -176,24 +181,38 @@ export class StockService {
     const wacCostRate = stock.rate;
     const cogsValue = itemData.qty * wacCostRate;
 
+    const targetBatch = itemData.batch || null;
+    const batchExists = Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
+
+    const incQuery: any = {
+      'qty': -itemData.qty,
+      'total': -cogsValue
+    };
+    let arrayFilters: any[] = [];
+    if (batchExists) {
+      incQuery['batches.$[elem].qty'] = -itemData.qty;
+      arrayFilters = [{ 'elem.batch': targetBatch }];
+    }
+
     const updatedStock = await StockModel.findOneAndUpdate(
       { _id: stock._id, firm_id: firmId },
       {
-        $inc: {
-          'batches.$[elem].qty': -itemData.qty,
-          'qty': -itemData.qty,
-          'total': -cogsValue
-        },
+        $inc: incQuery,
         $set: { user }
       },
       { 
         session, 
-        arrayFilters: [{ 'elem.batch': itemData.batch || null }],
+        ...(arrayFilters.length ? { arrayFilters } : {}),
         new: true 
       }
     );
 
-    if (!updatedStock) throw new Error(`Failed to update stock for item ${stock.item}. Batch not found.`);
+    if (!updatedStock) throw new Error(`Failed to update stock for item ${stock.item}.`);
+
+    if (updatedStock.qty <= 0) {
+      updatedStock.total = 0;
+      await updatedStock.save({ session });
+    }
 
     // Register movement
     await StockRegModel.create([{
@@ -228,35 +247,43 @@ export class StockService {
     const reg = await StockRegModel.findById(stockRegId).session(session || null);
     if (!reg) return;
 
+    const stock = await StockModel.findById(reg.stock_id).session(session || null);
+    const targetBatch = reg.batch || null;
+    const batchExists = stock && Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
+
     if (['PURCHASE', 'CREDIT_NOTE'].includes(reg.type)) {
       // Was an increase, now decrease
       const costValue = reg.qty * (reg.cost_rate || 0);
-      await StockModel.findOneAndUpdate(
+      const incQuery: any = { 'qty': -reg.qty, 'total': -costValue };
+      let arrayFilters: any[] = [];
+      if (batchExists) {
+        incQuery['batches.$[elem].qty'] = -reg.qty;
+        arrayFilters = [{ 'elem.batch': targetBatch }];
+      }
+
+      const updated = await StockModel.findOneAndUpdate(
         { _id: reg.stock_id, firm_id: reg.firm_id },
-        {
-          $inc: {
-            'batches.$[elem].qty': -reg.qty,
-            'qty': -reg.qty,
-            'total': -costValue
-          },
-          $set: { user }
-        },
-        { session, arrayFilters: [{ 'elem.batch': reg.batch || null }] }
+        { $inc: incQuery, $set: { user } },
+        { session, ...(arrayFilters.length ? { arrayFilters } : {}), new: true }
       );
+      if (updated && updated.qty <= 0) {
+        updated.total = 0;
+        await updated.save({ session });
+      }
     } else if (['SALE', 'DEBIT_NOTE', 'DELIVERY_NOTE'].includes(reg.type)) {
       // Was a decrease, now increase
       const cogsValue = Math.abs(reg.qty) * (reg.cost_rate || 0);
+      const incQuery: any = { 'qty': Math.abs(reg.qty), 'total': cogsValue };
+      let arrayFilters: any[] = [];
+      if (batchExists) {
+        incQuery['batches.$[elem].qty'] = Math.abs(reg.qty);
+        arrayFilters = [{ 'elem.batch': targetBatch }];
+      }
+
       await StockModel.findOneAndUpdate(
         { _id: reg.stock_id, firm_id: reg.firm_id },
-        {
-          $inc: {
-            'batches.$[elem].qty': Math.abs(reg.qty),
-            'qty': Math.abs(reg.qty),
-            'total': cogsValue
-          },
-          $set: { user }
-        },
-        { session, arrayFilters: [{ 'elem.batch': reg.batch || null }] }
+        { $inc: incQuery, $set: { user } },
+        { session, ...(arrayFilters.length ? { arrayFilters } : {}) }
       );
     }
   }

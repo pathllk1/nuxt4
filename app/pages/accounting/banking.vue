@@ -864,13 +864,25 @@ function getColLetter(index: number): string {
 // ==================== PDF STATEMENT PARSER ENGINE ====================
 
 async function parsePDFStatement(buffer: ArrayBuffer): Promise<SheetData> {
-  // Import the worker module and register it on globalThis BEFORE importing pdf.js
-  // pdfjs-dist v6 checks globalThis.pdfjsWorker?.WorkerMessageHandler to run on main thread
-  // @ts-ignore
-  const pdfjsWorker: any = await import('pdfjs-dist/build/pdf.worker.mjs');
-  (globalThis as any).pdfjsWorker = pdfjsWorker;
+  let pdfjsLib: any = (globalThis as any).pdfjsLib;
+  if (!pdfjsLib && typeof window !== 'undefined') {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    pdfjsLib = (globalThis as any).pdfjsLib;
+  }
 
-  const pdfjsLib: any = await import('pdfjs-dist');
+  if (!pdfjsLib) {
+    throw new Error('PDF parsing library could not be loaded.');
+  }
+
+  if (pdfjsLib.GlobalWorkerOptions) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
 
   const pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
   const numPages = pdfDoc.numPages;

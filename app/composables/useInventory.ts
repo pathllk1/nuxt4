@@ -61,7 +61,7 @@ export const useInventory = () => {
     loading.value = true;
     error.value = null;
     try {
-      const response = await api.get('/inventory/movements', params);
+      const response = await api.get('/inventory/movements', { params });
       if (response.success) {
         movements.value = response.data;
       }
@@ -129,7 +129,7 @@ export const useInventory = () => {
     loading.value = true;
     error.value = null;
     try {
-      const response = await api.get('/inventory/stock/sales-analysis', params);
+      const response = await api.get('/inventory/stock/sales-analysis', { params });
       return response;
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch sales analysis';
