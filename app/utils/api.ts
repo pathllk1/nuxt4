@@ -106,13 +106,7 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
         }
         return retryRes.json()
       }
-      if (typeof window !== 'undefined') {
-        const currentPath = window.location.pathname
-        const publicRoutes = ['/', '/login', '/signup', '/about', '/contact', '/weather', '/privacy', '/terms']
-        if (!publicRoutes.includes(currentPath)) {
-          window.location.href = '/login'
-        }
-      }
+      auth.logout({ redirect: true });
       throw new Error('Session expired. Please login again.')
     }
 

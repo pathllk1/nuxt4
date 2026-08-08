@@ -96,8 +96,8 @@ const error = ref<string | null>(null);
 const { login, isAuthenticated, initAuth } = useAuth();
 const router = useRouter();
 
-onMounted(() => {
-  initAuth();
+onMounted(async () => {
+  await initAuth();
   if (isAuthenticated.value) {
     router.replace('/dashboard');
   }

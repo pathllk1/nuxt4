@@ -1,11 +1,11 @@
 import { defineNuxtRouteMiddleware, navigateTo } from '#app';
 import { useAuth } from '../composables/useAuth';
 
-export default defineNuxtRouteMiddleware((to) => {
+export default defineNuxtRouteMiddleware(async (to) => {
   const { isAuthenticated, initAuth } = useAuth();
 
   // Run initAuth on both SSR (reads cookies) and Client (reads cookies + localStorage fallback)
-  initAuth();
+  await initAuth();
 
   const publicRoutes = ['/', '/login', '/signup', '/about', '/contact', '/weather', '/privacy', '/terms'];
   const isPublicRoute = publicRoutes.includes(to.path) || Boolean(to.meta?.public);

@@ -68,6 +68,8 @@ export const useAuth = () => {
                   cookieFirm.value = defaultFirmId;
                 }
               }
+            } else {
+              logout({ redirect: false });
             }
           } catch {
             // Profile fetch failed — attempt quiet silent refresh without redirecting public route visitors
@@ -90,22 +92,31 @@ export const useAuth = () => {
                       cookieFirm.value = defaultFirmId;
                     }
                   }
+                } else {
+                  logout({ redirect: false });
                 }
               } catch {
-                // Secondary profile fetch failed — ignore
+                logout({ redirect: false });
               }
+            } else {
+              logout({ redirect: false });
             }
           }
         }
       }
     } catch (e) {
       console.error('Failed to restore auth state:', e);
+      logout({ redirect: false });
     } finally {
       isInitialized.value = true;
     }
   };
 
-  const isAuthenticated = computed(() => !!user.value || !!accessToken.value);
+  const isAuthenticated = computed(() => {
+    if (user.value) return true;
+    if (!isInitialized.value && accessToken.value) return true;
+    return false;
+  });
 
   const selectFirm = (firmId: string) => {
     selectedFirmId.value = firmId;
@@ -211,9 +222,15 @@ export const useAuth = () => {
     refreshToken.value = null;
     selectedFirmId.value = null;
     cookieFirm.value = null;
+    cookieAccess.value = null;
 
     if (import.meta.client) {
       localStorage.removeItem('active_firm_id');
+      try {
+        document.cookie = 'access_token=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'refresh_token=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'active_firm_id=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      } catch {}
     }
 
     const currentPath = router.currentRoute.value?.path || '';

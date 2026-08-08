@@ -134,7 +134,7 @@ const firmItems = computed(() => {
 });
 
 onMounted(async () => {
-  initAuth();
+  await initAuth();
   if (isAuthenticated.value) {
     router.replace('/dashboard');
     return;
