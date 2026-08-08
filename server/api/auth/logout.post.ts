@@ -1,17 +1,36 @@
-import { defineEventHandler, readBody, createError, getHeader } from 'h3';
+import { defineEventHandler, readBody, createError, getHeader, getCookie, setCookie } from 'h3';
 import Session from '../../models/Session';
+import { connectDB } from '../../plugins/mongodb';
 import { verifyRefreshToken, getTokenExpiration } from '../../utils/jwt';
 import { blacklistToken, logSecurityEvent } from '../../utils/security';
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  const { refreshToken } = body || {};
+  await connectDB();
+  const body = await readBody(event).catch(() => ({}));
+  const refreshToken = (body && body.refreshToken) || getCookie(event, 'refresh_token');
+
+  // Always expire cookies on response regardless of token validity
+  const isProduction = process.env.NODE_ENV === 'production';
+  setCookie(event, 'access_token', '', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0
+  });
+  setCookie(event, 'refresh_token', '', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0
+  });
 
   if (!refreshToken) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Refresh token required'
-    });
+    return {
+      success: true,
+      message: 'Logged out successfully'
+    };
   }
 
   try {
@@ -35,12 +54,12 @@ export default defineEventHandler(async (event) => {
     const refreshExp = getTokenExpiration(refreshToken) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await blacklistToken(refreshToken, 'refresh', decoded.id, 'User logout', refreshExp);
 
-    // Blacklist current access token if provided in authorization headers
+    // Blacklist current access token if provided in authorization headers or cookie
     const authHeader = getHeader(event, 'authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const accessToken = authHeader.split(' ')[1];
-      const accessExp = getTokenExpiration(accessToken as any) || new Date(Date.now() + 15 * 60 * 1000);
-      await blacklistToken(accessToken as any, 'access', decoded.id, 'User logout', accessExp);
+    const accessToken = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.split(' ')[1] : getCookie(event, 'access_token');
+    if (accessToken) {
+      const accessExp = getTokenExpiration(accessToken) || new Date(Date.now() + 15 * 60 * 1000);
+      await blacklistToken(accessToken, 'access', decoded.id, 'User logout', accessExp);
     }
 
     // Log logout event
@@ -56,8 +75,7 @@ export default defineEventHandler(async (event) => {
       message: 'Logged out successfully'
     };
   } catch (error) {
-    console.error('Logout error:', error);
-    // Ignore verification errors on logout for UX, just return success
+    console.error('Logout processing warning:', error);
     return {
       success: true,
       message: 'Logged out successfully'

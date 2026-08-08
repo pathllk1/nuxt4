@@ -27,7 +27,7 @@ const SecurityLogSchema: Schema = new Schema({
     required: true,
     enum: ['login_success', 'login_failed', 'logout', 'token_refresh', 'token_revoked',
            'password_change', 'suspicious_activity', 'rate_limit_exceeded', 'invalid_token',
-           'session_created', 'session_terminated', 'anomaly_detected']
+           'session_created', 'session_terminated', 'anomaly_detected', 'signup', 'signup_failed']
   },
   ipAddress: { type: String, required: true, index: true },
   userAgent: { type: String, required: true },

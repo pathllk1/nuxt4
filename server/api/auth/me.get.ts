@@ -12,7 +12,11 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const user = await User.findById(userPayload.id).select('-password').populate({ path: 'firms.firm', model: Firm });
+    const user = await User.findById(userPayload.id)
+      .select('-password -securitySettings')
+      .populate({ path: 'firms.firm', model: Firm })
+      .lean();
+
     if (!user) {
       throw createError({
         statusCode: 404,
@@ -20,7 +24,20 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    return user;
+    const firmsMapped = (user.firms || []).map((f: any) => ({
+      firm: f.firm,
+      grade: f.grade || 'Staff'
+    }));
+
+    return {
+      id: user._id.toString(),
+      _id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      firms: firmsMapped
+    };
   } catch (error: any) {
     console.error('getMe API error:', error);
     throw createError({

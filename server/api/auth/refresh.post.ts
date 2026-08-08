@@ -1,6 +1,7 @@
 import { defineEventHandler, readBody, createError, getRequestIP, getHeader, getCookie, setCookie } from 'h3';
 import User from '../../models/User';
 import Session from '../../models/Session';
+import { connectDB } from '../../plugins/mongodb';
 import { 
   verifyRefreshToken, 
   generateAccessToken, 
@@ -18,6 +19,7 @@ import {
 } from '../../utils/security';
 
 export default defineEventHandler(async (event) => {
+  await connectDB();
   const body = await readBody(event).catch(() => ({}));
   const refreshToken = (body && body.refreshToken) || getCookie(event, 'refresh_token');
 
@@ -78,7 +80,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // 4. Fetch User
-    const user = await (User as any).findById(decoded.id);
+    const user = await User.findById(decoded.id);
     if (!user || user.status === 'suspended' || user.status === 'pending') {
       throw createError({
         statusCode: 401,
@@ -98,7 +100,12 @@ export default defineEventHandler(async (event) => {
 
     // 5. Generate new access token
     const deviceFingerprint = generateDeviceFingerprint(event);
-    const newAccessToken = generateAccessToken(user, deviceFingerprint);
+    const reqFirmId = getHeader(event, 'x-firm-id') || getHeader(event, 'X-Firm-ID');
+    const targetFirmId = reqFirmId || (user.firms && user.firms.length > 0 ? ((user.firms[0]?.firm as any)?._id?.toString() || user.firms[0]?.firm?.toString()) : undefined);
+    const targetMembership = (user.firms || []).find((f: any) => ((f.firm as any)?._id?.toString() || f.firm?.toString()) === targetFirmId);
+    const targetGrade = targetMembership?.grade;
+
+    const newAccessToken = generateAccessToken(user, deviceFingerprint, targetFirmId, targetGrade);
     let newRefreshToken = refreshToken;
 
     // Token rotation matches ROTATE_REFRESH_TOKEN in .env
@@ -135,14 +142,14 @@ export default defineEventHandler(async (event) => {
       severity: 'low'
     });
 
-    // Set refreshed cookies
+    // Set refreshed cookies with HttpOnly
     const isProduction = process.env.NODE_ENV === 'production';
     setCookie(event, 'access_token', newAccessToken, {
-      httpOnly: false,
+      httpOnly: true,
       secure: isProduction,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 7
+      maxAge: 15 * 60 // 15 minutes
     });
     if (shouldRotate) {
       setCookie(event, 'refresh_token', newRefreshToken, {

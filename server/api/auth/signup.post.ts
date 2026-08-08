@@ -1,33 +1,21 @@
 import { defineEventHandler, readBody, createError, getRequestIP } from 'h3';
 import User from '../../models/User';
 import Firm from '../../models/Firm';
+import { connectDB } from '../../plugins/mongodb';
 import { logSecurityEvent } from '../../utils/security';
+import { signupSchema, validateBody } from '../../utils/validation';
 
 export default defineEventHandler(async (event) => {
+  await connectDB();
   const body = await readBody(event);
-  const { name, email, password, firmId } = body || {};
+  const { name, email, password, firmId } = validateBody(signupSchema, body);
 
   try {
-    // 1. Inputs validation
-    if (!name || !email || !password) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Name, email, and password are required'
-      });
-    }
-
-    if (password.length < 8) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Password must be at least 8 characters long'
-      });
-    }
-
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       await logSecurityEvent({
         email,
-        action: 'login_failed',
+        action: 'signup_failed',
         event,
         metadata: { reason: 'User already exists' },
         severity: 'low'
@@ -36,13 +24,6 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 400,
         statusMessage: 'User already exists'
-      });
-    }
-
-    if (!firmId) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Firm selection is required'
       });
     }
 
@@ -102,7 +83,7 @@ export default defineEventHandler(async (event) => {
     console.error('Signup API error:', error);
     await logSecurityEvent({
       email,
-      action: 'login_failed',
+      action: 'signup_failed',
       event,
       metadata: { reason: 'Server error', error: String(error) },
       severity: 'high'

@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { useAuth } from '../composables/useAuth'
 
 export const isGlobalLoading = ref(false)
 let activeRequestsCount = 0
@@ -22,7 +23,6 @@ export const decodeTokenPayload = (token: string): any | null => {
   try {
     const payload = token.split('.')[1]
     if (!payload) return null
-    // Handle standard base64 and base64url encoding safely
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
     const jsonPayload = decodeURIComponent(
       atob(base64)
@@ -40,70 +40,13 @@ export const decodeTokenPayload = (token: string): any | null => {
   }
 }
 
-const getCookieValue = (name: string): string | null => {
-  if (typeof document === 'undefined') return null
-  const value = `; ${document.cookie}`
-  const parts = value.split(`; ${name}=`)
-  if (parts.length === 2) {
-    const val = parts.pop()?.split(';').shift()
-    if (val) return decodeURIComponent(val)
-  }
-  return null
-}
-
-// Fix #5/#9: Tokens are now stored in HttpOnly cookies set by the server.
-// Client can still read non-HttpOnly cookies for backward compatibility during migration.
-// localStorage is no longer used for token storage (prevents XSS theft).
-const getAccessToken = (): string | null => {
-  if (typeof window === 'undefined') return null
-  return getCookieValue('access_token')
-}
-
-const getRefreshToken = (): string | null => {
-  if (typeof window === 'undefined') return null
-  return getCookieValue('refresh_token')
-}
-
 const getActiveFirmId = (): string | null => {
   if (typeof window === 'undefined') return null
-  const firm = localStorage.getItem('active_firm_id') || getCookieValue('active_firm_id')
+  const auth = useAuth()
+  if (auth.selectedFirmId.value) return auth.selectedFirmId.value
+  const firm = localStorage.getItem('active_firm_id')
   if (firm && firm !== 'undefined' && firm !== 'null') return firm
   return null
-}
-
-let refreshPromise: Promise<string | null> | null = null
-
-const refreshTokenLogic = async (): Promise<string | null> => {
-  if (refreshPromise) return refreshPromise
-
-  refreshPromise = (async () => {
-    const latestRefreshToken = getRefreshToken()
-    try {
-      const res = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: latestRefreshToken || undefined }),
-        credentials: 'same-origin'
-      })
-      if (!res.ok) throw new Error('Refresh failed')
-      const data = await res.json()
-      if (data?.accessToken) {
-        if (typeof window !== 'undefined') {
-          document.cookie = `access_token=${encodeURIComponent(data.accessToken)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
-        }
-        return data.accessToken
-      }
-      return 'refreshed'
-    } catch {
-      return null
-    }
-  })()
-
-  try {
-    return await refreshPromise
-  } finally {
-    refreshPromise = null
-  }
 }
 
 const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => {
@@ -119,7 +62,8 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
     if (qs) finalUrl += (finalUrl.includes('?') ? '&' : '?') + qs
   }
 
-  const token = getAccessToken()
+  const auth = useAuth()
+  const token = auth.accessToken.value
   const firmId = getActiveFirmId()
 
   const headers: Record<string, string> = {
@@ -131,18 +75,28 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
   if (firmId) headers['X-Firm-ID'] = firmId
 
   const performRequest = async (retry = true): Promise<any> => {
-    const response = await fetch(finalUrl, { ...options, headers })
+    const response = await fetch(finalUrl, {
+      ...options,
+      headers,
+      credentials: options.credentials || 'include'
+    })
 
     const newToken = response.headers.get('x-new-access-token') || response.headers.get('X-New-Access-Token')
     if (newToken) {
-      // Server already sets HttpOnly cookie — just note the token was refreshed
+      auth.accessToken.value = newToken
     }
 
     if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh') && retry) {
-      const freshToken = await refreshTokenLogic()
-      if (freshToken) {
-        headers['Authorization'] = `Bearer ${freshToken}`
-        const retryRes = await fetch(finalUrl, { ...options, headers })
+      const rotated = await auth.rotateToken().catch(() => null)
+      if (rotated?.accessToken) {
+        if (auth.accessToken.value) {
+          headers['Authorization'] = `Bearer ${auth.accessToken.value}`
+        }
+        const retryRes = await fetch(finalUrl, {
+          ...options,
+          headers,
+          credentials: options.credentials || 'include'
+        })
         if (!retryRes.ok) {
           const errData = await retryRes.json().catch(() => ({}))
           throw new Error(errData.message || `Retry failed! status: ${retryRes.status}`)
@@ -153,7 +107,11 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
         return retryRes.json()
       }
       if (typeof window !== 'undefined') {
-        window.location.href = '/login'
+        const currentPath = window.location.pathname
+        const publicRoutes = ['/', '/login', '/signup', '/about', '/contact', '/weather', '/privacy', '/terms']
+        if (!publicRoutes.includes(currentPath)) {
+          window.location.href = '/login'
+        }
       }
       throw new Error('Session expired. Please login again.')
     }

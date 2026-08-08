@@ -73,7 +73,7 @@ export default defineEventHandler(async (event) => {
   try {
     const decoded = verifyAccessToken(token as any);
     
-    // Validate device fingerprint if present in token
+    // Validate device fingerprint if present in token (soft enforcement - log warning only)
     if (decoded.deviceFingerprint) {
       const currentFingerprint = generateDeviceFingerprint(event);
       if (decoded.deviceFingerprint !== currentFingerprint) {
@@ -83,22 +83,17 @@ export default defineEventHandler(async (event) => {
           action: 'anomaly_detected',
           event,
           metadata: { 
-            reason: 'Device fingerprint mismatch in access token',
+            reason: 'Device fingerprint mismatch in access token (weak signal - warning only)',
             expected: decoded.deviceFingerprint,
             received: currentFingerprint
           },
-          severity: 'critical'
-        });
-        
-        throw createError({
-          statusCode: 401,
-          statusMessage: 'Unauthorized: Device fingerprint mismatch'
+          severity: 'medium'
         });
       }
     }
     
     // Check if user account is locked
-    const user = await (User as any).findById(decoded.id);
+    const user = await User.findById(decoded.id);
     if (!user) {
       throw createError({
         statusCode: 401,
@@ -197,38 +192,43 @@ export default defineEventHandler(async (event) => {
           } as any);
 
           if (session) {
-            const user = await (User as any).findById(decodedRefresh.id);
-            if (user) {
-              // RT-B2: Enforce status and account lock checks during silent refresh
-              if (user.role !== 'superadmin') {
-                if (user.status === 'pending') {
-                  throw createError({
-                    statusCode: 403,
-                    statusMessage: 'Your account is pending administrator approval before you can log in.'
-                  });
+              const user = await User.findById(decodedRefresh.id);
+              if (user) {
+                // RT-B2: Enforce status and account lock checks during silent refresh
+                if (user.role !== 'superadmin') {
+                  if (user.status === 'pending') {
+                    throw createError({
+                      statusCode: 403,
+                      statusMessage: 'Your account is pending administrator approval before you can log in.'
+                    });
+                  }
+                  if (user.status === 'suspended') {
+                    const oldExp = getTokenExpiration(refreshTokenValue) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                    await blacklistToken(refreshTokenValue, 'refresh', user._id.toString(), 'User suspended', oldExp);
+                    throw createError({
+                      statusCode: 403,
+                      statusMessage: 'Your account has been suspended by an administrator.'
+                    });
+                  }
                 }
-                if (user.status === 'suspended') {
-                  const oldExp = getTokenExpiration(refreshTokenValue) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-                  await blacklistToken(refreshTokenValue, 'refresh', user._id.toString(), 'User suspended', oldExp);
-                  throw createError({
-                    statusCode: 403,
-                    statusMessage: 'Your account has been suspended by an administrator.'
-                  });
-                }
-              }
 
-              if (user.isAccountLocked) {
-                const lockedUntil = user.securitySettings?.accountLockedUntil;
-                if (lockedUntil && new Date(lockedUntil) > new Date()) {
-                  throw createError({
-                    statusCode: 403,
-                    statusMessage: 'Account locked due to suspicious activity'
-                  });
+                if (user.isAccountLocked) {
+                  const lockedUntil = user.securitySettings?.accountLockedUntil;
+                  if (lockedUntil && new Date(lockedUntil) > new Date()) {
+                    throw createError({
+                      statusCode: 403,
+                      statusMessage: 'Account locked due to suspicious activity'
+                    });
+                  }
                 }
-              }
 
-              const deviceFingerprint = generateDeviceFingerprint(event);
-              const newAccessToken = generateAccessToken(user, deviceFingerprint);
+                const deviceFingerprint = generateDeviceFingerprint(event);
+                const reqFirmId = getHeader(event, 'x-firm-id') || getHeader(event, 'X-Firm-ID');
+                const targetFirmId = reqFirmId || (user.firms && user.firms.length > 0 ? ((user.firms[0]?.firm as any)?._id?.toString() || user.firms[0]?.firm?.toString()) : undefined);
+                const targetMembership = (user.firms || []).find((f: any) => ((f.firm as any)?._id?.toString() || f.firm?.toString()) === targetFirmId);
+                const targetGrade = targetMembership?.grade;
+
+                const newAccessToken = generateAccessToken(user, deviceFingerprint, targetFirmId, targetGrade);
 
               // RT-B1: Support token rotation in silent refresh when enabled
               let newRefreshToken = refreshTokenValue;

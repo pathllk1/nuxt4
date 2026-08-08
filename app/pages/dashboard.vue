@@ -147,9 +147,9 @@ const fetchData = async () => {
     ])
 
     const totalStockValue = stockRes.data?.reduce((sum: number, s: any) => sum + (s.total || 0), 0) || 0;
-    stats.value[0]!.value = `₹${totalStockValue.toLocaleString()}`
-    stats.value[1]!.value = billsRes.data?.length.toString() || '0'
-    stats.value[2]!.value = logsRes.logs?.length.toString() || '0'
+    stats.value[0]!.value = `₹${Math.round(totalStockValue).toLocaleString('en-IN')}`
+    stats.value[1]!.value = (billsRes.total ?? billsRes.count ?? billsRes.data?.length ?? 0).toString()
+    stats.value[2]!.value = (logsRes.logs?.length ?? 0).toString()
 
     activity.value = logsRes.logs || []
 
@@ -177,7 +177,24 @@ watch([selectedFirmId, isOwnerOrAdmin], () => {
 })
 
 const formatDate = (date: string) => {
-  return new Date(date).toLocaleString()
+  if (!date) return ''
+  try {
+    return new Date(date).toLocaleString()
+  } catch {
+    return String(date)
+  }
+}
+
+const getSeverityColor = (severity: string) => {
+  if (severity === 'critical' || severity === 'high') return 'error'
+  if (severity === 'medium') return 'warning'
+  return 'primary'
+}
+
+const getSeverityIcon = (severity: string) => {
+  if (severity === 'critical' || severity === 'high') return 'i-heroicons-exclamation-triangle'
+  if (severity === 'medium') return 'i-heroicons-exclamation-circle'
+  return 'i-heroicons-information-circle'
 }
 
 const openMemberModal = (member: any = null) => {
@@ -261,7 +278,7 @@ const deleteMember = async (userId: string) => {
       <div v-if="!selectedFirmId" class="text-amber-600 bg-amber-50 border border-amber-200/60 px-3 py-1 rounded-full text-xs font-semibold animate-pulse">
         Please select a firm to view data
       </div>
-      <UButton v-else icon="i-heroicons-plus" label="New Contact" to="/contacts/new" size="sm" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold" />
+      <UButton v-else icon="i-heroicons-user-group" label="Master Roll" to="/master-roll" size="sm" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold" />
     </div>
 
     <!-- Stats Grid -->
@@ -284,21 +301,21 @@ const deleteMember = async (userId: string) => {
         <template #header>
           <div class="flex items-center justify-between">
             <h3 class="font-bold text-sm text-slate-800 uppercase tracking-wider">Security Logs</h3>
-            <UButton variant="ghost" color="neutral" size="xs" label="View all" class="text-indigo-600 hover:bg-indigo-50 font-bold" />
+            <span class="text-[10px] text-slate-400 font-medium">Recent 5 Events</span>
           </div>
         </template>
         
         <div v-if="activity.length > 0" class="space-y-2">
           <div v-for="log in activity" :key="log._id" class="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition border border-transparent hover:border-slate-100">
             <div class="w-7 h-7 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100">
-              <UIcon :name="log.severity === 'high' ? 'i-heroicons-exclamation-triangle' : 'i-heroicons-information-circle'" 
-                     :class="log.severity === 'high' ? 'text-rose-500 w-4 h-4' : 'text-indigo-500 w-4 h-4'" />
+              <UIcon :name="getSeverityIcon(log.severity)" 
+                     :class="log.severity === 'high' || log.severity === 'critical' ? 'text-rose-500 w-4 h-4' : log.severity === 'medium' ? 'text-amber-500 w-4 h-4' : 'text-indigo-500 w-4 h-4'" />
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-xs font-bold text-slate-700 truncate capitalize">{{ log.action.replace(/_/g, ' ') }}</p>
               <p class="text-[10px] text-slate-400 mt-0.5">{{ formatDate(log.timestamp) }}</p>
             </div>
-            <UBadge variant="subtle" size="sm" :color="log.severity === 'high' ? 'error' : 'primary'" class="text-[9px] uppercase font-bold py-0 px-1.5">
+            <UBadge variant="subtle" size="sm" :color="getSeverityColor(log.severity)" class="text-[9px] uppercase font-bold py-0 px-1.5">
               {{ log.severity }}
             </UBadge>
           </div>
@@ -390,9 +407,9 @@ const deleteMember = async (userId: string) => {
           </template>
           <template #actions-cell="{ row }">
             <div class="flex items-center gap-1">
-              <UButton v-if="row.original.userId !== user?.id && !(row.original.grade === 'Owner' && activeFirmGrade !== 'Owner')" 
+              <UButton v-if="String(row.original.userId) !== String(user?.id) && !(row.original.grade === 'Owner' && activeFirmGrade !== 'Owner')" 
                        size="xs" variant="ghost" color="neutral" icon="i-heroicons-pencil-square" @click="openMemberModal(row.original)" />
-              <UButton v-if="row.original.userId !== user?.id && !(row.original.grade === 'Owner' && activeFirmGrade !== 'Owner')" 
+              <UButton v-if="String(row.original.userId) !== String(user?.id) && !(row.original.grade === 'Owner' && activeFirmGrade !== 'Owner')" 
                        size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="deleteMember(row.original.userId)" />
             </div>
           </template>
@@ -401,7 +418,8 @@ const deleteMember = async (userId: string) => {
     </UCard>
 
     <!-- Member Add/Edit Modal -->
-    <UModal v-model:open="isMemberModalOpen" 
+    <UModal :open="isMemberModalOpen"
+            @update:open="(val) => isMemberModalOpen = val" 
             :title="selectedMember ? 'Edit Firm Member' : 'Add New Member to Firm'"
             :ui="{ content: 'sm:max-w-md bg-white border border-slate-200/80 rounded-2xl shadow-xl' }">
       <template #body>

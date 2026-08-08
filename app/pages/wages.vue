@@ -7,8 +7,7 @@ import WagesReport from '~/components/wages/WagesReport.vue'
 import AdvancesManagement from '~/components/wages/AdvancesManagement.vue'
 
 definePageMeta({
-  layout: 'default',
-  middleware: 'auth'
+  layout: 'default'
 })
 
 useHead({

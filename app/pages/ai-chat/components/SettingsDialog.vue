@@ -106,6 +106,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useAiKeys } from '../../../composables/useAiKeys';
 import type { ProviderInfo } from '../../../composables/useAiChat';
+import { api } from '../../../utils/api';
 
 interface KeyState {
   value: string;
@@ -188,10 +189,7 @@ const handleSave = async (providerId: string) => {
   try {
     let valid = false;
     if (providerId === 'tavily') {
-      const result: any = await $fetch('/api/ai-chat/validate-tavily-key', {
-        method: 'POST',
-        body: { apiKey: k.value }
-      }).catch(() => null);
+      const result: any = await api.post('/ai-chat/validate-tavily-key', { apiKey: k.value }).catch(() => null);
       valid = result?.data?.valid === true;
     } else {
       valid = await aiKeys.validateKey(providerId, k.value);

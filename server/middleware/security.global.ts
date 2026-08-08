@@ -131,16 +131,19 @@ export default defineEventHandler(async (event) => {
     sanitizeQueryParams(query);
   }
 
-  // Sanitize request body (if POST, PUT, PATCH method)
+  // Sanitize request body (if POST, PUT, PATCH method and not file upload)
   const method = event.method;
   if (['POST', 'PUT', 'PATCH'].includes(method)) {
-    try {
-      const body = await readBody(event);
-      if (body && typeof body === 'object') {
-        sanitizeObject(body);
+    const contentType = event.node.req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data')) {
+      try {
+        const body = await readBody(event);
+        if (body && typeof body === 'object') {
+          sanitizeObject(body);
+        }
+      } catch (e) {
+        // Ignored if body is empty or not parsable JSON
       }
-    } catch (e) {
-      // Ignored if body is empty or not parsable JSON
     }
   }
 });

@@ -20,15 +20,9 @@ import { loginSchema, validateBody } from '../../utils/validation';
 export default defineEventHandler(async (event) => {
   await connectDB();
   const body = await readBody(event);
-  const { email, password } = body || {};
+  const { email, password } = validateBody(loginSchema, body);
 
   try {
-    if (!email || !password) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Email and password are required'
-      });
-    }
 
     const user = await User.findOne({ email } as any).populate({ path: 'firms.firm', model: Firm });
     if (!user) {
@@ -215,14 +209,14 @@ export default defineEventHandler(async (event) => {
         grade: f.grade || 'Staff'
       }));
 
-    // Set cookies for tokens — access_token is readable by client JS for Authorization headers
+    // Set HttpOnly cookies for security (15m for access token, 30d for refresh token)
     const isProduction = process.env.NODE_ENV === 'production';
     setCookie(event, 'access_token', accessToken, {
-      httpOnly: false,
+      httpOnly: true,
       secure: isProduction,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 7 // 7 days
+      maxAge: 15 * 60 // 15 minutes (matches JWT expiry)
     });
     setCookie(event, 'refresh_token', refreshToken, {
       httpOnly: true,

@@ -67,8 +67,8 @@ export const generateAccessToken = (
   return jwt.sign(payload, getAccessTokenSecret(), { 
     algorithm: 'HS256',
     expiresIn: process.env.ACCESS_TOKEN_EXPIRY || '15m',
-    issuer: 'fastify-auth-server',
-    audience: 'fastify-client'
+    issuer: process.env.JWT_ISSUER || 'nxt-auth-server',
+    audience: process.env.JWT_AUDIENCE || 'nxt-client'
   } as jwt.SignOptions);
 };
 
@@ -85,8 +85,8 @@ export const generateRefreshToken = (
   return jwt.sign(payload, getRefreshTokenSecret(), { 
     algorithm: 'HS512',
     expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d',
-    issuer: 'fastify-auth-server',
-    audience: 'fastify-client'
+    issuer: process.env.JWT_ISSUER || 'nxt-auth-server',
+    audience: process.env.JWT_AUDIENCE || 'nxt-client'
   } as jwt.SignOptions);
 };
 
@@ -94,8 +94,8 @@ export const verifyAccessToken = (token: string): TokenPayload => {
   try {
     const decoded = jwt.verify(token, getAccessTokenSecret(), { 
       algorithms: ['HS256'],
-      issuer: 'fastify-auth-server',
-      audience: 'fastify-client'
+      issuer: process.env.JWT_ISSUER || 'nxt-auth-server',
+      audience: process.env.JWT_AUDIENCE || 'nxt-client'
     }) as TokenPayload;
     
     return decoded;
@@ -115,8 +115,8 @@ export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
   try {
     const decoded = jwt.verify(token, getRefreshTokenSecret(), { 
       algorithms: ['HS512'],
-      issuer: 'fastify-auth-server',
-      audience: 'fastify-client'
+      issuer: process.env.JWT_ISSUER || 'nxt-auth-server',
+      audience: process.env.JWT_AUDIENCE || 'nxt-client'
     }) as RefreshTokenPayload;
     
     return decoded;

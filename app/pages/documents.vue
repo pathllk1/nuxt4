@@ -28,7 +28,7 @@
     </div>
 
     <!-- Tab 1: Dashboard View -->
-    <div v-show="activeTab === 'dashboard'" class="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+    <div v-if="activeTab === 'dashboard'" class="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
       <!-- 4 KPI Cards Grid -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <!-- Card 1: Total Documents -->
@@ -210,7 +210,7 @@
     </div>
 
     <!-- Tab 2: Details View -->
-    <div v-show="activeTab === 'details'" class="flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto pr-0.5">
+    <div v-if="activeTab === 'details'" class="flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto pr-0.5">
       <!-- Filters/Search Bar -->
       <DocFilters 
         v-model:searchQuery="searchQuery"

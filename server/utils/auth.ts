@@ -20,9 +20,9 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
     });
   }
 
-  // Determine firm ID: prefer header override, then JWT claim
+  // Determine firm ID: prefer header override, then JWT claim (firmId or firm_id)
   const headerFirmId = getHeader(event, 'x-firm-id') || getHeader(event, 'X-Firm-ID');
-  const firmId = headerFirmId || userPayload?.firm_id;
+  const firmId = headerFirmId || userPayload?.firmId || userPayload?.firm_id;
 
   if (!firmId || firmId === 'undefined' || firmId === 'null') {
     throw createError({ 
@@ -31,7 +31,7 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
     });
   }
 
-  // Fix #6: Validate that the authenticated user actually belongs to the requested firm
+  // Validate that the authenticated user actually belongs to the requested firm
   // This prevents IDOR where a user sets x-firm-id to another firm's ID
   const firmOid = new mongoose.Types.ObjectId(String(firmId));
   const userDoc = await User.findOne({
