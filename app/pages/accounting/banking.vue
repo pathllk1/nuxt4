@@ -210,9 +210,17 @@
         <div v-else-if="excelSheets.length > 0" class="flex-grow flex flex-col gap-3 min-h-0">
           <!-- Controls Header Bar -->
           <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-zinc-800 pb-3 shrink-0">
-            <!-- Sheet selector tabs -->
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="text-[9px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-widest mr-1">Document Stream:</span>
+            <!-- Sheet selector tabs & Bank Badge -->
+            <div class="flex items-center gap-2 flex-wrap">
+              <UBadge
+                v-if="detectedBankInfo"
+                :color="detectedBankInfo.isFallbackParser ? 'warning' : 'primary'"
+                variant="subtle"
+                size="sm"
+                class="font-black text-[10px] tracking-wider rounded-lg px-2.5 py-1 uppercase"
+              >
+                🏛️ {{ detectedBankInfo.bankName }} ({{ detectedBankInfo.confidence }} Confidence)
+              </UBadge>
               <button
                 v-for="(sheet, idx) in excelSheets"
                 :key="idx"
@@ -402,6 +410,29 @@
 
     <!-- Banking Account Modal -->
     <BankingModal v-model="showModal" :edit-data="selectedAcc" @saved="fetchData" />
+
+    <!-- PASSWORD PROMPT MODAL FOR ENCRYPTED PDF STATEMENTS -->
+    <UModal v-model:open="showPasswordModal" :ui="{ content: 'w-full sm:max-w-md' }">
+      <template #content>
+        <div class="bg-white dark:bg-zinc-900 rounded-xl overflow-hidden shadow-2xl border border-slate-100 dark:border-zinc-800 p-6 space-y-4 text-left">
+          <div class="flex items-center gap-3 text-amber-600 dark:text-amber-400">
+            <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 shrink-0" />
+            <h3 class="text-sm font-black uppercase tracking-wider">Protected PDF Statement</h3>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-zinc-400">
+            This PDF statement is password protected. Please enter the password (e.g. DOB DDMMYYYY or Customer ID) to unlock and extract.
+          </p>
+          <div>
+            <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Statement Password</label>
+            <UInput v-model="pdfPasswordInput" type="password" placeholder="Enter password..." size="sm" class="w-full font-bold" @keyup.enter="submitPdfPassword" />
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <UButton label="Cancel" color="neutral" variant="ghost" size="xs" class="font-bold cursor-pointer" @click="showPasswordModal = false" />
+            <UButton label="Unlock & Parse" color="warning" variant="solid" size="xs" class="font-bold cursor-pointer" @click="submitPdfPassword" />
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <!-- ONE-CLICK VOUCHER CREATION MODAL OVERLAY -->
     <UModal v-model:open="showVoucherModal" :ui="{ content: 'w-full sm:max-w-4xl' }">
@@ -1042,118 +1073,102 @@ async function parsePDFStatement(buffer: ArrayBuffer): Promise<SheetData> {
   };
 }
 
-const onExcelFileSelected = (event: Event) => {
+const detectedBankInfo = ref<{ bankCode: string; bankName: string; confidence: string; isFallbackParser: boolean } | null>(null);
+const showPasswordModal = ref<boolean>(false);
+const pdfPasswordInput = ref<string>('');
+
+const onExcelFileSelected = async (event: Event) => {
   const target = event.target as HTMLInputElement | null;
   if (!target || !target.files || target.files.length === 0) return;
   const file = target.files[0] as File | undefined;
   if (!file) return;
 
   excelFile.value = file;
+  await processStatementFile(file);
+};
+
+const submitPdfPassword = async () => {
+  if (!excelFile.value || !pdfPasswordInput.value) return;
+  await processStatementFile(excelFile.value, pdfPasswordInput.value);
+};
+
+const processStatementFile = async (file: File, password?: string) => {
   excelLoading.value = true;
   excelPage.value = 1;
 
-  if (file.name.toLowerCase().endsWith('.pdf')) {
-    const reader = new FileReader();
-    reader.onload = async (e: ProgressEvent<FileReader>) => {
+  try {
+    let clientExtractedText = '';
+    if (file.name.toLowerCase().endsWith('.pdf')) {
       try {
-        const buffer = e.target?.result as ArrayBuffer;
-        if (!buffer) return;
-        const pdfData = await parsePDFStatement(buffer);
-        excelSheets.value = [pdfData];
-        selectedSheetIndex.value = 0;
-        excelLoading.value = false;
-        toast.add({ title: 'PDF Loaded', description: `Parsed ${pdfData.rows.length - 1} transaction rows from PDF statement`, color: 'success' });
-      } catch (err: any) {
-        toast.add({ title: 'PDF Parse Error', description: err.message, color: 'error' });
-        excelLoading.value = false;
-        resetExcel();
+        const arrayBuf = await file.arrayBuffer();
+        const pdfData = await parsePDFStatement(arrayBuf);
+        if (pdfData && pdfData.rows) {
+          clientExtractedText = pdfData.rows.map(r => Array.isArray(r) ? r.join(' ') : String(r)).join('\n');
+        }
+      } catch (e) {
+        console.warn('Client PDF extraction fallback:', e);
       }
-    };
-    reader.readAsArrayBuffer(file);
-  } else if (file.name.toLowerCase().endsWith('.csv')) {
-    const reader = new FileReader();
-    reader.onload = (e: ProgressEvent<FileReader>) => {
-      try {
-        const text = (e.target?.result as string) || '';
-        const rows = parseCSV(text);
-        let maxColCount = 0;
-        rows.forEach(r => {
-          if (r.length > maxColCount) maxColCount = r.length;
-        });
-        const paddedRows = rows.map(r => {
-          const newRow = [...r];
-          while (newRow.length < maxColCount) {
-            newRow.push('');
-          }
-          return newRow.map(cell => cell.trim());
-        });
+    }
 
-        excelSheets.value = [{ name: file.name, rows: paddedRows, maxColCount }];
-        selectedSheetIndex.value = 0;
-        excelLoading.value = false;
-      } catch (err: any) {
-        toast.add({ title: 'CSV Parse Error', description: err.message, color: 'error' });
-        excelLoading.value = false;
-        resetExcel();
-      }
-    };
-    reader.readAsText(file);
-  } else {
-    const reader = new FileReader();
-    reader.onload = async (e: ProgressEvent<FileReader>) => {
-      try {
-        const buffer = e.target?.result as ArrayBuffer;
-        if (!buffer) return;
-        const ExcelJS: any = await import('exceljs');
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(buffer);
-        excelWorkbook.value = workbook;
+    const formData = new FormData();
+    formData.append('statement', file);
+    if (password) formData.append('password', password);
+    if (clientExtractedText) formData.append('rawText', clientExtractedText);
 
-        const parsedSheets: SheetData[] = [];
-        workbook.eachSheet((worksheet: any) => {
-          const rows: any[][] = [];
-          let maxColCount = 0;
+    const res = await $fetch<any>('/api/accounting/bank-import/parse', {
+      method: 'POST',
+      body: formData
+    });
 
-          worksheet.eachRow({ includeEmpty: true }, (row: any) => {
-            row.eachCell({ includeEmpty: true }, (cell: any, colNumber: number) => {
-              if (colNumber > maxColCount) maxColCount = colNumber;
-            });
-          });
+    if (res && res.requiresPassword) {
+      excelLoading.value = false;
+      showPasswordModal.value = true;
+      toast.add({ title: 'Password Required', description: res.message || 'PDF statement is password protected', color: 'warning' });
+      return;
+    }
 
-          worksheet.eachRow({ includeEmpty: true }, (row: any) => {
-            const rowValues: any[] = [];
-            for (let c = 1; c <= maxColCount; c++) {
-              const cell = row.getCell(c);
-              let val: any = cell.value;
-              if (val && typeof val === 'object') {
-                if (val.result !== undefined) {
-                  val = val.result;
-                } else if (val.text !== undefined) {
-                  val = val.text;
-                } else if (val instanceof Date) {
-                  val = val.toLocaleDateString();
-                } else {
-                  val = JSON.stringify(val);
-                }
-              }
-              rowValues.push(val !== undefined && val !== null ? String(val) : '');
-            }
-            rows.push(rowValues);
-          });
+    showPasswordModal.value = false;
+    pdfPasswordInput.value = '';
 
-          parsedSheets.push({ name: worksheet.name, rows, maxColCount });
-        });
+    if (res && res.success && res.transactions) {
+      detectedBankInfo.value = {
+        bankCode: res.bankCode,
+        bankName: res.bankName,
+        confidence: res.confidence,
+        isFallbackParser: res.isFallbackParser
+      };
 
-        excelSheets.value = parsedSheets;
-        selectedSheetIndex.value = 0;
-        excelLoading.value = false;
-      } catch (err: any) {
-        toast.add({ title: 'Excel Parse Error', description: err.message, color: 'error' });
-        excelLoading.value = false;
-        resetExcel();
-      }
-    };
-    reader.readAsArrayBuffer(file);
+      const tableRows: any[][] = [];
+      tableRows.push(['Date', 'Description', 'Ref / UTR', 'Debit (DR)', 'Credit (CR)', 'Running Balance']);
+
+      res.transactions.forEach((t: any) => {
+        tableRows.push([
+          t.date,
+          cleanDescriptionEnabled.value ? (t.cleanedNarration || t.rawNarration) : t.rawNarration,
+          t.refNo || '',
+          t.debit > 0 ? t.debit.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
+          t.credit > 0 ? t.credit.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '',
+          t.balance !== undefined ? t.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''
+        ]);
+      });
+
+      excelSheets.value = [{
+        name: `${res.bankName} Statement`,
+        rows: tableRows,
+        maxColCount: 6
+      }];
+      selectedSheetIndex.value = 0;
+      excelLoading.value = false;
+      toast.add({
+        title: 'Statement Parsed',
+        description: `Auto-detected ${res.bankName} (${res.confidence} confidence). Parsed ${res.count} transactions cleanly.`,
+        color: 'success'
+      });
+    }
+  } catch (err: any) {
+    toast.add({ title: 'Parse Error', description: err.data?.statusMessage || err.message, color: 'error' });
+    excelLoading.value = false;
+    resetExcel();
   }
 };
 
