@@ -22,6 +22,7 @@ export async function runPostProcessing(
 
   for (let i = 0; i < transactions.length; i++) {
     const curr = transactions[i];
+    if (!curr) continue;
 
     // SHA-256 Duplicate Check
     if (seenHashes.has(curr.rowHash)) {
@@ -33,7 +34,7 @@ export async function runPostProcessing(
     // Running Balance Integrity Check
     if (i > 0 && curr.balance !== undefined) {
       const prev = transactions[i - 1];
-      if (prev.balance !== undefined) {
+      if (prev && prev.balance !== undefined) {
         const expectedBal = Math.round((prev.balance + curr.credit - curr.debit) * 100) / 100;
         const actualBal = Math.round(curr.balance * 100) / 100;
         if (Math.abs(expectedBal - actualBal) > 0.05) {

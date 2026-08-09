@@ -12,9 +12,9 @@ export async function parseGenericPdf(input: ParserInput): Promise<RawTransactio
     if (!datePattern.test(text)) continue;
 
     const match = text.match(/^(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4})\s+(.*)/);
-    if (!match) continue;
+    if (!match || !match[1]) continue;
 
-    const dateStr = match[1];
+    const dateStr: string = match[1];
     const remainder = match[2] || '';
 
     const amountItems = row.items.filter(i => /^[\d,]+\.\d{2}$/.test(i.text.trim()));
@@ -32,7 +32,7 @@ export async function parseGenericPdf(input: ParserInput): Promise<RawTransactio
         if (text.includes('CR') || text.includes('CREDIT')) credit = val;
         else debit = val;
       }
-    } else if (amountItems.length === 1) {
+    } else if (amountItems.length === 1 && amountItems[0]) {
       balance = parseFloat(amountItems[0].text.replace(/,/g, ''));
     }
 

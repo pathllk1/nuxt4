@@ -48,13 +48,14 @@ export function normalize(
 }
 
 export function parseIndianDate(input: string): string {
-  if (!input) return new Date().toISOString().split('T')[0];
+  const fallback = new Date().toISOString().split('T')[0] || '';
+  if (!input) return fallback;
 
   const cleaned = input.trim();
 
   // 1. DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
   const numMatch = cleaned.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})$/);
-  if (numMatch) {
+  if (numMatch && numMatch[1] && numMatch[2] && numMatch[3]) {
     const day = numMatch[1].padStart(2, '0');
     const month = numMatch[2].padStart(2, '0');
     let year = numMatch[3];
@@ -69,7 +70,7 @@ export function parseIndianDate(input: string): string {
   };
 
   const textMatch = cleaned.match(/^(\d{1,2})[-/. ]([A-Za-z]{3})[-/. ](\d{2,4})$/);
-  if (textMatch) {
+  if (textMatch && textMatch[1] && textMatch[2] && textMatch[3]) {
     const day = textMatch[1].padStart(2, '0');
     const mStr = textMatch[2].toLowerCase();
     const month = monthMap[mStr] || '01';
@@ -81,11 +82,11 @@ export function parseIndianDate(input: string): string {
   try {
     const d = new Date(cleaned);
     if (!isNaN(d.getTime())) {
-      return d.toISOString().split('T')[0];
+      return d.toISOString().split('T')[0] || fallback;
     }
   } catch {}
 
-  return new Date().toISOString().split('T')[0];
+  return fallback;
 }
 
 export function computeRowHash(date: string, narration: string, debit: number, credit: number): string {

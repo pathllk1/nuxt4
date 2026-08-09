@@ -51,7 +51,8 @@ export async function parseBoiPdf(input: ParserInput): Promise<RawTransaction[]>
       const match = text.match(/^(\d{2}[-/.]\d{2}[-/.]\d{4})\s+(.*)/);
       if (!match) continue;
 
-      const dateStr = match[1];
+      const dateStr = match[1] || '';
+      if (!dateStr) continue;
       const remainder = match[2] || '';
 
       // Find amount items matching numbers with decimals (e.g. 15,000.00 or 4,27,86,261.89)

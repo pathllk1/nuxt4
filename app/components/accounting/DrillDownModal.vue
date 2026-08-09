@@ -227,7 +227,7 @@ const onExportExcel = async () => {
               <td class="py-2.5 px-4 text-center">
                 <UButton 
                   size="xs" 
-                  color="indigo" 
+                  color="primary" 
                   variant="subtle" 
                   label="Statement" 
                   icon="i-heroicons-document-magnifying-glass"

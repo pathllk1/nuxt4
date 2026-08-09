@@ -33,7 +33,7 @@ export const BANK_SIGNATURES: BankSignature[] = [
     name: 'ICICI Bank',
     nameMatches: [/icici bank/i, /\bICICI\b/i],
     ifscPrefix: 'ICIC',
-    headerSignature: /transaction remarks.*withdrawal amount.*deposit amount/i
+    headerSignature: /transaction remarks|particulars.*withdrawal.*deposit/i
   },
   {
     code: 'AXIS',
@@ -50,6 +50,13 @@ export const BANK_SIGNATURES: BankSignature[] = [
     headerSignature: /txn date.*remarks.*debit.*credit/i
   },
   {
+    code: 'UBI',
+    name: 'Union Bank of India',
+    nameMatches: [/union bank of india/i, /\bunion bank\b/i, /\bvyom\b/i, /\bUBI\b/i],
+    ifscPrefix: 'UBIN',
+    headerSignature: /date.*particulars.*chq.*withdrawal.*deposit/i
+  },
+  {
     code: 'BOB',
     name: 'Bank of Baroda',
     nameMatches: [/bank of baroda/i, /\bBOB\b/i],
@@ -61,7 +68,7 @@ export const BANK_SIGNATURES: BankSignature[] = [
     name: 'Kotak Mahindra Bank',
     nameMatches: [/kotak mahindra bank/i, /\bKOTAK\b/i],
     ifscPrefix: 'KKBK',
-    headerSignature: /date.*description.*amount.*dr\/cr/i
+    headerSignature: /date.*description|narration.*amount.*dr\/cr/i
   }
 ];
 
