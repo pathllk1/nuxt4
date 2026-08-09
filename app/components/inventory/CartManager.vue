@@ -153,7 +153,7 @@
 
     <footer class="grid-footer">
       <button type="button" @click="$emit('add-item')">
-        + Add Items (F2) &nbsp;|&nbsp; Select Party (F3) &nbsp;|&nbsp; Charges (F4) &nbsp;|&nbsp; Save (F8) &nbsp;|&nbsp; Reset (F9) &nbsp;|&nbsp; 📖 Guidelines (Ctrl + ,)
+        + Add Items (F2) &nbsp;|&nbsp; Select Party (F3) &nbsp;|&nbsp; Charges (F4) &nbsp;|&nbsp; Save (F8) &nbsp;|&nbsp; Reset (F9) &nbsp;|&nbsp; 📖 (Ctrl + ,)
       </button>
       <button v-if="mode === 'sales' && !state.isReturnMode" type="button" @click="$emit('add-service')">
         Add Service (F5)

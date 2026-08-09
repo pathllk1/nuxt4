@@ -20,10 +20,11 @@
       <button 
         type="button" 
         @click="openGuidelines" 
-        class="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all transform active:scale-95 shadow-sm"
+        title="System Guidelines (Ctrl + ,)"
+        aria-label="System Guidelines (Ctrl + ,)"
+        class="w-6 h-6 inline-flex items-center justify-center bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs transition-all transform active:scale-95 shadow-sm"
       >
-        <span>📖</span>
-        <span>Guidelines (Ctrl + ,)</span>
+        📖
       </button>
       <NuxtLink to="/contact" class="text-white hover:text-teal-200 transition duration-300 no-underline text-xs font-medium">
         Contact Us
