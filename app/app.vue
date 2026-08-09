@@ -2,6 +2,7 @@
 import { onMounted } from 'vue';
 import { isGlobalLoading } from './utils/api';
 import GlobalToolsHost from './components/tools/GlobalToolsHost.vue';
+import GlobalGuidelineDrawer from './components/guidelines/GlobalGuidelineDrawer.vue';
 
 const colorMode = useColorMode();
 colorMode.preference = 'light';
@@ -54,6 +55,7 @@ onMounted(() => {
       </Transition>
 
       <GlobalToolsHost />
+      <GlobalGuidelineDrawer />
     </ClientOnly>
 
     <NuxtLayout>

@@ -15,8 +15,16 @@
       &copy; {{ currentYear }} BusinessPro Suite. All rights reserved.
     </p>
 
-    <!-- Right-Aligned Links -->
-    <div class="space-x-4">
+    <!-- Right-Aligned Links & Guidelines Shortcut -->
+    <div class="flex items-center gap-4">
+      <button 
+        type="button" 
+        @click="openGuidelines" 
+        class="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all transform active:scale-95 shadow-sm"
+      >
+        <span>📖</span>
+        <span>Guidelines (Ctrl + ,)</span>
+      </button>
       <NuxtLink to="/contact" class="text-white hover:text-teal-200 transition duration-300 no-underline text-xs font-medium">
         Contact Us
       </NuxtLink>
@@ -28,4 +36,10 @@
 import { computed } from 'vue';
 
 const currentYear = computed(() => new Date().getFullYear());
+
+function openGuidelines() {
+  if (import.meta.client) {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }));
+  }
+}
 </script>
