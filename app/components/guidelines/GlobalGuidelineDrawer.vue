@@ -36,44 +36,47 @@
           </button>
         </header>
 
-        <!-- Body with Sidebar Layout -->
-        <div class="flex-1 flex overflow-hidden">
-          <!-- Left Sidebar Menu -->
-          <aside class="w-64 bg-white dark:bg-zinc-850 border-r border-slate-200 dark:border-zinc-800 p-4 space-y-2 shrink-0 overflow-y-auto">
-            <div class="px-3 py-1.5 text-[10px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-widest">
+        <!-- Body with Responsive Layout -->
+        <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
+          <!-- Navigation Menu: Horizontal bar on mobile (< md), Left Sidebar on desktop (>= md) -->
+          <aside class="w-full md:w-64 bg-white dark:bg-zinc-850 border-b md:border-b-0 md:border-r border-slate-200 dark:border-zinc-800 p-3 md:p-4 shrink-0 overflow-x-auto md:overflow-y-auto custom-scrollbar">
+            <div class="hidden md:block px-3 py-1.5 text-[10px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-widest">
               Guideline Modules
             </div>
 
-            <button
-              v-for="item in menuItems"
-              :key="item.id"
-              type="button"
-              @click="activeTab = item.id"
-              class="w-full px-4 py-3 rounded-2xl text-left font-bold text-xs flex items-center justify-between transition-all"
-              :class="[
-                activeTab === item.id 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
-                  : 'text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
-              ]"
-            >
-              <div class="flex items-center gap-2.5">
-                <span class="text-base">{{ item.icon }}</span>
-                <span>{{ item.title }}</span>
-              </div>
-              <span 
-                v-if="item.badge" 
-                class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider"
-                :class="activeTab === item.id ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-zinc-700 text-slate-600 dark:text-zinc-400'"
+            <div class="flex flex-row md:flex-col gap-2 min-w-max md:min-w-0">
+              <button
+                v-for="item in menuItems"
+                :key="item.id"
+                type="button"
+                @click="activeTab = item.id"
+                class="px-3.5 py-2 md:px-4 md:py-3 rounded-xl md:rounded-2xl text-left font-bold text-xs flex items-center gap-2 md:justify-between transition-all shrink-0"
+                :class="[
+                  activeTab === item.id 
+                    ? 'bg-blue-600 text-white shadow-md md:shadow-lg shadow-blue-500/20' 
+                    : 'text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 bg-slate-50 dark:bg-zinc-800/50 md:bg-transparent'
+                ]"
               >
-                {{ item.badge }}
-              </span>
-            </button>
+                <div class="flex items-center gap-2 md:gap-2.5">
+                  <span class="text-sm md:text-base">{{ item.icon }}</span>
+                  <span class="whitespace-nowrap">{{ item.title }}</span>
+                </div>
+                <span 
+                  v-if="item.badge" 
+                  class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider hidden sm:inline-block"
+                  :class="activeTab === item.id ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-zinc-700 text-slate-600 dark:text-zinc-400'"
+                >
+                  {{ item.badge }}
+                </span>
+              </button>
+            </div>
           </aside>
 
           <!-- Right Content Area -->
-          <main class="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/50 dark:bg-zinc-900/50">
+          <main class="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-slate-50/50 dark:bg-zinc-900/50">
             <SalesGuideline v-if="activeTab === 'sales'" />
             <InventoryGuideline v-else-if="activeTab === 'inventory'" />
+            <WagesGuideline v-else-if="activeTab === 'wages'" />
           </main>
         </div>
       </div>
@@ -86,6 +89,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 import SalesGuideline from './SalesGuideline.vue';
 import InventoryGuideline from './InventoryGuideline.vue';
+import WagesGuideline from './WagesGuideline.vue';
 
 const isOpen = ref(false);
 const activeTab = ref('sales');
@@ -93,7 +97,8 @@ const { saveFocus, restoreFocus } = useKeyboardNavigation();
 
 const menuItems = [
   { id: 'sales', title: 'Sales Billing Guide', icon: '🧾', badge: 'Core' },
-  { id: 'inventory', title: 'Stock & Batches', icon: '📦', badge: 'Items' }
+  { id: 'inventory', title: 'Stock & Batches', icon: '📦', badge: 'Items' },
+  { id: 'wages', title: 'Wages & Payroll', icon: '👷', badge: 'HR' }
 ];
 
 function toggleDrawer() {

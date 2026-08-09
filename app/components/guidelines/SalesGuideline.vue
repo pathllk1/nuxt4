@@ -182,7 +182,7 @@
         Master Keyboard Shortcuts Reference Matrix
       </h2>
 
-      <div class="bg-white dark:bg-zinc-800 rounded-3xl border border-slate-200 dark:border-zinc-700 overflow-hidden shadow-sm">
+      <div class="bg-white dark:bg-zinc-800 rounded-3xl border border-slate-200 dark:border-zinc-700 overflow-x-auto shadow-sm">
         <table class="w-full text-left text-xs border-collapse">
           <thead>
             <tr class="bg-slate-100 dark:bg-zinc-800 text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider border-b border-slate-200 dark:border-zinc-700">
