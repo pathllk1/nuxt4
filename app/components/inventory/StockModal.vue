@@ -30,6 +30,7 @@
               placeholder="Filter by Name, HSN, Part No or OEM..." 
               class="w-full pl-10 pr-6 py-2.5 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:border-blue-600 focus:ring-4 focus:ring-blue-50/50 outline-none transition-all font-bold text-xs text-slate-800 dark:text-zinc-200 placeholder-slate-400 shadow-inner"
               ref="searchInput"
+              @keydown="handleSearchKeydown"
             />
             <div class="absolute left-3.5 top-3 text-slate-400 group-focus-within:text-blue-600 transition-colors">
                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -37,7 +38,7 @@
                </svg>
             </div>
             <div class="absolute right-3.5 top-3 flex gap-2">
-               <span class="px-1.5 py-0.5 bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-zinc-400 rounded font-mono text-[9px] font-bold">ESC to close</span>
+               <span class="px-1.5 py-0.5 bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-zinc-400 rounded font-mono text-[9px] font-bold">Insert: New Item • F3/Ctrl+E: Edit Item • ↑↓: Navigate • Enter: Select • ESC: Close</span>
             </div>
          </div>
       </div>
@@ -60,12 +61,15 @@
                   </tr>
                </thead>
                <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-                  <template v-for="stock in filteredStocks" :key="stock._id">
+                  <template v-for="(stock, index) in filteredStocks" :key="stock._id">
                      <!-- Main Stock Item Row -->
-                     <tr 
-                       class="hover:bg-blue-50/20 dark:hover:bg-blue-950/20 transition-colors cursor-pointer group text-xs font-bold text-slate-700 dark:text-zinc-300"
-                       @click="toggleStock(stock)"
-                     >
+                      <tr 
+                        class="transition-colors cursor-pointer group text-xs font-bold text-slate-700 dark:text-zinc-300"
+                        :class="[
+                          isStockActive(stock) ? 'bg-blue-100/90 dark:bg-blue-950/90 ring-2 ring-blue-500 ring-inset shadow-md' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
+                        ]"
+                        @click="toggleStock(stock)"
+                      >
                         <td class="px-4 py-1.5">
                            <div class="font-black text-slate-900 dark:text-white text-xs leading-tight">{{ stock.item }}</div>
                            <div class="flex items-center gap-1.5 mt-0.5 text-[9px] text-slate-400 dark:text-zinc-500 font-semibold">
@@ -159,7 +163,10 @@
                                     <tr 
                                       v-for="batch in stock.batches" 
                                       :key="batch._id || batch.batch"
-                                      class="hover:bg-blue-50/20 dark:hover:bg-blue-950/20 transition-colors cursor-pointer"
+                                      class="transition-colors cursor-pointer"
+                                      :class="[
+                                         isBatchActive(stock, batch) ? 'bg-indigo-100 dark:bg-indigo-900/90 ring-2 ring-indigo-500 font-extrabold text-indigo-900 dark:text-white' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
+                                      ]"
                                       @click.stop="selectRow(stock, batch)"
                                     >
                                        <td class="px-3 py-1">
@@ -200,11 +207,11 @@
 
       <!-- High-Fidelity Footer -->
       <div class="p-4 px-6 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-850/50 flex justify-between items-center">
-         <button @click="$emit('create-stock')" class="group flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white px-4 py-1.5 rounded-xl transition-all duration-300">
-            <div class="w-6 h-6 bg-white/50 rounded-lg flex items-center justify-center group-hover:bg-white/20 transition-colors shadow-sm">
-               <span class="text-base font-light">+</span>
+         <button @click="$emit('create-stock')" type="button" class="group flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white px-4 py-1.5 rounded-xl transition-all duration-300">
+            <div class="w-6 h-6 bg-white/50 rounded-lg flex items-center justify-center group-hover:bg-white/20 transition-colors shadow-sm font-black text-xs">
+               +
             </div>
-            <span class="text-[10px] font-black uppercase tracking-widest">Register New stock Item</span>
+            <span class="text-[10px] font-black uppercase tracking-widest">+ Register New Stock Item (F5 / Ctrl+N)</span>
          </button>
          <button @click="$emit('update:modelValue', false)" class="px-4 py-1.5 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 text-slate-500 dark:text-zinc-400 hover:text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm">
             Close Browser
@@ -228,12 +235,18 @@ const search = ref('');
 const searchInput = ref<HTMLInputElement | null>(null);
 
 const expandedStockId = ref<string | null>(null);
+const selectedIndex = ref(0);
 
 watch(() => props.modelValue, (isOpen) => {
   if (isOpen) {
     expandedStockId.value = null;
+    selectedIndex.value = 0;
     nextTick(() => searchInput.value?.focus());
   }
+});
+
+watch(search, () => {
+  selectedIndex.value = 0;
 });
 
 const filteredStocks = computed(() => {
@@ -246,6 +259,82 @@ const filteredStocks = computed(() => {
     s.oem?.toLowerCase().includes(q)
   );
 });
+
+const flatNavigableList = computed(() => {
+  const list: Array<{ type: 'stock' | 'batch'; stock: any; batch?: any }> = [];
+  for (const stock of filteredStocks.value) {
+    list.push({ type: 'stock', stock });
+    if (expandedStockId.value === stock._id && stock.batches && stock.batches.length > 1) {
+      for (const batch of stock.batches) {
+        list.push({ type: 'batch', stock, batch });
+      }
+    }
+  }
+  return list;
+});
+
+function isStockActive(stock: any) {
+  const current = flatNavigableList.value[selectedIndex.value];
+  return current?.type === 'stock' && current?.stock?._id === stock._id;
+}
+
+function isBatchActive(stock: any, batch: any) {
+  const current = flatNavigableList.value[selectedIndex.value];
+  if (current?.type !== 'batch') return false;
+  if (current.stock?._id !== stock._id) return false;
+  if (batch._id && current.batch?._id) return current.batch._id === batch._id;
+  return current.batch?.batch === batch.batch && current.batch?.rate === batch.rate;
+}
+
+function handleSearchKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (flatNavigableList.value.length > 0) {
+      selectedIndex.value = (selectedIndex.value + 1) % flatNavigableList.value.length;
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (flatNavigableList.value.length > 0) {
+      selectedIndex.value = (selectedIndex.value - 1 + flatNavigableList.value.length) % flatNavigableList.value.length;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (flatNavigableList.value.length > 0 && selectedIndex.value < flatNavigableList.value.length) {
+      const item = flatNavigableList.value[selectedIndex.value];
+      if (item.type === 'batch') {
+        selectRow(item.stock, item.batch);
+      } else {
+        const stock = item.stock;
+        if (stock.batches && stock.batches.length > 1) {
+          if (expandedStockId.value === stock._id) {
+            selectRow(stock, stock.batches[0]);
+          } else {
+            expandedStockId.value = stock._id;
+            selectedIndex.value = selectedIndex.value + 1;
+          }
+        } else {
+          selectRow(stock, stock.batches?.[0] || null);
+        }
+      }
+    }
+  } else if (e.key === 'F5' || e.key === 'Insert' || (e.altKey && e.key.toLowerCase() === 'c') || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
+    e.preventDefault();
+    emit('create-stock');
+  } else if (e.key === 'F3' || ((e.ctrlKey || e.altKey) && e.key.toLowerCase() === 'e')) {
+    e.preventDefault();
+    if (flatNavigableList.value.length > 0 && selectedIndex.value < flatNavigableList.value.length) {
+      const item = flatNavigableList.value[selectedIndex.value];
+      emit('edit-stock', item.stock);
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    if (expandedStockId.value) {
+      expandedStockId.value = null;
+    } else {
+      emit('update:modelValue', false);
+    }
+  }
+}
 
 function toggleStock(stock: any) {
   if (stock.batches && stock.batches.length > 1) {

@@ -14,7 +14,7 @@
       <div class="header-fields">
         <label v-if="!state.isReturnMode && !isEditMode">
           <span>Document Type</span>
-          <select v-model="state.meta.btype" @change="onDocTypeChange">
+          <select ref="firstInputRef" v-model="state.meta.btype" @change="onDocTypeChange">
             <option value="SALES">Sales Invoice</option>
             <option value="PROFORMA">Proforma Invoice</option>
             <option value="DELIVERY_NOTE">Delivery Note</option>
@@ -48,7 +48,7 @@
           </select>
         </label>
         <label v-if="state.gstEnabled" class="inline-toggle">
-          <input v-model="state.meta.reverseCharge" type="checkbox" />
+          <input v-model="state.meta.reverseCharge" type="checkbox" @keydown.enter.prevent="onReverseChargeEnter" />
           <span>Reverse Charge</span>
         </label>
         <div class="gst-status" :class="{ off: !state.gstEnabled }">
@@ -88,7 +88,7 @@
           <div class="field-grid">
             <label>
               <span>Reference / PO</span>
-              <input v-model="state.meta.referenceNo" type="text" placeholder="Optional" />
+              <input ref="referenceInputRef" v-model="state.meta.referenceNo" type="text" placeholder="Optional" />
             </label>
             <label>
               <span>Vehicle no</span>
@@ -99,8 +99,8 @@
               <input v-model="state.meta.dispatchThrough" type="text" placeholder="Transport, courier, self" />
             </label>
             <label class="wide">
-              <span>Narration</span>
-              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes"></textarea>
+              <span>Narration (Shift+Enter for new line)</span>
+              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes... (Enter jumps to Cart / Stock F2)" @keydown.enter="onNarrationEnter"></textarea>
             </label>
           </div>
         </section>
@@ -173,15 +173,23 @@
         </header>
         <div class="search-box">
           <input 
+            ref="partySearchInputRef"
             v-model="partySearchQuery" 
             type="text" 
-            placeholder="Search by name, GSTIN, state..." 
+            placeholder="Search by name, GSTIN, state... (↑↓ Navigate • Enter Select • ESC Close)" 
             class="search-input" 
-            @keydown.stop
+            @keydown="handlePartyDrawerKeydown"
           />
         </div>
         <div class="party-list">
-          <button v-for="party in filteredParties" :key="party._id" class="party-option" type="button" @click="onPartySelect(party)">
+          <button 
+            v-for="(party, idx) in filteredParties" 
+            :key="party._id" 
+            class="party-option" 
+            :class="{ active: partySelectedIndex === idx }" 
+            type="button" 
+            @click="onPartySelect(party)"
+          >
             <strong>{{ party.name || party.firm }}</strong>
             <span>{{ party.gstin || 'UNREGISTERED' }} | {{ party.state || '-' }}</span>
           </button>
@@ -205,9 +213,17 @@ import PartyModal from '@/components/accounting/PartyModal.vue';
 import OtherChargesModal from '@/components/accounting/OtherChargesModal.vue';
 import { api } from '@/utils/api';
 
+import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
+
 const router = useRouter();
 const route = useRoute();
 const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo } = useBillingState();
+const { saveFocus, restoreFocus, trackPageFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
+
+const firstInputRef = ref<HTMLElement | null>(null);
+const referenceInputRef = ref<HTMLElement | null>(null);
+const partySearchInputRef = ref<HTMLInputElement | null>(null);
+const partySelectedIndex = ref(0);
 
 const showStockModal = ref(false);
 const showPartyModal = ref(false);
@@ -216,10 +232,72 @@ const showPrintModal = ref(false);
 const createdBill = ref<any>(null);
 const isEditMode = ref(false);
 
+watch(showPartyModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+    partySelectedIndex.value = 0;
+    nextTick(() => partySearchInputRef.value?.focus());
+  } else {
+    partySearchQuery.value = '';
+  }
+});
+
+watch(partySearchQuery, () => {
+  partySelectedIndex.value = 0;
+});
+
+function onReverseChargeEnter() {
+  state.meta.reverseCharge = !state.meta.reverseCharge;
+  saveFocus();
+  showPartyModal.value = true;
+}
+
+function onNarrationEnter(e: KeyboardEvent) {
+  if (e.shiftKey) return; // Allow Shift+Enter for multiline notes
+  e.preventDefault();
+  if (state.cart.length > 0) {
+    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input') as HTMLElement;
+    if (firstQtyInput) {
+      firstQtyInput.focus();
+      if (firstQtyInput instanceof HTMLInputElement) firstQtyInput.select();
+      return;
+    }
+  }
+  saveFocus();
+  showStockModal.value = true;
+}
+
+function handlePartyDrawerKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0) {
+      partySelectedIndex.value = (partySelectedIndex.value + 1) % filteredParties.value.length;
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0) {
+      partySelectedIndex.value = (partySelectedIndex.value - 1 + filteredParties.value.length) % filteredParties.value.length;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0 && partySelectedIndex.value < filteredParties.value.length) {
+      const selected = filteredParties.value[partySelectedIndex.value];
+      onPartySelect(selected);
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    showPartyModal.value = false;
+    restoreFocus();
+  }
+}
+
 function closePrintModal() {
   showPrintModal.value = false;
   if (isEditMode.value) {
     router.push('/accounting/bills');
+  } else {
+    resetFormState();
+    nextTick(() => firstInputRef.value?.focus());
   }
 }
 
@@ -284,11 +362,6 @@ const filteredParties = computed(() => {
   });
 });
 
-watch(showPartyModal, (val) => {
-  if (!val) {
-    partySearchQuery.value = '';
-  }
-});
 const showCreatePartyModal = ref(false);
 const showCreateStockModal = ref(false);
 const showEditStockModal = ref(false);
@@ -296,18 +369,60 @@ const showOtherChargesModal = ref(false);
 const selectedStockToEdit = ref<any>(null);
 const loading = ref(false);
 
+watch(showOtherChargesModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  }
+});
+
 function onEditStock(stock: any) {
   selectedStockToEdit.value = stock;
   showEditStockModal.value = true;
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'F2') { e.preventDefault(); showStockModal.value = true; }
-  else if (e.key === 'F3') { e.preventDefault(); showPartyModal.value = true; }
-  else if (e.key === 'F4') { e.preventDefault(); showOtherChargesModal.value = true; }
-  else if (e.key === 'F5') { e.preventDefault(); addServiceLine(); }
-  else if (e.key === 'F8') { e.preventDefault(); saveInvoice(); }
-  else if (e.key === 'F9') { e.preventDefault(); resetForm(); }
+  if (e.key === 'F2') {
+    e.preventDefault();
+    saveFocus();
+    showStockModal.value = true;
+  } else if (e.key === 'F3') {
+    e.preventDefault();
+    saveFocus();
+    showPartyModal.value = true;
+  } else if (e.key === 'F4') {
+    e.preventDefault();
+    saveFocus();
+    showOtherChargesModal.value = true;
+  } else if (e.key === 'F5') {
+    e.preventDefault();
+    addServiceLine();
+  } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
+    e.preventDefault();
+    if (canSave.value) saveInvoice();
+  } else if (e.key === 'F9') {
+    e.preventDefault();
+    resetForm();
+  } else if (e.key === 'Enter') {
+    const activeEl = document.activeElement as HTMLElement;
+    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed')) {
+      const container = document.querySelector('.invoice-page') as HTMLElement;
+      handleEnterKey(e, container);
+    }
+  } else if (e.key === 'Backspace') {
+    const activeEl = document.activeElement as HTMLElement;
+    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed')) {
+      const container = document.querySelector('.invoice-page') as HTMLElement;
+      handleBackspaceKey(e, container);
+    }
+  }
 };
 
 onMounted(async () => {
@@ -325,6 +440,13 @@ onMounted(async () => {
   } else {
     await fetchNextBillNo('SALES');
   }
+
+  trackPageFocus();
+
+  // Initial Page Load 1st Input Auto-Focus
+  nextTick(() => {
+    firstInputRef.value?.focus();
+  });
 });
 
 async function onDocTypeChange() {
@@ -431,6 +553,10 @@ function onPartySelect(party: any) {
   determineGstBillType();
   populateConsigneeFromBillTo();
   showPartyModal.value = false;
+  nextTick(() => {
+    referenceInputRef.value?.focus();
+    if (referenceInputRef.value instanceof HTMLInputElement) referenceInputRef.value.select();
+  });
 }
 
 function onPartyLocationChange() {
@@ -466,6 +592,14 @@ function onStockSelect(stock: any) {
     });
   }
   showStockModal.value = false;
+  nextTick(() => {
+    const lastIndex = state.cart.length - 1;
+    const qtyInput = document.querySelector(`tr[data-row="${lastIndex}"] input.qty-input`) as HTMLElement;
+    if (qtyInput) {
+      qtyInput.focus();
+      if (qtyInput instanceof HTMLInputElement) qtyInput.select();
+    }
+  });
 }
 
 function addServiceLine() {

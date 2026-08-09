@@ -19,7 +19,7 @@
         </thead>
         <tbody v-if="state.cart.length">
           <template v-for="(item, index) in state.cart" :key="index">
-            <tr>
+            <tr :data-row="index">
               <td class="index-col">{{ index + 1 }}</td>
               <td class="description-cell">
                 <input
@@ -29,10 +29,12 @@
                   type="text"
                   :placeholder="mode === 'purchase' ? 'Item name' : 'Service name'"
                   @input="$emit('service-input', { index, value: item.item })"
+                  @keydown.enter.prevent="onCellEnter($event, index, 'item')"
+                  @keydown.backspace="onCellBackspace($event)"
                 />
                 <div v-else class="item-name">{{ item.item }}</div>
                 <div class="sub-fields">
-                  <input v-if="mode === 'purchase'" v-model="item.batch" class="pill-input" type="text" placeholder="Batch" />
+                  <input v-if="mode === 'purchase'" v-model="item.batch" class="pill-input" type="text" placeholder="Batch" @keydown.enter.prevent="onCellEnter($event, index, 'batch')" @keydown.backspace="onCellBackspace($event)" />
                   <span v-else-if="item.batch" class="data-pill">Batch {{ item.batch }}</span>
                   <span v-if="item.itemType === 'SERVICE'" class="data-pill service">Service</span>
                   <span v-if="item.mrp" class="data-pill">MRP {{ item.mrp }}</span>
@@ -45,6 +47,8 @@
                   class="line-input mono"
                   type="text"
                   placeholder="HSN"
+                  @keydown.enter.prevent="onCellEnter($event, index, 'hsn')"
+                  @keydown.backspace="onCellBackspace($event)"
                 />
                 <span v-else class="mono muted-text">{{ item.hsn || '-' }}</span>
               </td>
@@ -52,11 +56,13 @@
               <td class="num">
                 <input
                   v-model="item[state.isReturnMode ? 'returnQty' : 'qty']"
-                  class="line-input num-input"
+                  class="line-input num-input qty-input"
                   type="number"
                   min="0"
                   step="0.01"
                   :max="state.isReturnMode ? item.qty : undefined"
+                  @keydown.enter.prevent="onCellEnter($event, index, 'qty')"
+                  @keydown.backspace="onCellBackspace($event)"
                 />
               </td>
               <td>
@@ -64,6 +70,8 @@
                   v-if="isEditableDescription(item)"
                   v-model="item.uom"
                   class="line-input unit-input bg-transparent"
+                  @keydown.enter.prevent="onCellEnter($event, index, 'uom')"
+                  @keydown.backspace="onCellBackspace($event)"
                 >
                   <option value="PCS">PCS</option>
                   <option value="NOS">NOS</option>
@@ -76,21 +84,42 @@
                 <span v-else class="unit-text">{{ item.uom }}</span>
               </td>
               <td class="num">
-                <input v-model="item.rate" class="line-input num-input" type="number" min="0" step="0.01" :readonly="state.isReturnMode" />
+                <input 
+                  v-model="item.rate" 
+                  class="line-input num-input rate-input" 
+                  type="number" 
+                  min="0" 
+                  step="0.01" 
+                  :readonly="state.isReturnMode" 
+                  @keydown.enter.prevent="onCellEnter($event, index, 'rate')"
+                  @keydown.backspace="onCellBackspace($event)"
+                />
               </td>
               <td class="num">
-                <input v-model="item.disc" class="line-input num-input" type="number" min="0" max="100" step="0.01" :readonly="state.isReturnMode" />
+                <input 
+                  v-model="item.disc" 
+                  class="line-input num-input disc-input" 
+                  type="number" 
+                  min="0" 
+                  max="100" 
+                  step="0.01" 
+                  :readonly="state.isReturnMode" 
+                  @keydown.enter.prevent="onCellEnter($event, index, state.gstEnabled && isEditableDescription(item) ? 'disc' : 'last')"
+                  @keydown.backspace="onCellBackspace($event)"
+                />
               </td>
               <td v-if="state.gstEnabled" class="num">
                 <input
                   v-if="isEditableDescription(item)"
                   v-model="item.grate"
-                  class="line-input num-input"
+                  class="line-input num-input grate-input"
                   type="number"
                   min="0"
                   max="100"
                   step="0.01"
                   :readonly="state.isReturnMode"
+                  @keydown.enter.prevent="onCellEnter($event, index, 'last')"
+                  @keydown.backspace="onCellBackspace($event)"
                 />
                 <span v-else class="mono muted-text">{{ item.grate || 0 }}%</span>
               </td>
@@ -136,6 +165,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { BillingState } from '@/composables/useBillingState';
+import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
 const props = withDefaults(defineProps<{
   state: BillingState;
@@ -144,7 +174,34 @@ const props = withDefaults(defineProps<{
   mode: 'sales'
 });
 
-defineEmits(['remove-item', 'add-item', 'add-service', 'service-input']);
+const emit = defineEmits(['remove-item', 'add-item', 'add-service', 'service-input']);
+const { handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
+
+function onCellEnter(e: KeyboardEvent, rowIndex: number, cellType: string) {
+  const container = (e.target as HTMLElement).closest('.table-wrap') as HTMLElement;
+  if (!container) return;
+
+  if (cellType === 'last') {
+    const nextRowQtyInput = container.querySelector(`tr[data-row="${rowIndex + 1}"] input.qty-input`) as HTMLElement;
+    if (nextRowQtyInput) {
+      e.preventDefault();
+      nextRowQtyInput.focus();
+      if (nextRowQtyInput instanceof HTMLInputElement) nextRowQtyInput.select();
+    } else {
+      e.preventDefault();
+      emit('add-item');
+    }
+  } else {
+    handleEnterKey(e, container);
+  }
+}
+
+function onCellBackspace(e: KeyboardEvent) {
+  const container = (e.target as HTMLElement).closest('.table-wrap') as HTMLElement;
+  if (container) {
+    handleBackspaceKey(e, container);
+  }
+}
 
 const totalQuantity = computed(() => {
   return props.state.cart.reduce((sum, item) => {
