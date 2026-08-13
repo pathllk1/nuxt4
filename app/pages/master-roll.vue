@@ -784,10 +784,9 @@ const headerActions = [
       </template>
     </UModal>
 
-    <UModal v-model:open="isQualityModalOpen" fullscreen>
+    <UModal v-model:open="isQualityModalOpen" :ui="{ content: 'w-full sm:max-w-5xl' }">
       <template #body>
         <DataQualityAuditModal 
-          :employees="employees" 
           @close="isQualityModalOpen = false" 
           @edit="(emp) => {
             isQualityModalOpen = false;

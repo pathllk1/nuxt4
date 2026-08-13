@@ -58,17 +58,22 @@ export class StockService {
       });
       await stock.save({ session });
     } else {
+      if (itemData.hsn && !stock.hsn) stock.hsn = itemData.hsn;
       if (itemData.pno && !stock.pno) stock.pno = itemData.pno;
       if (itemData.oem && !stock.oem) stock.oem = itemData.oem;
-      if (itemData.hsn) stock.hsn = itemData.hsn;
-      if (itemData.uom) stock.uom = itemData.uom;
-      await stock.save({ session });
     }
 
-    const lineValue = itemData.qty * itemData.rate;
-    const newQty = stock.qty + itemData.qty;
-    const newTotal = stock.total + lineValue;
-    const blendedRate = newQty > 0 ? this.roundRate(newTotal / newQty) : stock.rate;
+    const currentQty = stock.qty;
+    const currentTotal = stock.total;
+    const incomingQty = itemData.qty;
+    const lineValue = incomingQty * itemData.rate;
+
+    const newQty = currentQty + incomingQty;
+    const newTotal = currentTotal + lineValue;
+
+    const blendedRate = newQty > 0
+      ? this.roundRate(newTotal / newQty)
+      : itemData.rate;
 
     const targetBatch = itemData.batch || null;
     const batchExists = Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
@@ -79,15 +84,15 @@ export class StockService {
     if (batchExists) {
       updateQuery = {
         $inc: {
-          'batches.$[elem].qty': itemData.qty,
           'qty': itemData.qty,
-          'total': lineValue
+          'total': lineValue,
+          'batches.$[elem].qty': itemData.qty
         },
         $set: {
-          'batches.$[elem].expiry': (itemData as any).expiry || null,
-          'batches.$[elem].mrp': (itemData as any).mrp || 0,
           rate: blendedRate,
           grate: itemData.grate,
+          'batches.$[elem].rate': itemData.rate,
+          'batches.$[elem].grate': itemData.grate,
           user: user
         }
       };
@@ -96,7 +101,7 @@ export class StockService {
       updateQuery = {
         $push: {
           batches: {
-            batch: targetBatch,
+            batch: itemData.batch || undefined,
             qty: itemData.qty,
             uom: itemData.uom || 'PCS',
             rate: itemData.rate,
@@ -118,9 +123,9 @@ export class StockService {
     }
 
     const updatedStock = await StockModel.findOneAndUpdate(
-      { _id: stock._id, firm_id: firmId },
+      { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
       updateQuery,
-      { session, ...(arrayFilters.length ? { arrayFilters } : {}), new: true }
+      { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
     );
 
     if (!updatedStock) throw new Error(`Failed to update stock for item ${itemData.item}`);
@@ -162,12 +167,17 @@ export class StockService {
   static async updateStockOutward(params: {
     firmId: mongoose.Types.ObjectId,
     itemData: {
-      stockId: mongoose.Types.ObjectId;
+      stockId?: mongoose.Types.ObjectId | string;
+      item: string;
       qty: number;
       rate: number; // Selling price
       grate: number;
       batch?: string;
       narration?: string;
+      hsn?: string;
+      uom?: string;
+      pno?: string;
+      oem?: string;
     },
     billData: { bno: string; bdate: string; supply: string; billId: mongoose.Types.ObjectId; btype: string },
     user: string,
@@ -175,10 +185,41 @@ export class StockService {
   }): Promise<{ stock: IStock, cogsValue: number }> {
     const { firmId, itemData, billData, user, session } = params;
 
-    const stock = await StockModel.findOne({ _id: itemData.stockId, firm_id: firmId }).session(session || null);
-    if (!stock) throw new Error(`Stock record not found for ID: ${itemData.stockId}`);
+    let stock = null;
+    if (itemData.stockId && mongoose.Types.ObjectId.isValid(String(itemData.stockId))) {
+      stock = await StockModel.findOne({
+        _id: new mongoose.Types.ObjectId(String(itemData.stockId)),
+        $or: [{ firm_id: firmId }, { firmId: firmId }]
+      }).session(session || null);
+    }
 
-    const wacCostRate = stock.rate;
+    if (!stock && itemData.item) {
+      stock = await StockModel.findOne({
+        item: { $regex: new RegExp(`^${itemData.item.trim()}$`, 'i') },
+        $or: [{ firm_id: firmId }, { firmId: firmId }]
+      }).session(session || null);
+    }
+
+    if (!stock) {
+      // Auto-create stock entry with 0 opening stock if sold before initial inward
+      stock = new StockModel({
+        firm_id: firmId,
+        item: itemData.item || 'Generic Item',
+        pno: itemData.pno || '',
+        oem: itemData.oem || '',
+        hsn: itemData.hsn || '9999',
+        uom: itemData.uom || 'PCS',
+        qty: 0,
+        rate: itemData.rate || 0,
+        grate: itemData.grate || 18,
+        total: 0,
+        batches: itemData.batch ? [{ batch: itemData.batch, qty: 0, uom: itemData.uom || 'PCS', rate: itemData.rate || 0, grate: itemData.grate || 18 }] : [],
+        user: user
+      });
+      await stock.save({ session });
+    }
+
+    const wacCostRate = stock.rate || itemData.rate || 0;
     const cogsValue = itemData.qty * wacCostRate;
 
     const targetBatch = itemData.batch || null;
@@ -195,7 +236,7 @@ export class StockService {
     }
 
     const updatedStock = await StockModel.findOneAndUpdate(
-      { _id: stock._id, firm_id: firmId },
+      { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
       {
         $inc: incQuery,
         $set: { user }
@@ -203,7 +244,7 @@ export class StockService {
       { 
         session, 
         ...(arrayFilters.length ? { arrayFilters } : {}),
-        new: true 
+        returnDocument: 'after' 
       }
     );
 
@@ -262,9 +303,9 @@ export class StockService {
       }
 
       const updated = await StockModel.findOneAndUpdate(
-        { _id: reg.stock_id, firm_id: reg.firm_id },
+        { _id: reg.stock_id, $or: [{ firm_id: reg.firm_id }, { firmId: reg.firm_id }] },
         { $inc: incQuery, $set: { user } },
-        { session, ...(arrayFilters.length ? { arrayFilters } : {}), new: true }
+        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
       );
       if (updated && updated.qty <= 0) {
         updated.total = 0;
@@ -281,10 +322,69 @@ export class StockService {
       }
 
       await StockModel.findOneAndUpdate(
-        { _id: reg.stock_id, firm_id: reg.firm_id },
+        { _id: reg.stock_id, $or: [{ firm_id: reg.firm_id }, { firmId: reg.firm_id }] },
         { $inc: incQuery, $set: { user } },
-        { session, ...(arrayFilters.length ? { arrayFilters } : {}) }
+        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
       );
+    }
+
+    await StockRegModel.findByIdAndDelete(stockRegId).session(session || null);
+  }
+
+  /**
+   * Helper to rollback a specific stock movement by parameters
+   */
+  static async rollbackStockMovement(params: {
+    firmId: mongoose.Types.ObjectId;
+    movementType: 'SALE' | 'PURCHASE';
+    itemData: {
+      stockId: mongoose.Types.ObjectId;
+      qty: number;
+      rate: number;
+      batch?: string;
+    };
+    session?: mongoose.ClientSession;
+  }) {
+    const { firmId, movementType, itemData, session } = params;
+    const stock = await StockModel.findOne({ _id: itemData.stockId, $or: [{ firm_id: firmId }, { firmId: firmId }] }).session(session || null);
+    if (!stock) return;
+
+    const targetBatch = itemData.batch || null;
+    const batchExists = Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
+
+    if (movementType === 'SALE') {
+      const cogsValue = itemData.qty * (stock.rate || itemData.rate || 0);
+      const incQuery: any = { 'qty': itemData.qty, 'total': cogsValue };
+      let arrayFilters: any[] = [];
+      if (batchExists) {
+        incQuery['batches.$[elem].qty'] = itemData.qty;
+        arrayFilters = [{ 'elem.batch': targetBatch }];
+      }
+
+      await StockModel.findOneAndUpdate(
+        { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
+        { $inc: incQuery },
+        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
+      );
+    } else if (movementType === 'PURCHASE') {
+      const lineValue = itemData.qty * itemData.rate;
+      const incQuery: any = { 'qty': -itemData.qty, 'total': -lineValue };
+      let arrayFilters: any[] = [];
+      if (batchExists) {
+        incQuery['batches.$[elem].qty'] = -itemData.qty;
+        arrayFilters = [{ 'elem.batch': targetBatch }];
+      }
+
+      const updated = await StockModel.findOneAndUpdate(
+        { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
+        { $inc: incQuery },
+        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
+      );
+
+      if (updated && updated.qty <= 0) {
+        updated.total = 0;
+        await updated.save({ session });
+      }
     }
   }
 }

@@ -8,6 +8,7 @@ import { StockService } from '../../../utils/inventory/stock.service';
 import { calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../../utils/auth';
+import { connectDB } from '../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -24,44 +25,44 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  await connectDB();
 
-  try {
-    const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
-    const username = user.username || user.email || 'system';
+  const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
+  const username = user.username || user.email || 'system';
 
-    const existingBill = await Bill.findOne({ _id: billId, firmId: firmIdObj }).session(session);
+  const executeUpdate = async (session?: mongoose.ClientSession) => {
+    const existingBillQuery = Bill.findOne({ _id: billId, firmId: firmIdObj });
+    if (session) existingBillQuery.session(session);
+    const existingBill = await existingBillQuery;
+
     if (!existingBill) {
-      await session.abortTransaction();
       throw createError({ statusCode: 404, statusMessage: 'Bill not found' });
     }
     if (existingBill.status === 'CANCELLED') {
-      await session.abortTransaction();
       throw createError({ statusCode: 400, statusMessage: 'Cancelled bills cannot be modified' });
     }
     if (existingBill.btype !== 'SALES') {
-      await session.abortTransaction();
       throw createError({ statusCode: 400, statusMessage: 'Only sales bills can be updated' });
     }
 
     const partyId = party.id || party._id || party;
-    const partyDoc = await Party.findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
+    const partyQuery = Party.findOne({ _id: partyId, firmId: firmIdObj });
+    if (session) partyQuery.session(session);
+    const partyDoc = await partyQuery.lean();
+
     if (!partyDoc) {
-      await session.abortTransaction();
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
     }
 
     const requestBillNo = meta?.bno || meta?.billNo;
     if (requestBillNo && requestBillNo !== existingBill.bno) {
-      await session.abortTransaction();
       throw createError({ statusCode: 400, statusMessage: 'Bill number cannot be changed' });
     }
 
     const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
 
-    const billType = (meta?.billType || 'intra-state').toLowerCase();
+    const billType = (meta?.billType || existingBill.billSubtype || 'intra-state').toLowerCase();
     const gstEnabled = await isGstEnabled(firmIdObj);
     const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);
 
@@ -92,64 +93,33 @@ export default defineEventHandler(async (event) => {
       consignee?.state_code || 
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    // Step 1: Restore stock from old sale (add back atomically)
-    const billObjectId = new mongoose.Types.ObjectId(billId);
-    const stockRegFilter = {
-      firm_id: firmIdObj,
-      bill_id: billObjectId
-    };
-    const existingItems = await (StockReg as any).find(stockRegFilter).session(session);
+    // Rollback previous stock adjustments
+    const oldStockRegsQuery = StockReg.find({ bill_id: existingBill._id });
+    if (session) oldStockRegsQuery.session(session);
+    const oldStockRegs = await oldStockRegsQuery;
 
-    for (const ei of existingItems) {
-      if (!ei.stock_id) continue;
-      await StockService.reverseMovement(ei._id as mongoose.Types.ObjectId, username, session);
+    for (const reg of oldStockRegs) {
+      if (reg.item_type !== 'SERVICE' && reg.stock_id) {
+        await StockService.rollbackStockMovement({
+          firmId: firmIdObj,
+          movementType: 'SALE',
+          itemData: {
+            stockId: reg.stock_id,
+            qty: reg.qty,
+            rate: reg.rate,
+            batch: reg.batch
+          },
+          session
+        });
+      }
     }
 
-    // Step 2: Update bill header
-    await Bill.findOneAndUpdate(
-      { _id: billId, firmId: firmIdObj },
-      {
-        $set: {
-          bdate: meta?.billDate || existingBill.bdate,
-          partyId: partyDoc._id,
-          partyName: partyDoc.name,
-          partyGstin: partyInfo.gstin,
-          partyAddress: partyInfo.address,
-          partyState: partyInfo.state,
-          partyStateCode: partyInfo.stateCode,
-          partyPin: partyInfo.pin,
-          firmGstin: firmLoc?.gst_number,
-          firmState: firmLoc?.state,
-          firmStateCode: firmStateCode,
-          grossTotal: totals.grossTotal,
-          netTotal: totals.netTotal,
-          roundOff: totals.roundOff,
-          cgst: totals.cgst,
-          sgst: totals.sgst,
-          igst: totals.igst,
-          billSubtype: billType.toUpperCase(),
-          items: processedItems,
-          otherCharges: otherCharges || [],
-          orderNo: meta?.referenceNo,
-          vehicleNo: meta?.vehicleNo,
-          dispatchThrough: meta?.dispatchThrough,
-          consigneeName: consignee?.name,
-          consigneeGstin: consignee?.gstin,
-          consigneeAddress: consignee?.address,
-          consigneeState: consignee?.state,
-          consigneePin: consignee?.pin,
-          consigneeStateCode,
-          narration: meta?.narration,
-          reverseCharge: !!meta?.reverseCharge,
-        }
-      },
-      { session }
-    );
+    if (session) {
+      await StockReg.deleteMany({ bill_id: existingBill._id }, { session });
+    } else {
+      await StockReg.deleteMany({ bill_id: existingBill._id });
+    }
 
-    // Step 3: Delete old StockReg entries
-    await (StockReg as any).deleteMany(stockRegFilter, { session });
-
-    // Step 4: Apply new stock outward and create new StockReg entries
     const cogsLines: Array<{ stockId: any; stockRegId: any; item: string; cogsValue: number }> = [];
     let taxableItemsTotal = 0;
 
@@ -160,7 +130,7 @@ export default defineEventHandler(async (event) => {
       taxableItemsTotal += lineValue;
 
       if (isService) {
-        await StockReg.create([{
+        const sRegData = {
           firm_id: firmIdObj,
           type: 'SALE',
           bno: existingBill.bno,
@@ -179,7 +149,12 @@ export default defineEventHandler(async (event) => {
           user: username,
           qtyh: 0,
           item_narration: item.narration
-        }], { session });
+        };
+        if (session) {
+          await StockReg.create([sRegData], { session });
+        } else {
+          await StockReg.create(sRegData);
+        }
         continue;
       }
 
@@ -191,17 +166,61 @@ export default defineEventHandler(async (event) => {
           user: username,
           session
         });
-        const reg = await (StockReg as any).findOne({ bill_id: existingBill._id, stock_id: item.stockId }).sort({ createdAt: -1 }).session(session);
+        const regQuery = StockReg.findOne({ bill_id: existingBill._id, stock_id: item.stockId }).sort({ createdAt: -1 });
+        if (session) regQuery.session(session);
+        const reg = await regQuery;
         cogsLines.push({ stockId: item.stockId, stockRegId: reg?._id, item: item.item, cogsValue });
       }
     }
 
-    // Step 5: Delete old ledger entries and post new ones
-    await Ledger.deleteMany({
-      firmId: firmIdObj,
-      voucherGroupId: existingBill.voucherId,
-      voucherType: 'SALES'
-    }, { session });
+    // Update Bill
+    existingBill.bdate = meta?.billDate || existingBill.bdate;
+    existingBill.partyId = partyDoc._id;
+    existingBill.partyName = partyDoc.name;
+    existingBill.partyGstin = partyInfo.gstin;
+    existingBill.partyAddress = partyInfo.address;
+    existingBill.partyState = partyInfo.state;
+    existingBill.partyStateCode = partyInfo.stateCode;
+    existingBill.partyPin = partyInfo.pin;
+    existingBill.firmGstin = firmLoc?.gst_number;
+    existingBill.firmState = firmLoc?.state;
+    existingBill.firmStateCode = firmStateCode;
+    existingBill.grossTotal = totals.grossTotal;
+    existingBill.netTotal = totals.netTotal;
+    existingBill.roundOff = totals.roundOff;
+    existingBill.cgst = totals.cgst;
+    existingBill.sgst = totals.sgst;
+    existingBill.igst = totals.igst;
+    existingBill.billSubtype = billType.toUpperCase();
+    existingBill.items = processedItems;
+    existingBill.otherCharges = otherCharges || [];
+    existingBill.orderNo = meta?.referenceNo;
+    existingBill.vehicleNo = meta?.vehicleNo;
+    existingBill.dispatchThrough = meta?.dispatchThrough;
+    existingBill.consigneeName = consignee?.name;
+    existingBill.consigneeGstin = consignee?.gstin;
+    existingBill.consigneeAddress = consignee?.address;
+    existingBill.consigneeState = consignee?.state;
+    existingBill.consigneePin = consignee?.pin;
+    existingBill.consigneeStateCode = consigneeStateCode;
+    existingBill.narration = meta?.narration;
+    existingBill.reverseCharge = !!meta?.reverseCharge;
+
+    if (session) {
+      await existingBill.save({ session });
+      await Ledger.deleteMany({
+        firmId: firmIdObj,
+        voucherGroupId: existingBill.voucherId,
+        voucherType: 'SALES'
+      }, { session });
+    } else {
+      await existingBill.save();
+      await Ledger.deleteMany({
+        firmId: firmIdObj,
+        voucherGroupId: existingBill.voucherId,
+        voucherType: 'SALES'
+      });
+    }
 
     await LedgerService.postSalesLedger({
       firmId: firmIdObj,
@@ -222,16 +241,45 @@ export default defineEventHandler(async (event) => {
       session
     } as any);
 
+    return existingBill;
+  };
+
+  let session: mongoose.ClientSession | null = null;
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    const updated = await executeUpdate(session);
     await session.commitTransaction();
     session.endSession();
-
     return {
       success: true,
-      message: 'Sales invoice updated successfully'
+      message: 'Sales invoice updated successfully',
+      data: updated
     };
   } catch (err: any) {
-    await session.abortTransaction();
-    session.endSession();
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+      try { session.endSession(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('Retrying sales invoice update without transaction session:', err.message);
+      try {
+        const updated = await executeUpdate(undefined);
+        return {
+          success: true,
+          message: 'Sales invoice updated successfully',
+          data: updated
+        };
+      } catch (retryErr: any) {
+        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
+      }
+    }
+
     throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
   }
 });

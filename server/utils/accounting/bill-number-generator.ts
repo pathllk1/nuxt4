@@ -16,7 +16,7 @@ export class BillNumberGenerator {
     const sequence = await BillSequence.findOneAndUpdate(
       { firmId, btype } as any,
       { $inc: { lastNo: 1 } },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
 
     const prefixMap: any = { SALES: 'SI', PURCHASE: 'PI', CREDIT_NOTE: 'CN', DEBIT_NOTE: 'DN', PROFORMA: 'PFI', DELIVERY_NOTE: 'DC' };

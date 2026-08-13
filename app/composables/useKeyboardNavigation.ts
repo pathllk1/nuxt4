@@ -167,11 +167,29 @@ export function useKeyboardNavigation() {
     }
   }
 
+  /**
+   * Focus and auto-select the first focusable input in a container
+   */
+  const focusFirstInput = (container: HTMLElement | null) => {
+    if (!import.meta.client || !container) return
+    nextTick(() => {
+      const inputs = getFocusableInputs(container)
+      const firstEl = inputs[0]
+      if (firstEl) {
+        firstEl.focus()
+        if (firstEl instanceof HTMLInputElement || firstEl instanceof HTMLTextAreaElement) {
+          firstEl.select?.()
+        }
+      }
+    })
+  }
+
   return {
     saveFocus,
     restoreFocus,
     trackPageFocus,
     autoFocusContainer,
+    focusFirstInput,
     getFocusableInputs,
     handleEnterKey,
     handleBackspaceKey

@@ -57,8 +57,8 @@
       </div>
 
       <div class="header-actions">
-        <button class="ghost-btn" type="button" @click="resetForm">Discard</button>
-        <button class="primary-btn" type="button" :disabled="loading || !canSave" @click="saveInvoice">
+        <button class="ghost-btn" type="button" @click="resetForm" title="Clear Bill (F9)">Discard (F9)</button>
+        <button class="primary-btn" type="button" :disabled="loading || !canSave" @click="saveInvoice" title="Save Invoice (F8)">
           {{ state.currentBill?.status === 'CONVERTED' ? 'Converted (Read-Only)' : (loading ? 'Saving...' : state.isReturnMode ? 'Create Credit Note' : (isEditMode ? (state.meta.btype === 'PROFORMA' ? 'Update Proforma' : (state.meta.btype === 'DELIVERY_NOTE' ? 'Update Delivery Note' : 'Update Invoice')) : (state.meta.btype === 'PROFORMA' ? 'Save Proforma' : (state.meta.btype === 'DELIVERY_NOTE' ? 'Save Delivery Note' : 'Save Invoice')))) }}
           <span>F8</span>
         </button>
@@ -70,7 +70,7 @@
         <PartyManager
           :state="state"
           title="Bill To"
-          empty-subtitle="Customer record"
+          empty-subtitle="Customer record (Press F3 to Select)"
           @open-modal="showPartyModal = true"
           @create-party="showCreatePartyModal = true"
           @location-change="onPartyLocationChange"
@@ -119,42 +119,51 @@
       </section>
     </main>
 
+    <!-- Modals -->
     <StockModal v-model="showStockModal" :stocks="state.stocks" @select="onStockSelect" @create-stock="showCreateStockModal = true" @edit-stock="onEditStock" />
     <CreateStockModal v-model="showCreateStockModal" @saved="fetchData" />
     <EditStockModal v-model="showEditStockModal" :stock="selectedStockToEdit" @saved="fetchData" />
     <PartyModal v-model="showCreatePartyModal" @saved="(p: any) => { fetchData(); onPartySelect(p); }" />
     <OtherChargesModal v-model="showOtherChargesModal" :other-charges="state.otherCharges" />
 
+    <!-- Print & Success Modal with Complete Zero-Mouse Keyboard Support -->
     <UModal v-model:open="showPrintModal" :title="createdBill?.btype === 'PROFORMA' ? 'Proforma Invoice Saved Successfully' : (createdBill?.btype === 'DELIVERY_NOTE' ? 'Delivery Challan Saved Successfully' : 'Invoice Created Successfully')">
       <template #body>
-        <div class="p-4 flex flex-col items-center text-center gap-4 bg-white dark:bg-zinc-900 rounded-2xl">
-          <div class="p-3 bg-green-500/10 dark:bg-green-500/20 rounded-full">
-            <UIcon name="i-heroicons-check-circle" class="w-12 h-12 text-green-600 dark:text-green-400" />
+        <div 
+          class="p-6 flex flex-col items-center text-center gap-4 bg-white dark:bg-zinc-900 rounded-2xl outline-none" 
+          tabindex="0" 
+          ref="printModalContainerRef"
+          @keydown="handlePrintModalKeydown"
+        >
+          <div class="p-3 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-full text-emerald-600 dark:text-emerald-400">
+            <UIcon name="i-heroicons-check-circle" class="w-12 h-12" />
           </div>
           <div>
-            <h3 class="text-lg font-bold text-gray-900 dark:text-white">{{ createdBill?.btype === 'PROFORMA' ? 'Proforma' : (createdBill?.btype === 'DELIVERY_NOTE' ? 'Delivery Challan' : 'Invoice') }} #{{ createdBill?.bno }} Saved</h3>
-            <p class="text-sm text-gray-500 dark:text-zinc-400 mt-1">Would you like to print or download the document now?</p>
+            <h3 class="text-lg font-black text-gray-900 dark:text-white">{{ createdBill?.btype === 'PROFORMA' ? 'Proforma' : (createdBill?.btype === 'DELIVERY_NOTE' ? 'Delivery Challan' : 'Invoice') }} #{{ createdBill?.bno }} Saved</h3>
+            <p class="text-xs text-gray-500 dark:text-zinc-400 mt-1 font-medium">
+              Press <kbd class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 rounded font-bold font-mono">P</kbd> for PDF, <kbd class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 rounded font-bold font-mono">E</kbd> for Excel, or <kbd class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 rounded font-bold font-mono">Enter / ESC</kbd> for Next Bill
+            </p>
           </div>
-          <div class="flex gap-3 mt-4 w-full justify-center">
+          <div class="flex flex-wrap gap-2.5 mt-2 w-full justify-center">
             <UButton 
               color="primary" 
               icon="i-heroicons-arrow-down-tray" 
-              label="Download PDF" 
-              class="flex-1 sm:flex-none font-bold"
+              label="Download PDF (P)" 
+              class="font-bold print-btn"
               @click="downloadCreatedPDF" 
             />
             <UButton 
               color="success" 
               icon="i-heroicons-table-cells" 
-              label="Export Excel" 
-              class="flex-1 sm:flex-none font-bold"
+              label="Export Excel (E)" 
+              class="font-bold print-btn"
               @click="downloadCreatedExcel" 
             />
             <UButton 
               color="neutral" 
               variant="outline" 
-              label="Close" 
-              class="flex-1 sm:flex-none font-bold"
+              label="Next Bill (ESC)" 
+              class="font-bold print-btn"
               @click="closePrintModal" 
             />
           </div>
@@ -162,6 +171,51 @@
       </template>
     </UModal>
 
+    <!-- Keyboard Shortcuts Cheatsheet Modal (F1 / ?) -->
+    <UModal v-model:open="showHelpModal" title="Sales Invoice Keyboard Cheatsheet">
+      <template #body>
+        <div class="p-4 space-y-4 text-xs">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-primary text-sm">F2</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Stock Browser</p>
+              <p class="text-[10px] text-slate-400">Search & add products/batches</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-emerald-600 text-sm">F3</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Party Selector</p>
+              <p class="text-[10px] text-slate-400">Search & select customer record</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-indigo-600 text-sm">F4</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Other Charges</p>
+              <p class="text-[10px] text-slate-400">Add freight, packing, delivery</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-amber-600 text-sm">F5</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Add Service</p>
+              <p class="text-[10px] text-slate-400">Add custom non-inventory line</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-rose-600 text-sm">F8 / Ctrl+S</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Save Invoice</p>
+              <p class="text-[10px] text-slate-400">Finalize & create document</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-purple-600 text-sm">Insert / Ctrl+N</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Register New</p>
+              <p class="text-[10px] text-slate-400">Quick create Party or Stock</p>
+            </div>
+          </div>
+          <div class="pt-2 border-t border-slate-200 text-slate-500 text-[11px] flex justify-between items-center">
+            <span><kbd>Enter</kbd> Next Field • <kbd>Backspace</kbd> Prev Field • <kbd>Del</kbd> Remove Line</span>
+            <UButton size="xs" color="neutral" variant="outline" label="Got it (ESC)" @click="showHelpModal = false" />
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Party Selection Drawer -->
     <div v-if="showPartyModal" class="drawer-backdrop" @click.self="showPartyModal = false">
       <div class="party-drawer" role="dialog" aria-modal="true" aria-label="Choose party">
         <header class="drawer-head">
@@ -169,14 +223,19 @@
             <p class="eyebrow">Records</p>
             <h2>Choose party</h2>
           </div>
-          <button type="button" class="drawer-close" @click="showPartyModal = false">Close</button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="create-party-btn text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-1 rounded" @click="openCreatePartyFromDrawer">
+              + New Party (Insert)
+            </button>
+            <button type="button" class="drawer-close" @click="showPartyModal = false">Close</button>
+          </div>
         </header>
         <div class="search-box">
           <input 
             ref="partySearchInputRef"
             v-model="partySearchQuery" 
             type="text" 
-            placeholder="Search by name, GSTIN, state... (↑↓ Navigate • Enter Select • ESC Close)" 
+            placeholder="Search party... (↑↓ Navigate • Enter Select • Insert New • ESC Close)" 
             class="search-input" 
             @keydown="handlePartyDrawerKeydown"
           />
@@ -193,6 +252,12 @@
             <strong>{{ party.name || party.firm }}</strong>
             <span>{{ party.gstin || 'UNREGISTERED' }} | {{ party.state || '-' }}</span>
           </button>
+          <div v-if="filteredParties.length === 0" class="p-8 text-center text-slate-400 text-xs">
+            <p>No matching party found.</p>
+            <button type="button" class="mt-2 text-emerald-600 font-bold underline" @click="openCreatePartyFromDrawer">
+              Press Insert to Register New Party
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -200,19 +265,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useBillingState } from '@/composables/useBillingState';
 import PartyManager from '@/components/accounting/PartyManager.vue';
-import CartManager from '@/components/accounting/CartManager.vue';
+import CartManager from '@/components/inventory/CartManager.vue';
 import InvoiceSummary from '@/components/accounting/InvoiceSummary.vue';
-import StockModal from '@/components/accounting/StockModal.vue';
-import CreateStockModal from '@/components/accounting/CreateStockModal.vue';
-import EditStockModal from '@/components/accounting/EditStockModal.vue';
+import StockModal from '@/components/inventory/StockModal.vue';
+import CreateStockModal from '@/components/inventory/CreateStockModal.vue';
+import EditStockModal from '@/components/inventory/EditStockModal.vue';
 import PartyModal from '@/components/accounting/PartyModal.vue';
 import OtherChargesModal from '@/components/accounting/OtherChargesModal.vue';
 import { api } from '@/utils/api';
-
 import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
 const router = useRouter();
@@ -223,12 +287,14 @@ const { saveFocus, restoreFocus, trackPageFocus, handleEnterKey, handleBackspace
 const firstInputRef = ref<HTMLElement | null>(null);
 const referenceInputRef = ref<HTMLElement | null>(null);
 const partySearchInputRef = ref<HTMLInputElement | null>(null);
+const printModalContainerRef = ref<HTMLElement | null>(null);
 const partySelectedIndex = ref(0);
 
 const showStockModal = ref(false);
 const showPartyModal = ref(false);
 const partySearchQuery = ref('');
 const showPrintModal = ref(false);
+const showHelpModal = ref(false);
 const createdBill = ref<any>(null);
 const isEditMode = ref(false);
 
@@ -242,18 +308,25 @@ watch(showPartyModal, (isOpen) => {
   }
 });
 
+watch(showPrintModal, (isOpen) => {
+  if (isOpen) {
+    nextTick(() => {
+      printModalContainerRef.value?.focus();
+    });
+  }
+});
+
 watch(partySearchQuery, () => {
   partySelectedIndex.value = 0;
 });
 
 function onReverseChargeEnter() {
-  state.meta.reverseCharge = !state.meta.reverseCharge;
   saveFocus();
   showPartyModal.value = true;
 }
 
 function onNarrationEnter(e: KeyboardEvent) {
-  if (e.shiftKey) return; // Allow Shift+Enter for multiline notes
+  if (e.shiftKey) return;
   e.preventDefault();
   if (state.cart.length > 0) {
     const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input') as HTMLElement;
@@ -265,6 +338,11 @@ function onNarrationEnter(e: KeyboardEvent) {
   }
   saveFocus();
   showStockModal.value = true;
+}
+
+function openCreatePartyFromDrawer() {
+  showPartyModal.value = false;
+  showCreatePartyModal.value = true;
 }
 
 function handlePartyDrawerKeydown(e: KeyboardEvent) {
@@ -284,10 +362,26 @@ function handlePartyDrawerKeydown(e: KeyboardEvent) {
       const selected = filteredParties.value[partySelectedIndex.value];
       onPartySelect(selected);
     }
+  } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') || (e.altKey && e.key.toLowerCase() === 'c')) {
+    e.preventDefault();
+    openCreatePartyFromDrawer();
   } else if (e.key === 'Escape') {
     e.preventDefault();
     showPartyModal.value = false;
     restoreFocus();
+  }
+}
+
+function handlePrintModalKeydown(e: KeyboardEvent) {
+  if (e.key === 'p' || e.key === 'P') {
+    e.preventDefault();
+    downloadCreatedPDF();
+  } else if (e.key === 'e' || e.key === 'E') {
+    e.preventDefault();
+    downloadCreatedExcel();
+  } else if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    closePrintModal();
   }
 }
 
@@ -389,7 +483,24 @@ function onEditStock(stock: any) {
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'F2') {
+  // If ANY modal, drawer or dialog is open, do not intercept modal keys
+  if (
+    showStockModal.value ||
+    showPartyModal.value ||
+    showCreatePartyModal.value ||
+    showCreateStockModal.value ||
+    showEditStockModal.value ||
+    showOtherChargesModal.value ||
+    showPrintModal.value ||
+    showHelpModal.value
+  ) {
+    return;
+  }
+
+  if (e.key === 'F1' || (e.shiftKey && e.key === '?')) {
+    e.preventDefault();
+    showHelpModal.value = !showHelpModal.value;
+  } else if (e.key === 'F2') {
     e.preventDefault();
     saveFocus();
     showStockModal.value = true;
@@ -412,13 +523,13 @@ const handleKeydown = (e: KeyboardEvent) => {
     resetForm();
   } else if (e.key === 'Enter') {
     const activeEl = document.activeElement as HTMLElement;
-    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed')) {
+    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed') && !activeEl.closest('[role="dialog"]')) {
       const container = document.querySelector('.invoice-page') as HTMLElement;
       handleEnterKey(e, container);
     }
   } else if (e.key === 'Backspace') {
     const activeEl = document.activeElement as HTMLElement;
-    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed')) {
+    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed') && !activeEl.closest('[role="dialog"]')) {
       const container = document.querySelector('.invoice-page') as HTMLElement;
       handleBackspaceKey(e, container);
     }
@@ -443,7 +554,6 @@ onMounted(async () => {
 
   trackPageFocus();
 
-  // Initial Page Load 1st Input Auto-Focus
   nextTick(() => {
     firstInputRef.value?.focus();
   });
@@ -613,6 +723,14 @@ function addServiceLine() {
     disc: 0,
     itemType: 'SERVICE'
   });
+  nextTick(() => {
+    const lastIndex = state.cart.length - 1;
+    const itemInput = document.querySelector(`tr[data-row="${lastIndex}"] input.item-name-input`) as HTMLElement;
+    if (itemInput) {
+      itemInput.focus();
+      if (itemInput instanceof HTMLInputElement) itemInput.select();
+    }
+  });
 }
 
 function removeCartItem(index: number) {
@@ -623,7 +741,8 @@ function handleServiceInput() {}
 
 function resetForm() {
   if (confirm('Clear current invoice details?')) {
-    location.reload();
+    resetFormState();
+    nextTick(() => firstInputRef.value?.focus());
   }
 }
 
@@ -672,7 +791,6 @@ async function saveInvoice() {
     if (res.success) {
       createdBill.value = res.data || { _id: route.params.id, bno: state.meta.billNo };
       showPrintModal.value = true;
-      resetFormState();
     }
   } catch (err: any) {
     alert(err.message || 'Failed to save invoice');
@@ -748,260 +866,301 @@ h1 {
 .header-fields {
   flex: 1 1 auto;
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  padding-left: 0;
-}
-.header-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
   align-items: center;
-}
-.field-grid {
-  display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  align-items: flex-end;
 }
-label {
-  display: grid;
-  gap: 5px;
+.header-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-label span {
+.header-fields label span {
+  font-size: 9px;
+  font-weight: 800;
   color: #64748b;
-  font-size: 11px;
-  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-input,
-select,
-textarea {
+.header-fields input,
+.header-fields select {
+  height: 28px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: white;
-  padding: 5px 8px;
+  background: #f8fafc;
   color: #0f172a;
-  font-size: 12px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
   outline: none;
 }
-.readonly-input {
-  width: 160px;
+.header-fields input:focus,
+.header-fields select:focus {
+  border-color: #2563eb;
+  background: white;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.header-fields .readonly-input {
   background: #f1f5f9;
-  color: #64748b;
-  font-weight: 800;
+  color: #475569;
   cursor: not-allowed;
 }
 .inline-toggle {
-  display: flex;
-  grid-template-columns: none;
+  flex-direction: row !important;
   align-items: center;
-  gap: 6px;
-  min-height: 29px;
-  padding-bottom: 1px;
+  gap: 4px !important;
+  margin-top: 14px;
+  cursor: pointer;
 }
 .inline-toggle input {
-  width: 15px;
-  height: 15px;
-  padding: 0;
-}
-.inline-toggle span {
-  white-space: nowrap;
+  height: auto;
 }
 .gst-status {
-  align-self: end;
+  margin-top: 14px;
+  padding: 2px 6px;
   border-radius: 4px;
   background: #dcfce7;
   color: #166534;
-  padding: 6px 8px;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 800;
 }
 .gst-status.off {
   background: #fee2e2;
   color: #991b1b;
 }
-textarea {
-  resize: vertical;
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
 }
-input:focus,
-select:focus,
-textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-.primary-btn,
-.ghost-btn {
-  border-radius: 4px;
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 700;
+.ghost-btn,
+.primary-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ghost-btn {
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #475569;
+}
+.ghost-btn:hover {
+  background: #f1f5f9;
 }
 .primary-btn {
-  border: 1px solid #1d4ed8;
-  background: #1d4ed8;
+  border: none;
+  background: #2563eb;
   color: white;
+}
+.primary-btn:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 .primary-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 .primary-btn span {
-  margin-left: 6px;
-  opacity: 0.7;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.ghost-btn {
-  border: 1px solid #cbd5e1;
-  background: white;
-  color: #475569;
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  font-size: 9px;
 }
 .workspace {
-  min-height: 0;
   flex: 1;
-  display: flex;
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
-}
-.side-panel,
-.main-panel {
   min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-.main-panel {
-  flex: 1 1 auto;
-  min-width: 0;
   overflow: hidden;
 }
 .side-panel {
-  width: 256px;
-  flex: 0 0 256px;
-  overflow: auto;
-  background: #f8fafc;
+  width: 280px;
+  flex: 0 0 280px;
+  background: white;
   border-right: 1px solid #dbe3ee;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.main-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .detail-panel {
-  background: white;
-  border: 0;
-  border-top: 1px solid #dbe3ee;
-  border-radius: 0;
   padding: 12px;
+  border-top: 1px solid #e2e8f0;
 }
 .panel-head {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-  margin-bottom: 14px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 .panel-head h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #0f172a;
 }
 .panel-head button {
-  border: 1px solid #bfdbfe;
+  font-size: 10px;
+  font-weight: 800;
+  color: #2563eb;
   background: #eff6ff;
-  color: #1d4ed8;
-  border-radius: 6px;
-  padding: 7px 9px;
-  font-size: 12px;
-  font-weight: 850;
+  border: 1px solid #bfdbfe;
+  padding: 3px 8px;
+  border-radius: 4px;
   cursor: pointer;
 }
 .field-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
-.wide {
-  grid-column: 1 / -1;
+.field-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.party-drawer {
-  width: min(420px, 100vw);
-  height: 100%;
-  overflow: auto;
-  padding: 18px;
+.field-grid label.wide {
+  grid-column: span 2;
+}
+.field-grid span {
+  font-size: 9px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+}
+.field-grid input,
+.field-grid textarea {
+  border: 1px solid #cbd5e1;
   background: #f8fafc;
-  box-shadow: -16px 0 32px rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  outline: none;
+}
+.field-grid input:focus,
+.field-grid textarea:focus {
+  border-color: #2563eb;
+  background: white;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 50;
   display: flex;
   justify-content: flex-end;
-  background: rgba(15, 23, 42, 0.35);
+}
+.party-drawer {
+  width: 420px;
+  max-width: 90vw;
+  height: 100%;
+  background: white;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
 }
 .drawer-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 18px;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
 }
-.party-drawer h2 {
+.drawer-head h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 16px;
+  font-weight: 800;
 }
 .drawer-close {
+  background: transparent;
   border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  background: white;
-  color: #475569;
-  padding: 6px 8px;
-  font-size: 12px;
-  font-weight: 850;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
   cursor: pointer;
 }
 .search-box {
-  margin-bottom: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
 }
 .search-input {
   width: 100%;
+  border: 2px solid #2563eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+  background: white;
 }
 .party-list {
-  display: grid;
-  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
 }
 .party-option {
   width: 100%;
-  display: grid;
-  gap: 4px;
   text-align: left;
-  border: 1px solid #dbe3ee;
   background: white;
-  border-radius: 4px;
-  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all 0.15s;
 }
 .party-option:hover {
-  border-color: #2563eb;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+.party-option.active {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: white;
+}
+.party-option.active strong,
+.party-option.active span {
+  color: white;
+}
+.party-option strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
 }
 .party-option span {
+  font-size: 10px;
   color: #64748b;
-  font-size: 12px;
+  font-weight: 700;
 }
-@media (max-width: 1100px) {
-  .invoice-page {
-    height: auto;
-  }
-  .workspace {
-    flex-direction: column;
-    overflow: visible;
-  }
-  .side-panel {
-    width: 100%;
-    flex-basis: auto;
-    border-right: 0;
-    border-bottom: 1px solid #dbe3ee;
-  }
-  .header-actions {
-    justify-content: flex-start;
-  }
+kbd {
+  padding: 1px 4px;
+  background: #e2e8f0;
+  color: #1e293b;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 800;
 }
 </style>

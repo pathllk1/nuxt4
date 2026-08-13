@@ -6,6 +6,7 @@ import { StockService } from '../../utils/inventory/stock.service';
 import { getNextBillNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
+import { connectDB } from '../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -16,15 +17,17 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  await connectDB();
 
-  try {
-    const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
-    const username = user.username || user.email || 'system';
-    const partyId = party?.id || party?._id || party;
+  const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
+  const username = user.username || user.email || 'system';
+  const partyId = party?.id || party?._id || party;
 
-    const partyDoc = await (Party as any).findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
+  const executeSave = async (session?: mongoose.ClientSession) => {
+    const partyQuery = (Party as any).findOne({ _id: partyId, firmId: firmIdObj });
+    if (session) partyQuery.session(session);
+    const partyDoc = await partyQuery.lean();
+
     if (!partyDoc) throw createError({ statusCode: 404, statusMessage: 'Party not found' });
 
     const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
@@ -47,7 +50,7 @@ export default defineEventHandler(async (event) => {
     const consigneeStateCode = consignee?.stateCode || consignee?.state_code ||
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    const [newBill] = await (Bill as any).create([{
+    const billData = {
       firmId: firmIdObj,
       bno: billNo,
       bdate: meta?.billDate || new Date().toISOString().split('T')[0],
@@ -60,7 +63,7 @@ export default defineEventHandler(async (event) => {
       partyPin: partyInfo.pin,
       firmGstin: firmLoc?.gst_number,
       firmState: firmLoc?.state,
-      firmStateCode,
+      firmStateCode: firmStateCode,
       grossTotal: totals.grossTotal,
       netTotal: totals.netTotal,
       roundOff: totals.roundOff,
@@ -70,7 +73,7 @@ export default defineEventHandler(async (event) => {
       btype: 'DELIVERY_NOTE',
       billSubtype: billType.toUpperCase(),
       items: processedItems,
-      otherCharges,
+      otherCharges: otherCharges || [],
       orderNo: meta?.referenceNo,
       vehicleNo: meta?.vehicleNo,
       dispatchThrough: meta?.dispatchThrough,
@@ -84,13 +87,19 @@ export default defineEventHandler(async (event) => {
       reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
       status: 'ACTIVE'
-    }], { session });
+    };
+
+    const newBill = session
+      ? (await (Bill as any).create([billData], { session }))[0]!
+      : await (Bill as any).create(billData);
 
     for (const item of processedItems) {
+      const isService = isServiceItem(item);
       const qty = item.qty;
       const lineValue = item.total;
-      if (isServiceItem(item)) {
-        await (StockReg as any).create([{
+
+      if (isService) {
+        const sRegData = {
           firm_id: firmIdObj,
           type: 'DELIVERY_NOTE',
           bno: billNo,
@@ -109,26 +118,65 @@ export default defineEventHandler(async (event) => {
           user: username,
           qtyh: 0,
           item_narration: item.narration
-        }], { session });
+        };
+        if (session) {
+          await (StockReg as any).create([sRegData], { session });
+        } else {
+          await (StockReg as any).create(sRegData);
+        }
         continue;
       }
 
-      if (!item.stockId) throw new Error(`Stock ID is required for ${item.item}`);
-      await StockService.updateStockOutward({
-        firmId: firmIdObj,
-        itemData: { stockId: new mongoose.Types.ObjectId(item.stockId), qty, rate: item.rate, grate: item.grate, batch: item.batch, narration: item.narration },
-        billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id, btype: 'DELIVERY_NOTE' },
-        user: username,
-        session
-      });
+      if (item.stockId) {
+        await StockService.updateStockOutward({
+          firmId: firmIdObj,
+          itemData: { ...item, stockId: new mongoose.Types.ObjectId(item.stockId), qty, narration: item.narration },
+          billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id as mongoose.Types.ObjectId, btype: 'DELIVERY_NOTE' },
+          user: username,
+          session
+        });
+      }
     }
 
+    return newBill;
+  };
+
+  let session: mongoose.ClientSession | null = null;
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    const createdBill = await executeSave(session);
     await session.commitTransaction();
-    return { success: true, message: 'Delivery note created successfully', data: newBill };
-  } catch (err: any) {
-    await session.abortTransaction();
-    throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message || 'Failed to create delivery note' });
-  } finally {
     session.endSession();
+    return {
+      success: true,
+      message: 'Delivery note created successfully',
+      data: createdBill
+    };
+  } catch (err: any) {
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+      try { session.endSession(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('Retrying delivery note post without transaction session:', err.message);
+      try {
+        const createdBill = await executeSave(undefined);
+        return {
+          success: true,
+          message: 'Delivery note created successfully',
+          data: createdBill
+        };
+      } catch (retryErr: any) {
+        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
+      }
+    }
+
+    throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
   }
 });

@@ -2,15 +2,15 @@ import { defineEventHandler, createError, setResponseHeader } from 'h3';
 import MasterRoll from '../../../models/MasterRoll';
 import ExcelJS from 'exceljs';
 import { requireAuthSession } from '../../../utils/auth';
+import { runMasterRollAudit } from '../../../utils/masterRollAudit';
 
 /**
- * Export Data Quality Report endpoint
+ * Export Comprehensive Data Quality Report endpoint
  * GET /api/master-rolls/export/quality-report
- * Generates an audit report showing missing data and validation failures
+ * Generates a 5-sheet audit workbook covering Missing Data, Format Failures, Compliance, and Duplicates.
  */
 export default defineEventHandler(async (event) => {
   try {
-    // Fix #7: Use requireAuthSession instead of raw x-firm-id header
     const user = await requireAuthSession(event);
 
     // Find all active employees (no exit date or empty exit date)
@@ -25,158 +25,136 @@ export default defineEventHandler(async (event) => {
     }).lean();
 
     if (!employees.length) {
-      throw createError({ statusCode: 404, statusMessage: 'No active employees found' });
+      throw createError({ statusCode: 404, statusMessage: 'No active employees found to audit' });
     }
 
+    const audit = runMasterRollAudit(employees);
     const wb = new ExcelJS.Workbook();
-    
-    // --- Sheet 1: Missing Data ---
+    wb.creator = 'Enterprise Master Roll Audit Engine';
+    wb.created = new Date();
+
+    // ── SHEET 1: EXECUTIVE AUDIT SUMMARY ──────────────────────────
+    const wsSummary = wb.addWorksheet('Audit Executive Summary');
+    wsSummary.columns = [
+      { header: 'Metric Category', key: 'metric', width: 35 },
+      { header: 'Score / Value', key: 'value', width: 25 },
+      { header: 'Notes & Compliance Impact', key: 'notes', width: 50 },
+    ];
+    wsSummary.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    wsSummary.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+
+    wsSummary.addRows([
+      { metric: 'Total Active Headcount', value: audit.totalActive, notes: 'Active employee records audited' },
+      { metric: 'Overall Health Score', value: `${audit.healthScore}%`, notes: 'Percentage of 100% error-free records' },
+      { metric: '100% Compliant Records', value: audit.perfectRecordsCount, notes: 'Zero audit warnings or failures' },
+      { metric: 'Records Requiring Remediation', value: audit.summary.affectedEmployeesCount, notes: 'Employees with one or more compliance flags' },
+      { metric: 'Total Critical Severity Issues', value: audit.summary.criticalCount, notes: 'Immediate statutory/banking disbursement blockers' },
+      { metric: 'Total Warning Severity Issues', value: audit.summary.warningCount, notes: 'Recommended KYC/contact updates' },
+      { metric: 'Missing Data Anomalies', value: audit.missingData.length, notes: 'Incomplete employee profiles' },
+      { metric: 'Format & Pattern Failures', value: audit.formatFailures.length, notes: 'Invalid Phone/Aadhaar/IFSC/PAN formats' },
+      { metric: 'Statutory & Chronology Flags', value: audit.complianceIssues.length, notes: 'Age < 18, zero wage, or date sequence errors' },
+      { metric: 'Duplicate Credential Clashes', value: audit.duplicates.length, notes: 'Colliding Aadhaar, Bank A/C or Phone records' },
+    ]);
+
+    // ── SHEET 2: MISSING DATA AUDIT ────────────────────────────────
     const wsMissing = wb.addWorksheet('Missing Data Audit');
     wsMissing.columns = [
-      { header: 'Employee Name', key: 'name', width: 25 },
-      { header: 'Project', key: 'project', width: 15 },
-      { header: 'Site', key: 'site', width: 15 },
-      { header: 'Missing Attributes', key: 'missing', width: 40 },
-      { header: 'Severity', key: 'severity', width: 10 },
+      { header: 'Employee Name', key: 'name', width: 28 },
+      { header: 'Project', key: 'project', width: 18 },
+      { header: 'Site', key: 'site', width: 18 },
+      { header: 'Missing Attributes', key: 'missing', width: 45 },
+      { header: 'Critical Count', key: 'critical', width: 15 },
+      { header: 'Warning Count', key: 'warning', width: 15 },
     ];
-    
-    // --- Sheet 2: Validation Failures ---
-    const wsInvalid = wb.addWorksheet('Validation Failures');
+    wsMissing.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    wsMissing.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB45309' } };
+
+    audit.missingData.forEach(item => {
+      wsMissing.addRow({
+        name: item.employee.employee_name || 'Unnamed',
+        project: item.employee.project || 'N/A',
+        site: item.employee.site || 'N/A',
+        missing: item.missingFields.map(f => f.label).join(', '),
+        critical: item.criticalCount,
+        warning: item.warningCount
+      });
+    });
+
+    // ── SHEET 3: FORMAT FAILURES ───────────────────────────────────
+    const wsInvalid = wb.addWorksheet('Format Failures');
     wsInvalid.columns = [
-      { header: 'Employee Name', key: 'name', width: 25 },
-      { header: 'Project', key: 'project', width: 15 },
-      { header: 'Site', key: 'site', width: 15 },
-      { header: 'Target Field', key: 'field', width: 15 },
-      { header: 'Detected Value', key: 'value', width: 20 },
-      { header: 'Validation Logic', key: 'issue', width: 30 },
+      { header: 'Employee Name', key: 'name', width: 28 },
+      { header: 'Project', key: 'project', width: 18 },
+      { header: 'Site', key: 'site', width: 18 },
+      { header: 'Target Field', key: 'field', width: 18 },
+      { header: 'Detected Value', key: 'value', width: 22 },
+      { header: 'Validation Rule Violated', key: 'issue', width: 35 },
+      { header: 'Severity', key: 'severity', width: 12 },
     ];
+    wsInvalid.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    wsInvalid.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBE123C' } };
 
-    wsMissing.getRow(1).font = { bold: true };
-    wsInvalid.getRow(1).font = { bold: true };
+    audit.formatFailures.forEach(item => {
+      wsInvalid.addRow({
+        name: item.employee.employee_name || 'Unnamed',
+        project: item.employee.project || 'N/A',
+        site: item.employee.site || 'N/A',
+        field: item.targetField,
+        value: item.value,
+        issue: item.issue,
+        severity: item.severity
+      });
+    });
 
-    const AUDIT_FIELDS = [
-      { key: 'phone_no', label: 'Phone' },
-      { key: 'pan', label: 'PAN' },
-      { key: 'aadhar', label: 'Aadhar' },
-      { key: 'uan', label: 'UAN' },
-      { key: 'project', label: 'Project' },
-      { key: 'site', label: 'Site' }
+    // ── SHEET 4: STATUTORY & CHRONOLOGY ────────────────────────────
+    const wsCompliance = wb.addWorksheet('Statutory & Chronology');
+    wsCompliance.columns = [
+      { header: 'Employee Name', key: 'name', width: 28 },
+      { header: 'Project', key: 'project', width: 18 },
+      { header: 'Site', key: 'site', width: 18 },
+      { header: 'Category', key: 'category', width: 15 },
+      { header: 'Compliance Issue', key: 'issue', width: 35 },
+      { header: 'Audit Detail', key: 'detail', width: 45 },
+      { header: 'Severity', key: 'severity', width: 12 },
     ];
+    wsCompliance.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    wsCompliance.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4338CA' } };
 
-    const isFieldValMissing = (key: string, value: any): boolean => {
-      if (value === undefined || value === null) return true;
-      const str = String(value).trim();
-      if (str === '') return true;
+    audit.complianceIssues.forEach(item => {
+      wsCompliance.addRow({
+        name: item.employee.employee_name || 'Unnamed',
+        project: item.employee.project || 'N/A',
+        site: item.employee.site || 'N/A',
+        category: item.category,
+        issue: item.issue,
+        detail: item.detail,
+        severity: item.severity
+      });
+    });
 
-      const lower = str.toLowerCase();
-      if (lower === 'n/a' || lower === 'none' || lower === 'null' || lower === 'undefined') return true;
+    // ── SHEET 5: DUPLICATE RECORD SCAN ─────────────────────────────
+    const wsDuplicates = wb.addWorksheet('Duplicate Scan');
+    wsDuplicates.columns = [
+      { header: 'Credential Field', key: 'field', width: 18 },
+      { header: 'Clashing Value', key: 'value', width: 25 },
+      { header: 'Colliding Headcount', key: 'count', width: 20 },
+      { header: 'Involved Employees', key: 'employees', width: 50 },
+    ];
+    wsDuplicates.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    wsDuplicates.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6B21A8' } };
 
-      if (key === 'phone_no') {
-        if (str === '0' || /^0+$/.test(str)) return true;
-        if (/^(\d)\1{9}$/.test(str)) return true;
-        if ('0123456789876543210'.includes(str)) return true;
-      }
-
-      if (key === 'aadhar') {
-        if (str === '0' || /^0+$/.test(str)) return true;
-        if (/^(\d)\1{11}$/.test(str)) return true;
-      }
-
-      if (key === 'uan') {
-        if (str === '0' || /^0+$/.test(str)) return true;
-      }
-
-      return false;
-    };
-
-    employees.forEach(emp => {
-      const name = emp.employee_name || 'Unnamed';
-      const project = emp.project || 'N/A';
-      const site = emp.site || 'N/A';
-
-      // 1. Missing Data
-      const missing = AUDIT_FIELDS.filter(f => isFieldValMissing(f.key, (emp as any)[f.key]));
-      if (missing.length > 0) {
-        wsMissing.addRow({
-          name: name,
-          project: project,
-          site: site,
-          missing: missing.map(m => m.label).join(', '),
-          severity: missing.length
-        });
-      }
-
-      // 2. Validation Failures
-      // Phone
-      if ((emp as any).phone_no && !isFieldValMissing('phone_no', (emp as any).phone_no)) {
-        const val = String((emp as any).phone_no).trim();
-        if (!/^\d{10}$/.test(val)) {
-          wsInvalid.addRow({ 
-            name, 
-            project, 
-            site, 
-            field: 'Phone', 
-            value: val, 
-            issue: 'Must be 10 digits' 
-          });
-        } else {
-          const allSame = /^(\d)\1{9}$/.test(val);
-          const sequential = '0123456789876543210'.includes(val);
-          if (allSame || sequential) {
-            wsInvalid.addRow({ 
-              name, 
-              project, 
-              site, 
-              field: 'Phone', 
-              value: val, 
-              issue: 'FAKE/PATTERN DETECTED' 
-            });
-          }
-        }
-      }
-
-      // Aadhar
-      if ((emp as any).aadhar && !isFieldValMissing('aadhar', (emp as any).aadhar)) {
-        const val = String((emp as any).aadhar).trim();
-        if (!/^\d{12}$/.test(val)) {
-          wsInvalid.addRow({ 
-            name, 
-            project, 
-            site, 
-            field: 'Aadhar', 
-            value: val, 
-            issue: 'Must be 12 digits' 
-          });
-        } else if (/^(\d)\1{11}$/.test(val)) {
-          wsInvalid.addRow({ 
-            name, 
-            project, 
-            site, 
-            field: 'Aadhar', 
-            value: val, 
-            issue: 'FAKE PATTERN' 
-          });
-        }
-      }
-
-      // PAN
-      if ((emp as any).pan && !isFieldValMissing('pan', (emp as any).pan)) {
-        const val = String((emp as any).pan).trim().toUpperCase();
-        if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(val)) {
-          wsInvalid.addRow({ 
-            name, 
-            project, 
-            site, 
-            field: 'PAN', 
-            value: val, 
-            issue: 'Invalid Format (ABCDE1234F)' 
-          });
-        }
-      }
+    audit.duplicates.forEach(group => {
+      const empNames = group.employees.map(e => `${e.employee_name} (${e.project || 'No Project'})`).join('; ');
+      wsDuplicates.addRow({
+        field: group.field,
+        value: group.value,
+        count: `${group.count} Employees`,
+        employees: empNames
+      });
     });
 
     const buffer = await wb.xlsx.writeBuffer();
-    const filename = `ActiveForce_AuditReport_${new Date().toISOString().split('T')[0]}.xlsx`;
+    const filename = `MasterRoll_DataQualityAudit_${new Date().toISOString().split('T')[0]}.xlsx`;
     
     setResponseHeader(event, 'Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     setResponseHeader(event, 'Content-Disposition', `attachment; filename="${filename}"`);
@@ -186,7 +164,7 @@ export default defineEventHandler(async (event) => {
     console.error('Export Quality Report error:', error);
     throw createError({
       statusCode: error.statusCode || 500,
-      statusMessage: error.statusMessage || 'Error exporting quality report'
+      statusMessage: error.statusMessage || 'Error exporting quality audit report'
     });
   }
 });

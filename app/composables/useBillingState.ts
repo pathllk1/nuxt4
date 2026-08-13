@@ -118,12 +118,37 @@ export const useBillingState = () => {
     const loc = state.selectedPartyLocation;
 
     state.selectedConsignee = {
-      name: party.name || party.firm,
+      name: party.name || party.firm || '',
       gstin: loc?.gstin || party.gstin || 'UNREGISTERED',
       address: loc?.address || party.address || '',
       state: loc?.state || party.state || '',
-      stateCode: loc?.stateCode || party.stateCode || '',
-      pin: loc?.pincode || party.pin || ''
+      stateCode: loc?.stateCode || party.stateCode || (loc?.gstin && loc.gstin !== 'UNREGISTERED' && loc.gstin.length >= 2 ? loc.gstin.substring(0, 2) : ''),
+      pin: loc?.pincode || party.pin || '',
+      contact: loc?.contact || party.contact || '',
+      deliveryInstructions: state.selectedConsignee?.deliveryInstructions || ''
+    };
+  };
+
+  const setBillToLocation = (location: PartyLocation | null) => {
+    state.selectedPartyLocation = location;
+    state.selectedPartyGstin = location?.gstin || state.selectedParty?.gstin || 'UNREGISTERED';
+    determineGstBillType();
+    if (state.consigneeSameAsBillTo) {
+      populateConsigneeFromBillTo();
+    }
+  };
+
+  const setConsigneeFromLocation = (location: PartyLocation | null) => {
+    if (!state.selectedParty || !location) return;
+    state.selectedConsignee = {
+      name: state.selectedParty.name || state.selectedParty.firm || '',
+      gstin: location.gstin || 'UNREGISTERED',
+      address: location.address || '',
+      state: location.state || '',
+      stateCode: location.stateCode || (location.gstin && location.gstin.length >= 2 ? location.gstin.substring(0, 2) : ''),
+      pin: location.pincode || '',
+      contact: location.contact || state.selectedParty.contact || '',
+      deliveryInstructions: state.selectedConsignee?.deliveryInstructions || ''
     };
   };
 
@@ -226,6 +251,8 @@ export const useBillingState = () => {
     loading,
     determineGstBillType,
     populateConsigneeFromBillTo,
+    setBillToLocation,
+    setConsigneeFromLocation,
     fetchData,
     fetchNextBillNo
   };

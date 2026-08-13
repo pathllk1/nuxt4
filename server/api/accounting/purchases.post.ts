@@ -7,6 +7,7 @@ import { StockService } from '../../utils/inventory/stock.service';
 import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
+import { connectDB } from '../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -17,15 +18,17 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  await connectDB();
 
-  try {
-    const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
-    const partyId = party.id || party._id || party;
-    const username = user.username || user.email || 'system';
+  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+  const partyId = party.id || party._id || party;
+  const username = user.username || user.email || 'system';
 
-    const partyDoc = await Party.findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
+  const executeSave = async (session?: mongoose.ClientSession) => {
+    const partyQuery = Party.findOne({ _id: partyId, firmId: firmIdObj });
+    if (session) partyQuery.session(session);
+    const partyDoc = await partyQuery.lean();
+
     if (!partyDoc) {
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
     }
@@ -75,7 +78,7 @@ export default defineEventHandler(async (event) => {
       consignee?.state_code || 
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    const newBill = (await Bill.create([{
+    const billData = {
       firmId: firmIdObj,
       voucherId: String(voucherId),
       bno: billNo,
@@ -114,7 +117,11 @@ export default defineEventHandler(async (event) => {
       reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
       status: 'ACTIVE'
-    }], { session }))[0]!;
+    };
+
+    const newBill = session
+      ? (await Bill.create([billData], { session }))[0]!
+      : await Bill.create(billData);
 
     const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
 
@@ -124,7 +131,7 @@ export default defineEventHandler(async (event) => {
       const lineValue = item.total;
 
       if (isService) {
-        await StockReg.create([{
+        const sRegData = {
           firm_id: firmIdObj,
           type: 'PURCHASE',
           bno: billNo,
@@ -143,7 +150,12 @@ export default defineEventHandler(async (event) => {
           user: username,
           qtyh: 0,
           item_narration: item.narration
-        }], { session });
+        };
+        if (session) {
+          await StockReg.create([sRegData], { session });
+        } else {
+          await StockReg.create(sRegData);
+        }
         continue;
       }
 
@@ -154,7 +166,9 @@ export default defineEventHandler(async (event) => {
         user: username,
         session
       });
-      const reg = await StockReg.findOne({ bill_id: newBill._id, item: item.item }).sort({ createdAt: -1 }).session(session);
+      const regQuery = StockReg.findOne({ bill_id: newBill._id, item: item.item }).sort({ createdAt: -1 });
+      if (session) regQuery.session(session);
+      const reg = await regQuery;
       purchasedItems.push({ stockId: reg?.stock_id, stockRegId: reg?._id, item: item.item, lineValue });
     }
 
@@ -179,17 +193,45 @@ export default defineEventHandler(async (event) => {
 
     await LedgerService.postPurchaseLedger(ledgerParams as any);
 
+    return newBill;
+  };
+
+  let session: mongoose.ClientSession | null = null;
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    const createdBill = await executeSave(session);
     await session.commitTransaction();
     session.endSession();
-
     return {
       success: true,
       message: 'Purchase bill created successfully',
-      data: newBill
+      data: createdBill
     };
   } catch (err: any) {
-    await session.abortTransaction();
-    session.endSession();
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+      try { session.endSession(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('Retrying purchase bill post without transaction session:', err.message);
+      try {
+        const createdBill = await executeSave(undefined);
+        return {
+          success: true,
+          message: 'Purchase bill created successfully',
+          data: createdBill
+        };
+      } catch (retryErr: any) {
+        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
+      }
+    }
+
     throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
   }
 });

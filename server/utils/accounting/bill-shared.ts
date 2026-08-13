@@ -22,13 +22,18 @@ export async function resolveFirmLocation(firmId: string | mongoose.Types.Object
 /* ── Resolve party location for GST ── */
 export async function resolvePartyLocation(partyDoc: any, requestedGstin?: string) {
   let partyLoc = null;
-  if (requestedGstin && Array.isArray(partyDoc.gstLocations)) {
-    partyLoc = partyDoc.gstLocations.find((l: any) => l.gstin === requestedGstin);
-    if (!partyLoc) throw new Error(`Party GSTIN ${requestedGstin} not found`);
+  const locations: any[] = Array.isArray(partyDoc.gstLocations) ? partyDoc.gstLocations : [];
+
+  if (requestedGstin && requestedGstin !== 'UNREGISTERED' && locations.length > 0) {
+    partyLoc = locations.find((l: any) => l.gstin?.trim()?.toUpperCase() === requestedGstin.trim().toUpperCase());
+  }
+
+  if (!partyLoc && locations.length > 0) {
+    partyLoc = locations.find((l: any) => l.isPrimary) || locations[0];
   }
 
   const gstin = partyLoc?.gstin || partyDoc.gstin || 'UNREGISTERED';
-  const stateCode = partyLoc?.stateCode || partyDoc.stateCode || (gstin !== 'UNREGISTERED' ? gstin.substring(0, 2) : null);
+  const stateCode = partyLoc?.stateCode || partyDoc.stateCode || (gstin && gstin !== 'UNREGISTERED' && gstin.length >= 2 ? gstin.substring(0, 2) : null);
   
   return {
     gstin,

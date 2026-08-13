@@ -1,40 +1,68 @@
 <template>
-  <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-    <div class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col">
-       <header class="bg-gradient-to-r from-emerald-600 to-teal-600 px-8 py-6 text-white flex justify-between items-center shrink-0">
+  <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" @keydown="handleModalKeydown">
+    <div ref="modalContainerRef" class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col">
+       <header class="bg-gradient-to-r from-emerald-600 to-teal-600 px-8 py-5 text-white flex justify-between items-center shrink-0">
           <div>
-             <h2 class="text-2xl font-black uppercase tracking-tighter">Create New Party</h2>
-             <p class="text-xs font-bold opacity-80 uppercase tracking-widest mt-1">Register a new customer or supplier with multiple locations</p>
+             <h2 class="text-xl font-black uppercase tracking-tighter">Create New Party</h2>
+             <p class="text-[10px] font-bold opacity-80 uppercase tracking-widest mt-0.5">Enter: Next Field • Insert / Ctrl+N: Add Location • F8: Save Party • ESC: Close</p>
           </div>
-          <button @click="$emit('update:modelValue', false)" class="w-10 h-10 flex items-center justify-center rounded-xl bg-white/20 hover:bg-white/30 transition-colors">
-             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <button @click="$emit('update:modelValue', false)" type="button" class="w-8 h-8 flex items-center justify-center rounded-xl bg-white/20 hover:bg-white/30 transition-colors">
+             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
              </svg>
           </button>
        </header>
 
-       <div class="overflow-y-auto p-8 flex-1">
-         <form @submit.prevent="saveParty" id="party-form" class="space-y-8">
+       <div class="overflow-y-auto p-6 flex-1 custom-scrollbar">
+         <form @submit.prevent="saveParty" id="party-form" class="space-y-6">
             <!-- Basic Info -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div class="md:col-span-2">
-                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Party / Firm Name *</label>
-                  <input type="text" v-model="form.name" required class="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-bold text-slate-900 dark:text-white" />
+                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Party / Firm Name *</label>
+                  <input 
+                    type="text" 
+                    v-model="form.name" 
+                    required 
+                    @keydown.enter.prevent="onInputEnter($event)"
+                    @keydown.backspace="onInputBackspace($event)"
+                    class="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-bold text-sm text-slate-900 dark:text-white first-input" 
+                    placeholder="e.g. Acme Corp India Pvt Ltd"
+                  />
                </div>
 
                <div>
-                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Contact Number</label>
-                  <input type="text" v-model="form.contact" class="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-bold text-slate-900 dark:text-white" />
+                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Contact Number</label>
+                  <input 
+                    type="text" 
+                    v-model="form.contact" 
+                    @keydown.enter.prevent="onInputEnter($event)"
+                    @keydown.backspace="onInputBackspace($event)"
+                    class="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-bold text-sm text-slate-900 dark:text-white" 
+                    placeholder="10-digit mobile number"
+                  />
                </div>
 
                <div>
-                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">PAN Number</label>
-                  <input type="text" v-model="form.pan" class="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-mono font-bold uppercase text-slate-900 dark:text-white" maxlength="10" />
+                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">PAN Number</label>
+                  <input 
+                    type="text" 
+                    v-model="form.pan" 
+                    maxlength="10" 
+                    @keydown.enter.prevent="onInputEnter($event)"
+                    @keydown.backspace="onInputBackspace($event)"
+                    class="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-mono font-bold uppercase text-sm text-slate-900 dark:text-white" 
+                    placeholder="ABCDE1234F"
+                  />
                </div>
 
                <div>
-                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Party Type</label>
-                  <select v-model="form.partyType" class="w-full px-4 py-3 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-bold appearance-none text-slate-900 dark:text-white">
+                  <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Party Type</label>
+                  <select 
+                    v-model="form.partyType" 
+                    @keydown.enter.prevent="onInputEnter($event)"
+                    @keydown.backspace="onInputBackspace($event)"
+                    class="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-800 focus:border-emerald-500 outline-none transition-all font-bold appearance-none text-sm text-slate-900 dark:text-white"
+                  >
                      <option value="CUSTOMER">Customer</option>
                      <option value="SUPPLIER">Supplier</option>
                      <option value="BOTH">Both (Customer & Supplier)</option>
@@ -43,53 +71,82 @@
             </div>
 
             <!-- GST Locations Section -->
-            <div class="space-y-4">
+            <div class="space-y-3 pt-2">
                <div class="flex items-center justify-between">
-                  <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">GST Registrations & Locations</h3>
+                  <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">GST Registrations & Locations</h3>
                   <button type="button" @click="addLocation" class="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest hover:text-emerald-700 flex items-center gap-1">
                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                     Add Location
+                     + Add Location (Insert / Ctrl+N)
                   </button>
                </div>
 
-               <div class="space-y-4">
-                  <div v-for="(loc, index) in form.gstLocations" :key="index" class="bg-slate-50 dark:bg-zinc-800/60 rounded-2xl border border-slate-200 dark:border-zinc-700 overflow-hidden p-6 relative transition-all" :class="{ 'ring-2 ring-emerald-500 ring-offset-2': loc.isPrimary }">
-                     <div class="absolute top-4 right-4 flex items-center gap-3">
-                        <label class="flex items-center gap-2 cursor-pointer">
-                           <input type="radio" name="primaryGst" :checked="loc.isPrimary" @change="setPrimary(index)" class="w-4 h-4 text-emerald-600 focus:ring-emerald-500" />
-                           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Primary</span>
+               <div class="space-y-3">
+                  <div v-for="(loc, index) in form.gstLocations" :key="index" class="bg-slate-50 dark:bg-zinc-800/60 rounded-2xl border border-slate-200 dark:border-zinc-700 overflow-hidden p-4 relative transition-all" :class="{ 'ring-2 ring-emerald-500 ring-offset-2': loc.isPrimary }">
+                     <div class="absolute top-3 right-3 flex items-center gap-2">
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                           <input type="radio" name="primaryGst" :checked="loc.isPrimary" @change="setPrimary(index)" class="w-3.5 h-3.5 text-emerald-600 focus:ring-emerald-500" />
+                           <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Primary</span>
                         </label>
-                        <button v-if="form.gstLocations.length > 1" type="button" @click="removeLocation(index)" class="p-2 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded-lg transition-colors">
-                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <button v-if="form.gstLocations.length > 1" type="button" @click="removeLocation(index)" class="p-1.5 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded-lg transition-colors">
+                           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                         </button>
                      </div>
 
-                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div class="md:col-span-1">
-                           <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-between">
+                           <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center justify-between">
                               GSTIN
                               <span v-if="loc.fetchStatus === 'success'" class="text-[8px] text-emerald-600 font-black uppercase">Verified</span>
                               <span v-if="loc.fetchStatus === 'failed'" class="text-[8px] text-rose-600 font-black uppercase">Failed</span>
                            </label>
-                           <div class="flex gap-2">
-                              <input type="text" v-model="loc.gstin" maxlength="15" class="flex-1 px-3 py-2 bg-white dark:bg-zinc-800 border rounded-xl focus:ring-2 outline-none transition-all font-mono font-bold uppercase text-xs text-slate-900 dark:text-white" :class="loc.fetchStatus === 'success' ? 'border-emerald-500 ring-emerald-100' : (loc.fetchStatus === 'failed' ? 'border-rose-500 ring-rose-100' : 'border-slate-200 dark:border-zinc-700 focus:border-emerald-500')" placeholder="27ABCDE1234F1Z5" />
-                              <button type="button" @click="fetchGstForLocation(index)" :disabled="loc.gstin.length !== 15 || fetchingGstIndices.has(index)" class="px-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl font-black text-[10px] uppercase tracking-widest border border-emerald-100 dark:border-emerald-900 hover:bg-emerald-100 disabled:opacity-50 min-w-[60px] flex items-center justify-center">
+                           <div class="flex gap-1.5">
+                              <input 
+                                type="text" 
+                                v-model="loc.gstin" 
+                                maxlength="15" 
+                                @keydown.enter.prevent="onGstinEnter($event, index)"
+                                @keydown.backspace="onInputBackspace($event)"
+                                class="flex-1 px-3 py-2 bg-white dark:bg-zinc-800 border rounded-xl focus:ring-2 outline-none transition-all font-mono font-bold uppercase text-xs text-slate-900 dark:text-white" 
+                                :class="loc.fetchStatus === 'success' ? 'border-emerald-500 ring-emerald-100' : (loc.fetchStatus === 'failed' ? 'border-rose-500 ring-rose-100' : 'border-slate-200 dark:border-zinc-700 focus:border-emerald-500')" 
+                                placeholder="27ABCDE1234F1Z5" 
+                              />
+                              <button type="button" @click="fetchGstForLocation(index)" :disabled="loc.gstin.length !== 15 || fetchingGstIndices.has(index)" class="px-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl font-black text-[9px] uppercase tracking-widest border border-emerald-100 dark:border-emerald-900 hover:bg-emerald-100 disabled:opacity-50 min-w-[50px] flex items-center justify-center">
                                  <span v-if="fetchingGstIndices.has(index)" class="w-3 h-3 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin"></span>
                                  <span v-else>{{ loc.fetchStatus === 'success' ? 'Refresh' : 'Fetch' }}</span>
                               </button>
                            </div>
                         </div>
                         <div>
-                           <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">State</label>
-                           <input type="text" v-model="loc.state" class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none transition-all font-bold text-xs text-slate-900 dark:text-white" />
+                           <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">State</label>
+                           <input 
+                             type="text" 
+                             v-model="loc.state" 
+                             @keydown.enter.prevent="onInputEnter($event)"
+                             @keydown.backspace="onInputBackspace($event)"
+                             class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none transition-all font-bold text-xs text-slate-900 dark:text-white" 
+                           />
                         </div>
                         <div>
-                           <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pincode</label>
-                           <input type="text" v-model="loc.pincode" maxlength="6" class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none transition-all font-bold text-xs text-slate-900 dark:text-white" />
+                           <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Pincode</label>
+                           <input 
+                             type="text" 
+                             v-model="loc.pincode" 
+                             maxlength="6" 
+                             @keydown.enter.prevent="onInputEnter($event)"
+                             @keydown.backspace="onInputBackspace($event)"
+                             class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none transition-all font-bold text-xs text-slate-900 dark:text-white" 
+                           />
                         </div>
                         <div class="md:col-span-3">
-                           <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Address</label>
-                           <textarea v-model="loc.address" rows="2" class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none transition-all font-medium text-xs resize-none text-slate-900 dark:text-white"></textarea>
+                           <label class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Address</label>
+                           <textarea 
+                             v-model="loc.address" 
+                             rows="2" 
+                             @keydown.enter="onAddressEnter($event, index)"
+                             @keydown.backspace="onInputBackspace($event)"
+                             class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none transition-all font-medium text-xs resize-none text-slate-900 dark:text-white"
+                             placeholder="Street address... (Shift+Enter for newline, Enter advances)"
+                           ></textarea>
                         </div>
                      </div>
                   </div>
@@ -98,20 +155,26 @@
          </form>
        </div>
 
-       <footer class="p-8 border-t border-slate-100 dark:border-zinc-800 flex justify-end gap-3 shrink-0">
-          <button type="button" @click="$emit('update:modelValue', false)" class="px-6 py-3 text-slate-400 font-black uppercase text-xs tracking-widest hover:text-slate-600 transition-colors">Discard</button>
-          <button type="submit" form="party-form" :disabled="saving" class="px-10 py-3 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center gap-2">
-             <span v-if="saving" class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-             Register Party
-          </button>
+       <footer class="p-6 border-t border-slate-100 dark:border-zinc-800 flex justify-between items-center shrink-0 bg-slate-50 dark:bg-zinc-900">
+          <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+             Shortcut: Press <kbd class="px-1.5 py-0.5 bg-slate-200 dark:bg-zinc-700 text-slate-700 dark:text-zinc-200 rounded font-mono font-bold">F8</kbd> to Register Party
+          </div>
+          <div class="flex gap-2">
+             <button type="button" @click="$emit('update:modelValue', false)" class="px-5 py-2.5 text-slate-400 font-black uppercase text-xs tracking-widest hover:text-slate-600 transition-colors">Discard (ESC)</button>
+             <button type="submit" form="party-form" :disabled="saving" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg shadow-emerald-600/30 hover:bg-emerald-700 transition-all flex items-center gap-2">
+                <span v-if="saving" class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                Register Party (F8)
+             </button>
+          </div>
        </footer>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue';
+import { reactive, ref, watch, nextTick } from 'vue';
 import { useApi } from '@/utils/api';
+import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -119,6 +182,9 @@ const props = defineProps<{
 
 const emit = defineEmits(['update:modelValue', 'saved']);
 const api = useApi();
+const { handleEnterKey, handleBackspaceKey, focusFirstInput } = useKeyboardNavigation();
+
+const modalContainerRef = ref<HTMLElement | null>(null);
 
 const form = reactive({
   name: '',
@@ -135,6 +201,14 @@ const form = reactive({
 const fetchingGstIndices = ref(new Set<number>());
 const saving = ref(false);
 
+watch(() => props.modelValue, (isOpen) => {
+  if (isOpen) {
+    nextTick(() => {
+      focusFirstInput(modalContainerRef.value);
+    });
+  }
+});
+
 watch(() => form.gstLocations, (locs) => {
   locs.forEach(loc => {
     const v = loc.gstin.toUpperCase();
@@ -147,8 +221,64 @@ watch(() => form.gstLocations, (locs) => {
   });
 }, { deep: true });
 
+function handleModalKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    emit('update:modelValue', false);
+  } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
+    e.preventDefault();
+    e.stopPropagation();
+    saveParty();
+  } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
+    e.preventDefault();
+    e.stopPropagation();
+    addLocation();
+  }
+}
+
+function onInputEnter(e: KeyboardEvent) {
+  if (modalContainerRef.value) {
+    handleEnterKey(e, modalContainerRef.value, () => {
+      saveParty();
+    });
+  }
+}
+
+function onInputBackspace(e: KeyboardEvent) {
+  if (modalContainerRef.value) {
+    handleBackspaceKey(e, modalContainerRef.value);
+  }
+}
+
+function onGstinEnter(e: KeyboardEvent, index: number) {
+  const loc = form.gstLocations[index];
+  if (loc && loc.gstin && loc.gstin.length === 15 && loc.fetchStatus === 'none') {
+    fetchGstForLocation(index);
+  }
+  onInputEnter(e);
+}
+
+function onAddressEnter(e: KeyboardEvent, index: number) {
+  if (e.shiftKey) return; // allow newline
+  e.preventDefault();
+  if (index < form.gstLocations.length - 1) {
+    onInputEnter(e);
+  } else {
+    saveParty();
+  }
+}
+
 function addLocation() {
   form.gstLocations.push({ gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: false, fetchStatus: 'none' });
+  nextTick(() => {
+    const lastLocInputs = modalContainerRef.value?.querySelectorAll('input') || [];
+    const lastGstinInput = Array.from(lastLocInputs).reverse().find(i => i.placeholder?.includes('27ABCDE'));
+    if (lastGstinInput) {
+      lastGstinInput.focus();
+      lastGstinInput.select();
+    }
+  });
 }
 
 function removeLocation(index: number) {
@@ -220,6 +350,7 @@ async function fetchGstForLocation(index: number) {
 }
 
 async function saveParty() {
+  if (!form.name.trim()) return;
   saving.value = true;
   try {
     const res = await api.post('/accounting/parties', form);

@@ -55,7 +55,7 @@ export async function getNextBillNumber(firmId: mongoose.Types.ObjectId, type: s
   const seq = await BillSequence.findOneAndUpdate(
     { firmId, btype: type.toUpperCase() } as any,
     { $inc: { lastNo: 1 } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return `${prefix}/${fy}/${String((seq as any)?.lastNo || 1).padStart(4, '0')}`;
 }
@@ -72,7 +72,7 @@ export async function getNextVoucherNumber(firmId: mongoose.Types.ObjectId) {
   const seq = await VoucherSequence.findOneAndUpdate(
     { firmId, vtype: 'JOURNAL' } as any,
     { $inc: { lastNo: 1 } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return (seq as any)?.lastNo || 1;
 }

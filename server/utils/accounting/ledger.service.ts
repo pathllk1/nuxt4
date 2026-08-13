@@ -83,22 +83,38 @@ export class LedgerService {
           is_active: true,
           created_by: createdBy,
           updated_by: createdBy
-        }], { session });
+        }], session ? { session } : undefined);
       }
     }
   }
 
   static async postPurchaseLedger(params: any) {
-    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, purchasedItems, createdBy, session } = params;
+    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, purchasedItems, reverseCharge, createdBy, session } = params;
     const base = { firmId, transactionDate: billDate, voucherGroupId: voucherId, voucherType: 'PURCHASE', voucherNo: billNo, refType: 'BILL', refId: billId, createdBy };
     const docs: LedgerEntryParams[] = [];
 
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_CREDITORS', partyId: party._id, session });
     docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: netTotal, narration: `Purchase Bill No: ${billNo}` });
 
-    if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0, narration: `CGST Input on Purchase: ${billNo}` });
-    if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: sgst, creditAmount: 0, narration: `SGST Input on Purchase: ${billNo}` });
-    if (igst > 0) docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `IGST Input on Purchase: ${billNo}` });
+    if (reverseCharge) {
+      // Under RCM: Firm claims ITC and also owes equal Tax Liability to Govt
+      if (cgst > 0) {
+        docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0, narration: `RCM CGST Input: ${billNo}` });
+        docs.push({ ...base, accountHead: 'CGST Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cgst, narration: `RCM CGST Liability: ${billNo}` });
+      }
+      if (sgst > 0) {
+        docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: sgst, creditAmount: 0, narration: `RCM SGST Input: ${billNo}` });
+        docs.push({ ...base, accountHead: 'SGST Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: sgst, narration: `RCM SGST Liability: ${billNo}` });
+      }
+      if (igst > 0) {
+        docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `RCM IGST Input: ${billNo}` });
+        docs.push({ ...base, accountHead: 'IGST Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `RCM IGST Liability: ${billNo}` });
+      }
+    } else {
+      if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0, narration: `CGST Input on Purchase: ${billNo}` });
+      if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: sgst, creditAmount: 0, narration: `SGST Input on Purchase: ${billNo}` });
+      if (igst > 0) docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `IGST Input on Purchase: ${billNo}` });
+    }
 
     if (Math.abs(roundOff) > 0) {
       const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
@@ -121,20 +137,23 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'PURCHASE', billNo);
-    await Ledger.insertMany(docs as any[], { session });
+    await Ledger.insertMany(docs as any[], session ? { session } : undefined);
   }
 
   static async postSalesLedger(params: any) {
-    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, taxableItemsTotal, cogsLines, createdBy, session } = params;
+    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, taxableItemsTotal, cogsLines, reverseCharge, createdBy, session } = params;
     const base = { firmId, transactionDate: billDate, voucherGroupId: voucherId, voucherType: 'SALES', voucherNo: billNo, refType: 'BILL', refId: billId, createdBy };
     const docs: LedgerEntryParams[] = [];
 
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_DEBTORS', partyId: party._id, session });
     docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: netTotal, creditAmount: 0, narration: `Sales Bill No: ${billNo}` });
 
-    if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cgst, narration: `CGST on Sales: ${billNo}` });
-    if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: sgst, narration: `SGST on Sales: ${billNo}` });
-    if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `IGST on Sales: ${billNo}` });
+    // In Reverse Charge (RCM), tax is payable directly by the recipient, not collected or credited by supplier
+    if (!reverseCharge) {
+      if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cgst, narration: `CGST on Sales: ${billNo}` });
+      if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: sgst, narration: `SGST on Sales: ${billNo}` });
+      if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `IGST on Sales: ${billNo}` });
+    }
 
     if (Math.abs(roundOff) > 0) {
       const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
@@ -160,20 +179,22 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'SALES', billNo);
-    await Ledger.insertMany(docs as any[], { session });
+    await Ledger.insertMany(docs as any[], session ? { session } : undefined);
   }
 
   static async postCreditNoteLedger(params: any) {
-    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, taxableItemsTotal, cogsLines, createdBy, session } = params;
+    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, taxableItemsTotal, cogsLines, reverseCharge, createdBy, session } = params;
     const base = { firmId, transactionDate: billDate, voucherGroupId: voucherId, voucherType: 'CREDIT_NOTE', voucherNo: billNo, refType: 'BILL', refId: billId, createdBy };
     const docs: LedgerEntryParams[] = [];
 
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_DEBTORS', partyId: party._id, session });
     docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: netTotal, narration: `Credit Note No: ${billNo}` });
 
-    if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Payable', accountType: 'LIABILITY', debitAmount: cgst, creditAmount: 0, narration: `CGST Reversal on CN: ${billNo}` });
-    if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Payable', accountType: 'LIABILITY', debitAmount: sgst, creditAmount: 0, narration: `SGST Reversal on CN: ${billNo}` });
-    if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: igst, creditAmount: 0, narration: `IGST Reversal on CN: ${billNo}` });
+    if (!reverseCharge) {
+      if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Payable', accountType: 'LIABILITY', debitAmount: cgst, creditAmount: 0, narration: `CGST Reversal on CN: ${billNo}` });
+      if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Payable', accountType: 'LIABILITY', debitAmount: sgst, creditAmount: 0, narration: `SGST Reversal on CN: ${billNo}` });
+      if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: igst, creditAmount: 0, narration: `IGST Reversal on CN: ${billNo}` });
+    }
 
     if (Math.abs(roundOff) > 0) {
       const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
@@ -191,7 +212,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'CREDIT_NOTE', billNo);
-    await Ledger.insertMany(docs as any[], { session });
+    await Ledger.insertMany(docs as any[], session ? { session } : undefined);
   }
 
   static async postDebitNoteLedger(params: any) {
@@ -219,7 +240,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'DEBIT_NOTE', billNo);
-    await Ledger.insertMany(docs as any[], { session });
+    await Ledger.insertMany(docs as any[], session ? { session } : undefined);
   }
 
   static async postStockAdjustmentLedger(params: any) {
@@ -236,7 +257,7 @@ export class LedgerService {
     docs.push({ ...base, accountHead: adjL.accountHead, accountType: adjL.accountType, debitAmount: 0, creditAmount: total, narration: `${type} of ${item}: ${qty} units - ${reference || 'Manual Adjustment'}` });
 
     this.assertBalanced(docs, 'STOCK_ADJUSTMENT', base.voucherNo);
-    await Ledger.insertMany(docs as any[], { session });
+    await Ledger.insertMany(docs as any[], session ? { session } : undefined);
   }
 
   static async postVoucherToLedger(voucherData: any, createdBy: string): Promise<ILedger[]> {
@@ -250,7 +271,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(ledgerEntries, voucherType, voucherNo);
-    return await Ledger.insertMany(ledgerEntries as any[], { session }) as any;
+    return await Ledger.insertMany(ledgerEntries as any[], session ? { session } : undefined) as any;
   }
 
   static async getAccountBalance(firmId: mongoose.Types.ObjectId, accountHead: string, toDate?: string) {

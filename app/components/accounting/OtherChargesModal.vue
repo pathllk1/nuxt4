@@ -131,12 +131,15 @@ watch(() => props.modelValue, (isOpen) => {
 function handleGlobalKeydown(e: KeyboardEvent) {
   if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
     e.preventDefault();
+    e.stopPropagation();
     addCharge();
   } else if (e.key === 'F8') {
     e.preventDefault();
+    e.stopPropagation();
     emit('update:modelValue', false);
   } else if (e.key === 'Escape') {
     e.preventDefault();
+    e.stopPropagation();
     emit('update:modelValue', false);
   }
 }

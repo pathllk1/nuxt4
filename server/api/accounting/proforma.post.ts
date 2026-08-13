@@ -4,6 +4,7 @@ import Party from '../../models/Party';
 import { getNextBillNumber, calcBillTotals, getEffectiveItemQty } from '../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
+import { connectDB } from '../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -14,15 +15,17 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  await connectDB();
 
-  try {
-    const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
-    const partyId = party.id || party._id || party;
-    const username = user.username || user.email || 'system';
+  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+  const partyId = party.id || party._id || party;
+  const username = user.username || user.email || 'system';
 
-    const partyDoc = await Party.findOne({ _id: partyId, firmId: firmIdObj }).session(session).lean();
+  const executeSave = async (session?: mongoose.ClientSession) => {
+    const partyQuery = Party.findOne({ _id: partyId, firmId: firmIdObj });
+    if (session) partyQuery.session(session);
+    const partyDoc = await partyQuery.lean();
+
     if (!partyDoc) {
       throw createError({ statusCode: 404, statusMessage: 'Party not found' });
     }
@@ -63,7 +66,7 @@ export default defineEventHandler(async (event) => {
       consignee?.state_code || 
       (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
-    const [newBill] = await Bill.create([{
+    const billData = {
       firmId: firmIdObj,
       bno: billNo,
       bdate: meta?.billDate || new Date().toISOString().split('T')[0],
@@ -100,19 +103,51 @@ export default defineEventHandler(async (event) => {
       reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
       status: 'ACTIVE'
-    }], { session });
+    };
 
+    const newBill = session
+      ? (await Bill.create([billData], { session }))[0]!
+      : await Bill.create(billData);
+
+    return newBill;
+  };
+
+  let session: mongoose.ClientSession | null = null;
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    const createdBill = await executeSave(session);
     await session.commitTransaction();
     session.endSession();
-
     return {
       success: true,
       message: 'Proforma invoice created successfully',
-      data: newBill
+      data: createdBill
     };
   } catch (err: any) {
-    await session.abortTransaction();
-    session.endSession();
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+      try { session.endSession(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('Retrying proforma post without transaction session:', err.message);
+      try {
+        const createdBill = await executeSave(undefined);
+        return {
+          success: true,
+          message: 'Proforma invoice created successfully',
+          data: createdBill
+        };
+      } catch (retryErr: any) {
+        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
+      }
+    }
+
     throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
   }
 });
