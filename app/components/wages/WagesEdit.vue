@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useWages } from '~/composables/useWages'
 import { wagePersistence } from '~/utils/wagePersistence'
+import { calculateWBProfessionalTax } from '~/utils/taxCalculations'
 
 const { loading, fetchWagesByMonth, updateWage, deleteWage, downloadWageSlip, fetchBankAccounts } = useWages()
 const toast = useToast()
@@ -21,6 +22,7 @@ const bankAccounts = ref<any[]>([])
 const selectedWageIds = ref<Set<string>>(new Set())
 const editedWages = ref<Record<string, any>>({})
 const searchTerm = ref('')
+const calculatePT = ref(false)
 const filters = ref({
   project: 'all',
   site: 'all',
@@ -78,6 +80,11 @@ const calculateWageNet = (wageId: string) => {
   const item = editedWages.value[wageId]
   if (!item) return
   const gross = item.gross_salary || 0
+  
+  if (calculatePT.value) {
+    item.other_deduction = calculateWBProfessionalTax(gross)
+  }
+
   const epf = item.epf_deduction || 0
   const esic = item.esic_deduction || 0
   const otherDed = item.other_deduction || 0
@@ -86,6 +93,12 @@ const calculateWageNet = (wageId: string) => {
   
   item.net_salary = gross - (epf + esic + otherDed + advDed) + otherBen
 }
+
+watch(calculatePT, () => {
+  Object.keys(editedWages.value).forEach(wageId => {
+    calculateWageNet(wageId)
+  })
+})
 
 const handleSaveSingle = async (wageId: string) => {
   const item = editedWages.value[wageId]
@@ -143,6 +156,19 @@ onMounted(() => {
           <input type="month" v-model="month" @change="loadWages" class="px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-bold" />
         </div>
         <UButton size="xs" variant="ghost" icon="i-heroicons-arrow-path" :loading="loading" @click="loadWages">Reload Wages</UButton>
+        
+        <!-- Toggle: Calculate PT (WB Slab) -->
+        <button 
+          type="button" 
+          @click="calculatePT = !calculatePT" 
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-bold transition-all cursor-pointer"
+          :class="calculatePT ? 'bg-amber-500 text-white border-amber-600 shadow-sm' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'"
+          title="Toggle West Bengal Professional Tax auto-calculation on Other Deduction"
+        >
+          <UIcon :name="calculatePT ? 'i-heroicons-check-circle' : 'i-heroicons-minus-circle'" class="w-3.5 h-3.5" />
+          <span>Calculate PT</span>
+          <span class="text-[8.5px] font-black uppercase px-1 py-0.5 rounded" :class="calculatePT ? 'bg-amber-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'">WB Slab</span>
+        </button>
       </div>
 
       <div class="flex items-center gap-2">
@@ -171,6 +197,7 @@ onMounted(() => {
               <th class="p-2 w-24 text-right">Gross Salary</th>
               <th class="p-2 w-20 text-right">EPF</th>
               <th class="p-2 w-20 text-right">ESIC</th>
+              <th class="p-2 w-20 text-right" :class="{'text-amber-400 font-bold': calculatePT}">{{ calculatePT ? 'PT / Other' : 'Other Ded' }}</th>
               <th class="p-2 w-24 text-right text-rose-400">Adv. Deduction</th>
               <th class="p-2 w-24 text-right text-emerald-400 font-black">Net Salary</th>
               <th class="p-2 w-32 text-center">Actions</th>
@@ -193,6 +220,9 @@ onMounted(() => {
               </td>
               <td class="p-2 text-right">
                 <input type="number" v-model.number="editedWages[wage._id].esic_deduction" @input="calculateWageNet(wage._id)" class="w-16 px-1 text-right bg-gray-50 dark:bg-gray-800 border rounded" />
+              </td>
+              <td class="p-2 text-right" :class="{'bg-amber-500/10 dark:bg-amber-500/20': calculatePT}">
+                <input type="number" v-model.number="editedWages[wage._id].other_deduction" @input="calculateWageNet(wage._id)" class="w-16 px-1 text-right bg-gray-50 dark:bg-gray-800 border rounded" :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold border-amber-300' : 'text-orange-600'" :placeholder="calculatePT ? 'PT' : '0'" />
               </td>
               <td class="p-2 text-right">
                 <input type="number" v-model.number="editedWages[wage._id].advance_deduction" @input="calculateWageNet(wage._id)" class="w-18 px-1 text-right bg-gray-50 dark:bg-gray-800 border border-rose-200 dark:border-rose-800 rounded font-bold text-rose-600" />

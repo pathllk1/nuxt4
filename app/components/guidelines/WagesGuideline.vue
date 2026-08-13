@@ -98,6 +98,12 @@
               <td class="px-4 py-3 text-slate-500">Applicable if Gross ≤ ₹21,000</td>
               <td class="px-4 py-3 font-bold text-emerald-600">0.75% of ₹13,000 = ₹98.00</td>
             </tr>
+            <tr class="hover:bg-slate-50 dark:hover:bg-zinc-750 bg-amber-50/20 dark:bg-amber-950/20">
+              <td class="px-4 py-3 font-bold text-amber-600 dark:text-amber-400">Professional Tax (WB Slab)</td>
+              <td class="px-4 py-3 font-mono text-[11px]">Auto-calculated on Other Deduction via 'Calculate PT' toggle (≤10k: ₹0, 10k-15k: ₹110, 15k-25k: ₹130, 25k-40k: ₹150, &gt;40k: ₹200)</td>
+              <td class="px-4 py-3 font-bold text-amber-600">West Bengal State Schedule (Max ₹2,500/yr)</td>
+              <td class="px-4 py-3 font-bold text-amber-600">Gross ₹13,000 → PT ₹110.00</td>
+            </tr>
             <tr class="hover:bg-slate-50 dark:hover:bg-zinc-750">
               <td class="px-4 py-3 font-bold text-amber-600">Advance Recovery</td>
               <td class="px-4 py-3 font-mono text-[11px]">Deducted from active advances ledger</td>

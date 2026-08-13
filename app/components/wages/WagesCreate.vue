@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useWages } from '~/composables/useWages'
 import { wagePersistence } from '~/utils/wagePersistence'
+import { calculateWBProfessionalTax } from '~/utils/taxCalculations'
 
 const { loading, fetchEligibleEmployees, createWagesBulk, fetchBankAccounts, downloadBankReport, downloadEPFESICReport, exportWages, getJobStatus } = useWages()
 const toast = useToast()
@@ -39,6 +40,7 @@ const commonPaymentData = ref({
 })
 
 const searchTerm = ref('')
+const calculatePT = ref(false)
 const filters = ref({
   project: 'all',
   site: 'all',
@@ -57,14 +59,21 @@ const persistState = () => {
     selectedEmployeeIds: Array.from(selectedEmployeeIds.value),
     wageData: wageData.value,
     commonPaymentData: commonPaymentData.value,
-    filters: filters.value
+    filters: filters.value,
+    calculatePT: calculatePT.value
   })
   updateMetadata()
 }
 
-watch([month, employees, selectedEmployeeIds, wageData, commonPaymentData, filters], () => {
+watch([month, employees, selectedEmployeeIds, wageData, commonPaymentData, filters, calculatePT], () => {
   persistState()
 }, { deep: true })
+
+watch(calculatePT, () => {
+  Object.keys(wageData.value).forEach(empId => {
+    calculateEmployeeWages(empId)
+  })
+})
 
 const updateMetadata = () => {
   sessionMetadata.value = wagePersistence.getMetadata('CREATE')
@@ -79,6 +88,7 @@ const restoreState = () => {
     wageData.value = saved.wageData || {}
     commonPaymentData.value = saved.commonPaymentData || commonPaymentData.value
     filters.value = saved.filters || filters.value
+    calculatePT.value = saved.calculatePT ?? false
     updateMetadata()
     return true
   }
@@ -208,6 +218,11 @@ const calculateEmployeeWages = (empId: string, data?: any) => {
   // ESIC: 0.75% of gross, rounded up
   wage.esic_deduction = Math.ceil(gross * 0.0075)
   
+  // Professional Tax (West Bengal Slab) -> mapped to other_deduction when toggle is enabled
+  if (calculatePT.value) {
+    wage.other_deduction = calculateWBProfessionalTax(gross)
+  }
+
   updateNetSalary(empId, data)
 }
 
@@ -247,18 +262,19 @@ const isAllSelected = computed(() => {
 })
 
 const totals = computed(() => {
-  let gross = 0, epf = 0, esic = 0, adv = 0, net = 0
+  let gross = 0, epf = 0, esic = 0, otherDed = 0, adv = 0, net = 0
   selectedEmployeeIds.value.forEach(id => {
     const w = wageData.value[id]
     if (w) {
       gross += w.gross_salary
       epf += w.epf_deduction
       esic += w.esic_deduction
+      otherDed += (w.other_deduction || 0)
       adv += w.advance_deduction
       net += w.net_salary
     }
   })
-  return { gross, epf, esic, adv, net }
+  return { gross, epf, esic, otherDed, adv, net }
 })
 
 const finalizeSave = async () => {
@@ -451,13 +467,26 @@ onMounted(() => {
 
     <!-- Toolbar -->
     <div class="bg-white dark:bg-gray-900 p-2 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 shrink-0">
-      <div class="flex flex-wrap items-center gap-2 sm:gap-4">
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3">
         <div class="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded border border-gray-100 dark:border-gray-700">
           <label class="text-[9px] font-bold text-gray-500 uppercase">Month</label>
           <input type="month" v-model="month" @change="handleMonthChange" class="bg-transparent border-none text-xs font-bold focus:ring-0 p-0" />
         </div>
         <UButton size="xs" icon="i-heroicons-arrow-path" :loading="loading" @click="loadEmployees" class="flex-1 sm:flex-none">Load Staff</UButton>
         
+        <!-- Toggle: Calculate PT (WB Slab) -->
+        <button 
+          type="button" 
+          @click="calculatePT = !calculatePT" 
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-bold transition-all cursor-pointer"
+          :class="calculatePT ? 'bg-amber-500 text-white border-amber-600 shadow-sm' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'"
+          title="Toggle West Bengal Professional Tax auto-calculation on Other Deduction"
+        >
+          <UIcon :name="calculatePT ? 'i-heroicons-check-circle' : 'i-heroicons-minus-circle'" class="w-3.5 h-3.5" />
+          <span>Calculate PT</span>
+          <span class="text-[8.5px] font-black uppercase px-1 py-0.5 rounded" :class="calculatePT ? 'bg-amber-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'">WB Slab</span>
+        </button>
+
         <!-- Total Unpaid Staff & Selected Employees Badge -->
         <div class="flex items-center gap-3 px-3 py-1 bg-gray-50 dark:bg-gray-800 rounded-md border border-gray-100 dark:border-gray-700">
           <div class="flex flex-col items-center">
@@ -529,7 +558,7 @@ onMounted(() => {
       <!-- Totals Bar -->
       <div class="bg-gray-900 dark:bg-black p-2 rounded-lg text-white border border-gray-800 flex items-center justify-between md:justify-end gap-3 sm:gap-4 px-4 overflow-x-auto scrollbar-none">
         <div class="flex flex-col"><span class="text-[8px] text-gray-400 uppercase">Gross</span><span class="text-[11px] font-mono font-bold">{{ formatCurrency(totals.gross) }}</span></div>
-        <div class="flex flex-col"><span class="text-[8px] text-amber-500 uppercase">Ded.</span><span class="text-[11px] font-mono font-bold text-amber-500">{{ formatCurrency(totals.epf + totals.esic + totals.adv) }}</span></div>
+        <div class="flex flex-col"><span class="text-[8px] text-amber-500 uppercase">Ded.</span><span class="text-[11px] font-mono font-bold text-amber-500">{{ formatCurrency(totals.epf + totals.esic + totals.otherDed + totals.adv) }}</span></div>
         <div class="w-px h-4 bg-gray-700 hidden sm:block"></div>
         <div class="flex flex-col items-end"><span class="text-[8px] text-emerald-500 uppercase font-black">Net Total</span><span class="text-sm font-mono font-black text-emerald-400 italic">{{ formatCurrency(totals.net) }}</span></div>
       </div>
@@ -655,7 +684,7 @@ onMounted(() => {
               <th class="p-2 w-20 text-right">Gross</th>
               <th class="p-2 w-16 text-center">EPF</th>
               <th class="p-2 w-16 text-center">ESIC</th>
-              <th class="p-2 w-16 text-center">Other Ded</th>
+              <th class="p-2 w-16 text-center" :class="{'text-amber-400 font-bold': calculatePT}">{{ calculatePT ? 'PT / Other' : 'Other Ded' }}</th>
               <th class="p-2 w-16 text-center">Benefit</th>
               <th class="p-2 w-16 text-center text-rose-400">Advance</th>
               <th class="p-2 w-24 text-right bg-primary/10 text-primary-400 italic">Net Salary</th>
@@ -694,8 +723,8 @@ onMounted(() => {
               <td class="p-1 border-r border-gray-50 dark:border-gray-800">
                 <input type="number" v-model.number="wageData[emp.master_roll_id].esic_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black text-amber-600 focus:ring-0" />
               </td>
-              <td class="p-1 border-r border-gray-50 dark:border-gray-800">
-                <input type="number" v-model.number="wageData[emp.master_roll_id].other_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black text-orange-600 focus:ring-0" />
+              <td class="p-1 border-r border-gray-50 dark:border-gray-800" :class="{'bg-amber-500/10 dark:bg-amber-500/20': calculatePT}">
+                <input type="number" v-model.number="wageData[emp.master_roll_id].other_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black focus:ring-0" :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-orange-600'" :placeholder="calculatePT ? 'PT' : '0'" />
               </td>
               <td class="p-1 border-r border-gray-50 dark:border-gray-800">
                 <input type="number" v-model.number="wageData[emp.master_roll_id].other_benefit" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black text-emerald-600 focus:ring-0" />
