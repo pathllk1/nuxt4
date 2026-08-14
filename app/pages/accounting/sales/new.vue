@@ -88,19 +88,19 @@
           <div class="field-grid">
             <label>
               <span>Reference / PO</span>
-              <input ref="referenceInputRef" v-model="state.meta.referenceNo" type="text" placeholder="Optional" />
+              <input ref="referenceInputRef" v-model="state.meta.referenceNo" type="text" placeholder="Optional" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
             </label>
             <label>
               <span>Vehicle no</span>
-              <input v-model="state.meta.vehicleNo" type="text" placeholder="KA-01-XX-1234" />
+              <input v-model="state.meta.vehicleNo" type="text" placeholder="KA-01-XX-1234" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
             </label>
             <label class="wide">
               <span>Dispatch through</span>
-              <input v-model="state.meta.dispatchThrough" type="text" placeholder="Transport, courier, self" />
+              <input v-model="state.meta.dispatchThrough" type="text" placeholder="Transport, courier, self" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
             </label>
             <label class="wide">
               <span>Narration (Shift+Enter for new line)</span>
-              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes... (Enter jumps to Cart / Stock F2)" @keydown.enter="onNarrationEnter"></textarea>
+              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes... (Enter jumps to Cart / Stock F2)" @keydown.enter="onNarrationEnter" @keydown.backspace="onDetailBackspace($event)"></textarea>
             </label>
           </div>
         </section>
@@ -323,6 +323,20 @@ watch(partySearchQuery, () => {
 function onReverseChargeEnter() {
   saveFocus();
   showPartyModal.value = true;
+}
+
+function onDetailEnter(e: KeyboardEvent) {
+  const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
+  if (container) {
+    handleEnterKey(e, container);
+  }
+}
+
+function onDetailBackspace(e: KeyboardEvent) {
+  const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
+  if (container) {
+    handleBackspaceKey(e, container);
+  }
 }
 
 function onNarrationEnter(e: KeyboardEvent) {
@@ -802,14 +816,14 @@ async function saveInvoice() {
 
 <style scoped>
 .invoice-page {
-  height: calc(100vh - 140px);
-  min-height: 620px;
+  height: calc(100vh - 84px);
+  min-height: calc(100vh - 84px);
   display: flex;
   flex-direction: column;
   background: #f8fafc;
   color: #0f172a;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
   margin: 0;
 }
@@ -842,11 +856,12 @@ async function saveInvoice() {
   flex-wrap: wrap;
 }
 .title-block {
-  width: 256px;
-  flex: 0 0 256px;
+  width: 340px;
+  flex: 0 0 340px;
   box-sizing: border-box;
   padding-left: 12px;
   padding-right: 12px;
+  border-right: 1px solid #dbe3ee;
 }
 .title-block p,
 .eyebrow {
@@ -869,6 +884,7 @@ h1 {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  padding-left: 12px;
 }
 .header-fields label {
   display: flex;
@@ -980,8 +996,8 @@ h1 {
   overflow: hidden;
 }
 .side-panel {
-  width: 280px;
-  flex: 0 0 280px;
+  width: 340px;
+  flex: 0 0 340px;
   background: white;
   border-right: 1px solid #dbe3ee;
   display: flex;

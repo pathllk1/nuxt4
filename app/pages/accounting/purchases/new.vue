@@ -80,15 +80,15 @@
           <div class="field-grid">
             <label class="wide">
               <span>Dispatch mode / reference</span>
-              <input v-model="state.meta.dispatchThrough" type="text" placeholder="Transport, hand delivery, self pickup" />
+              <input v-model="state.meta.dispatchThrough" type="text" placeholder="Transport, hand delivery, self pickup" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
             </label>
             <label class="wide">
               <span>Reference</span>
-              <input v-model="state.meta.referenceNo" type="text" placeholder="Optional GRN or PO reference" />
+              <input v-model="state.meta.referenceNo" type="text" placeholder="Optional GRN or PO reference" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
             </label>
             <label class="wide">
               <span>Narration</span>
-              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes"></textarea>
+              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes... (Enter jumps to Stock F2)" @keydown.enter="onNarrationEnter" @keydown.backspace="onDetailBackspace($event)"></textarea>
             </label>
           </div>
         </section>
@@ -190,10 +190,12 @@ import EditStockModal from '@/components/accounting/EditStockModal.vue';
 import PartyModal from '@/components/accounting/PartyModal.vue';
 import OtherChargesModal from '@/components/accounting/OtherChargesModal.vue';
 import { api } from '@/utils/api';
+import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
 const router = useRouter();
 const route = useRoute();
 const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo } = useBillingState();
+const { saveFocus, restoreFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
 
 const showStockModal = ref(false);
 const showPartyModal = ref(false);
@@ -201,6 +203,35 @@ const partySearchQuery = ref('');
 const showPrintModal = ref(false);
 const createdBill = ref<any>(null);
 const isEditMode = ref(false);
+
+function onDetailEnter(e: KeyboardEvent) {
+  const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
+  if (container) {
+    handleEnterKey(e, container);
+  }
+}
+
+function onDetailBackspace(e: KeyboardEvent) {
+  const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
+  if (container) {
+    handleBackspaceKey(e, container);
+  }
+}
+
+function onNarrationEnter(e: KeyboardEvent) {
+  if (e.shiftKey) return;
+  e.preventDefault();
+  if (state.cart.length > 0) {
+    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input') as HTMLElement;
+    if (firstQtyInput) {
+      firstQtyInput.focus();
+      if (firstQtyInput instanceof HTMLInputElement) firstQtyInput.select();
+      return;
+    }
+  }
+  saveFocus();
+  showStockModal.value = true;
+}
 
 function closePrintModal() {
   showPrintModal.value = false;
@@ -515,14 +546,14 @@ async function saveInvoice() {
 
 <style scoped>
 .invoice-page {
-  height: calc(100vh - 140px);
-  min-height: 620px;
+  height: calc(100vh - 84px);
+  min-height: calc(100vh - 84px);
   display: flex;
   flex-direction: column;
   background: #f8fafc;
   color: #0f172a;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
 }
 .return-banner {
@@ -554,11 +585,12 @@ async function saveInvoice() {
   flex-wrap: wrap;
 }
 .title-block {
-  width: 256px;
-  flex: 0 0 256px;
+  width: 340px;
+  flex: 0 0 340px;
   box-sizing: border-box;
   padding-left: 12px;
   padding-right: 12px;
+  border-right: 1px solid #dbe3ee;
 }
 .title-block p,
 .eyebrow {
@@ -581,7 +613,7 @@ h1 {
   gap: 10px;
   flex-wrap: wrap;
   align-items: flex-end;
-  padding-left: 0;
+  padding-left: 12px;
 }
 .header-actions {
   margin-left: auto;
@@ -703,8 +735,8 @@ textarea:focus {
   overflow: hidden;
 }
 .side-panel {
-  width: 256px;
-  flex: 0 0 256px;
+  width: 340px;
+  flex: 0 0 340px;
   overflow: auto;
   background: #f8fafc;
   border-right: 1px solid #dbe3ee;

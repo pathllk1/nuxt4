@@ -240,23 +240,31 @@ function buildConsigneeFromParty() {
   };
 }
 
+function getEnclosingContainer(e: KeyboardEvent): HTMLElement | null {
+  const target = e.target as HTMLElement;
+  return (target && target.closest('.side-panel')) as HTMLElement || partyPanelRef.value;
+}
+
 function onInputEnter(e: KeyboardEvent) {
-  if (partyPanelRef.value) {
-    handleEnterKey(e, partyPanelRef.value);
+  const container = getEnclosingContainer(e);
+  if (container) {
+    handleEnterKey(e, container);
   }
 }
 
 function onTextareaEnter(e: KeyboardEvent) {
   if (e.shiftKey) return;
   e.preventDefault();
-  if (partyPanelRef.value) {
-    handleEnterKey(e, partyPanelRef.value);
+  const container = getEnclosingContainer(e);
+  if (container) {
+    handleEnterKey(e, container);
   }
 }
 
 function onInputBackspace(e: KeyboardEvent) {
-  if (partyPanelRef.value) {
-    handleBackspaceKey(e, partyPanelRef.value);
+  const container = getEnclosingContainer(e);
+  if (container) {
+    handleBackspaceKey(e, container);
   }
 }
 </script>

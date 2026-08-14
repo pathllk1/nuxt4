@@ -17,9 +17,9 @@
 
       <!-- Main Content Area -->
       <main 
-        class="relative flex-1 transition-all duration-300 overflow-x-hidden"
+        class="relative flex-1 transition-all duration-300 overflow-x-hidden min-h-[calc(100vh-80px)]"
         :class="[
-          !isAuthPage ? 'pt-16 pb-16' : '', 
+          !isAuthPage ? 'pt-12 pb-8' : '', 
           !isAuthPage && isSidebarCollapsed ? 'md:ml-16' : (!isAuthPage ? 'md:ml-60' : '')
         ]"
       >

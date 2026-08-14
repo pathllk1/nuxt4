@@ -141,10 +141,14 @@ export function useKeyboardNavigation() {
     let shouldMoveBack = false
 
     if (target instanceof HTMLInputElement) {
-      const isTextOrNumber = ['text', 'number', 'search', 'tel', 'url'].includes(target.type)
-      if (isTextOrNumber && (target.value === '' || target.selectionStart === 0)) {
+      const isTextOrNumber = ['text', 'number', 'search', 'tel', 'url', 'date', 'email'].includes(target.type)
+      if (isTextOrNumber && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
         shouldMoveBack = true
       } else if (target.type === 'checkbox') {
+        shouldMoveBack = true
+      }
+    } else if (target instanceof HTMLTextAreaElement) {
+      if (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0)) {
         shouldMoveBack = true
       }
     } else if (target instanceof HTMLSelectElement) {

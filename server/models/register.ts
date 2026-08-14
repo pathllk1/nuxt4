@@ -8,6 +8,7 @@ import './ChartOfAccounts';
 import './Contact';
 import './Firm';
 import './FirmSettings';
+import './GstinCache';
 import './Ledger';
 import './MasterRoll';
 import './OpeningBalance';
