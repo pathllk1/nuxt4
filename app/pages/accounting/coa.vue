@@ -9,6 +9,10 @@ interface COAEntry {
   account_name: string;
   account_type: string;
   account_code?: string;
+  pan?: string;
+  aadhaar_number?: string;
+  gstin?: string;
+  phone?: string;
   is_system: boolean;
   is_active: boolean;
   opening_balance?: number;
@@ -50,9 +54,32 @@ const form = ref({
   _id: '',
   account_name: '',
   account_type: 'GENERAL',
+  pan: '',
+  aadhaar_number: '',
+  gstin: '',
+  phone: '',
   opening_balance: 0,
   balance_type: 'DR'
 });
+
+const isPartyType = computed(() => {
+  const t = (form.value.account_type || '').toUpperCase();
+  return t.includes('DEBTOR') || t.includes('CREDITOR') || t.includes('CUSTOMER') || t.includes('SUPPLIER');
+});
+
+const isLaborType = computed(() => {
+  const t = (form.value.account_type || '').toUpperCase();
+  return t.includes('LABOR');
+});
+
+function onGstinChange() {
+  const g = (form.value.gstin || '').trim().toUpperCase();
+  if (g.length >= 12 && /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}/.test(g)) {
+    if (!form.value.pan) {
+      form.value.pan = g.substring(2, 12);
+    }
+  }
+}
 
 const fetchCOA = async () => {
   loading.value = true;
@@ -76,6 +103,10 @@ const openModal = (entry?: any) => {
       _id: entry._id,
       account_name: entry.account_name,
       account_type: entry.account_type,
+      pan: entry.pan || '',
+      aadhaar_number: entry.aadhaar_number || '',
+      gstin: entry.gstin || '',
+      phone: entry.phone || '',
       opening_balance: entry.opening_balance || 0,
       balance_type: entry.balance_type || 'DR'
     };
@@ -84,6 +115,10 @@ const openModal = (entry?: any) => {
       _id: '',
       account_name: '',
       account_type: 'GENERAL',
+      pan: '',
+      aadhaar_number: '',
+      gstin: '',
+      phone: '',
       opening_balance: 0,
       balance_type: 'DR'
     };
@@ -163,13 +198,14 @@ onMounted(fetchCOA);
       <div>
         <p class="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">Accounting Master</p>
         <h1 class="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">Chart of Accounts</h1>
-        <p class="text-xs text-slate-500 dark:text-zinc-400 font-bold mt-1">Manage and configure your firm's financial heads</p>
+        <p class="text-xs text-slate-500 dark:text-zinc-400 font-bold mt-0.5">Manage and configure your firm's financial heads, parties, and compliance data</p>
       </div>
       <div class="flex gap-2">
         <UButton
           color="primary"
           icon="i-heroicons-plus-16-solid"
           label="New Account"
+          class="font-bold cursor-pointer"
           @click="openModal()"
         />
       </div>
@@ -181,14 +217,14 @@ onMounted(fetchCOA);
         <UInput
           v-model="search"
           icon="i-heroicons-magnifying-glass"
-          placeholder="Search account heads..."
+          placeholder="Search account name, PAN, GSTIN, type..."
           @input="fetchCOA"
         />
       </div>
       <USelect
         v-model="typeFilter"
         :items="filterOptions"
-        class="min-w-[150px]"
+        class="min-w-[170px]"
         @change="fetchCOA"
       />
     </div>
@@ -284,11 +320,28 @@ onMounted(fetchCOA);
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
             <tr v-for="acc in sortedCOAData" :key="acc._id" class="hover:bg-slate-50/80 dark:hover:bg-zinc-800/40 transition-colors group">
               <td class="px-6 py-4">
-                <div class="flex items-center gap-3">
-                  <div :class="['w-2 h-10 rounded-full', acc.is_system ? 'bg-indigo-500' : 'bg-emerald-500']"></div>
-                  <div>
-                    <p class="text-sm font-black text-slate-900 dark:text-white leading-tight">{{ acc.account_name }}</p>
-                    <span v-if="acc.is_system" class="text-[8px] font-black uppercase text-indigo-500 bg-indigo-50 dark:bg-indigo-950 px-1 rounded">System</span>
+                <div class="flex items-start gap-3">
+                  <div :class="['w-2 h-10 rounded-full shrink-0', acc.is_system ? 'bg-indigo-500' : 'bg-emerald-500']"></div>
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                      <p class="text-sm font-black text-slate-900 dark:text-white leading-tight">{{ acc.account_name }}</p>
+                      <span v-if="acc.is_system" class="text-[8px] font-black uppercase text-indigo-500 bg-indigo-50 dark:bg-indigo-950 px-1 rounded">System</span>
+                    </div>
+                    <!-- Statutory Badges (PAN, GSTIN, Aadhaar) -->
+                    <div class="flex flex-wrap items-center gap-1.5 text-[9px]">
+                      <span v-if="acc.gstin" class="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono font-bold px-1.5 py-0.2 rounded border border-blue-200 dark:border-blue-800">
+                        GSTIN: {{ acc.gstin }}
+                      </span>
+                      <span v-if="acc.pan" class="bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-mono font-bold px-1.5 py-0.2 rounded border border-purple-200 dark:border-purple-800">
+                        PAN: {{ acc.pan }}
+                      </span>
+                      <span v-if="acc.aadhaar_number" class="bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-mono font-bold px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">
+                        Aadhaar: {{ acc.aadhaar_number }}
+                      </span>
+                      <span v-if="acc.phone" class="text-slate-500 dark:text-zinc-400 font-medium">
+                        📞 {{ acc.phone }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </td>
@@ -314,6 +367,7 @@ onMounted(fetchCOA);
                     color="neutral"
                     icon="i-heroicons-pencil-square"
                     size="xs"
+                    class="cursor-pointer"
                     @click="openModal(acc)"
                   />
                   <UButton
@@ -322,6 +376,7 @@ onMounted(fetchCOA);
                     color="error"
                     icon="i-heroicons-trash"
                     size="xs"
+                    class="cursor-pointer"
                     @click="deleteAccount(acc._id)"
                   />
                 </div>
@@ -333,16 +388,16 @@ onMounted(fetchCOA);
     </div>
 
     <!-- Modal -->
-    <UModal v-model:open="isModalOpen" :title="form._id ? 'Edit Account' : 'New Account'">
+    <UModal v-model:open="isModalOpen" :title="form._id ? 'Edit Account Head' : 'Create New Account Head'">
       <template #body>
-        <form @submit.prevent="saveAccount" class="space-y-4 p-4">
+        <form @submit.prevent="saveAccount" class="space-y-4 p-4 text-xs">
           <div>
-            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Name</label>
-            <UInput v-model="form.account_name" placeholder="e.g. Office Rent" required />
+            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Name *</label>
+            <UInput v-model="form.account_name" placeholder="e.g. Acme Supplies / Moti Chouhan / Office Rent" required />
           </div>
           
           <div>
-            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Type</label>
+            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Classification Type *</label>
             <USelect
               v-model="form.account_type"
               :items="accountTypes"
@@ -350,6 +405,76 @@ onMounted(fetchCOA);
             />
           </div>
 
+          <!-- Context-Sensitive Section: Parties (Customers & Suppliers) -->
+          <div v-if="isPartyType" class="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl space-y-3">
+            <h4 class="text-[10px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+              <span>🏢</span> GST & Party Tax Details
+            </h4>
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">GSTIN (15 Digits)</label>
+              <UInput 
+                v-model="form.gstin" 
+                placeholder="27AAAAA0000A1Z5" 
+                maxlength="15"
+                class="font-mono font-bold uppercase"
+                @input="onGstinChange"
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN Number</label>
+                <UInput 
+                  v-model="form.pan" 
+                  placeholder="AAAAA0000A" 
+                  maxlength="10"
+                  class="font-mono font-bold uppercase"
+                />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Contact Phone</label>
+                <UInput v-model="form.phone" placeholder="Mobile / Phone" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Context-Sensitive Section: Labor Leader -->
+          <div v-if="isLaborType" class="p-3.5 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl space-y-3">
+            <h4 class="text-[10px] font-black uppercase tracking-wider text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+              <span>👷</span> Labor Leader Identification Details
+            </h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Aadhaar Number</label>
+                <UInput 
+                  v-model="form.aadhaar_number" 
+                  placeholder="12-digit Aadhaar" 
+                  maxlength="12"
+                  class="font-mono font-bold"
+                />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN Number</label>
+                <UInput 
+                  v-model="form.pan" 
+                  placeholder="ABCDE1234F" 
+                  maxlength="10"
+                  class="font-mono font-bold uppercase"
+                />
+              </div>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Phone Number</label>
+              <UInput v-model="form.phone" placeholder="Mobile number" />
+            </div>
+          </div>
+
+          <!-- General Account Contact Phone (When not Party or Labor) -->
+          <div v-if="!isPartyType && !isLaborType" class="space-y-1">
+            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Contact Phone / Mobile (Optional)</label>
+            <UInput v-model="form.phone" placeholder="e.g. 9876543210" />
+          </div>
+
+          <!-- Opening Balance -->
           <div>
             <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Opening Balance (₹)</label>
             <div class="flex gap-2">
@@ -362,9 +487,9 @@ onMounted(fetchCOA);
             </div>
           </div>
 
-          <div class="flex justify-end gap-3 pt-4">
-            <UButton variant="ghost" label="Cancel" @click="isModalOpen = false" />
-            <UButton type="submit" color="primary" :label="form._id ? 'Update' : 'Create'" :loading="saving" />
+          <div class="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-zinc-800">
+            <UButton variant="ghost" label="Cancel" class="cursor-pointer" @click="isModalOpen = false" />
+            <UButton type="submit" color="primary" :label="form._id ? 'Update Head' : 'Create Head'" class="font-bold cursor-pointer" :loading="saving" />
           </div>
         </form>
       </template>

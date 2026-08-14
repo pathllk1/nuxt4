@@ -195,8 +195,10 @@
               </div>
             </div>
             
-            <div class="flex justify-between items-center mb-1.5">
-              <div class="text-[10px] text-gray-400 dark:text-gray-500 font-medium">{{ l.phone || 'No phone recorded' }}</div>
+            <div class="flex justify-between items-center mb-1">
+              <div class="text-[10px] text-gray-500 dark:text-gray-400 font-medium flex items-center gap-1">
+                <span>📞</span> {{ l.phone || 'No phone recorded' }}
+              </div>
               <UBadge 
                 :color="l.status === 'Active' ? 'primary' : 'neutral'" 
                 variant="subtle" 
@@ -205,6 +207,16 @@
               >
                 {{ l.status }}
               </UBadge>
+            </div>
+
+            <!-- PAN & Aadhaar Badges -->
+            <div v-if="l.pan || l.aadhaar_number" class="flex flex-wrap gap-1 mb-1.5">
+              <span v-if="l.pan" class="text-[8px] font-mono font-bold bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 px-1 py-0.2 rounded border border-purple-200 dark:border-purple-800">
+                PAN: {{ l.pan }}
+              </span>
+              <span v-if="l.aadhaar_number" class="text-[8px] font-mono font-bold bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-1 py-0.2 rounded border border-amber-200 dark:border-amber-800">
+                Aadhaar: {{ l.aadhaar_number }}
+              </span>
             </div>
 
             <div v-if="l.bank_name" class="bg-gray-50 dark:bg-gray-800/40 p-2 rounded-md border border-gray-100 dark:border-gray-800 space-y-0.5">
@@ -245,6 +257,22 @@
             <div v-if="editingLeader" class="space-y-1">
               <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Status</label>
               <USelect v-model="leaderForm.status" :items="['Active', 'Inactive']" size="sm" class="w-full font-semibold cursor-pointer" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">PAN Number</label>
+                <UInput v-model="leaderForm.pan" placeholder="ABCDE1234F" maxlength="10" size="sm" class="w-full font-semibold uppercase font-mono" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Aadhaar Number</label>
+                <UInput v-model="leaderForm.aadhaar_number" placeholder="12-digit Aadhaar" maxlength="12" size="sm" class="w-full font-semibold font-mono" />
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">GSTIN (Optional)</label>
+              <UInput v-model="leaderForm.gst_number" placeholder="15-digit GSTIN" maxlength="15" size="sm" class="w-full font-semibold uppercase font-mono" />
             </div>
 
             <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-3">
@@ -346,6 +374,9 @@ const savingLeader = ref(false);
 const leaderForm = reactive({
   name: '',
   phone: '',
+  pan: '',
+  aadhaar_number: '',
+  gst_number: '',
   bank_name: '',
   account_number: '',
   ifsc_code: '',
@@ -404,6 +435,9 @@ const openLeaderModal = (leader: any = null) => {
   if (leader) {
     leaderForm.name = leader.name || '';
     leaderForm.phone = leader.phone || '';
+    leaderForm.pan = leader.pan || '';
+    leaderForm.aadhaar_number = leader.aadhaar_number || '';
+    leaderForm.gst_number = leader.gst_number || '';
     leaderForm.bank_name = leader.bank_name || '';
     leaderForm.account_number = leader.account_number || '';
     leaderForm.ifsc_code = leader.ifsc_code || '';
@@ -411,6 +445,9 @@ const openLeaderModal = (leader: any = null) => {
   } else {
     leaderForm.name = '';
     leaderForm.phone = '';
+    leaderForm.pan = '';
+    leaderForm.aadhaar_number = '';
+    leaderForm.gst_number = '';
     leaderForm.bank_name = '';
     leaderForm.account_number = '';
     leaderForm.ifsc_code = '';

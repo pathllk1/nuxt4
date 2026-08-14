@@ -76,6 +76,41 @@
       </div>
     </div>
 
+    <!-- General Ledger Advance Detection & Allocation Banner -->
+    <div 
+      v-if="hasUnallocatedLedgerAdvance && period?.status === 'Open'" 
+      class="p-3.5 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 border-2 border-amber-400/80 dark:border-amber-700/80 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-xs animate-fadeIn"
+    >
+      <div class="flex items-start gap-3">
+        <span class="text-2xl shrink-0 mt-0.5">💡</span>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-black uppercase tracking-wide text-amber-950 dark:text-amber-200">
+              Core Ledger Advance Found: ₹{{ formatINR(leaderLedgerBalance.current_balance) }} DR
+            </span>
+            <span class="text-[9px] bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100 font-extrabold px-1.5 py-0.5 rounded uppercase">
+              General Accounting
+            </span>
+          </div>
+          <p class="text-[11px] text-amber-900/80 dark:text-amber-300/90 mt-0.5">
+            {{ period?.leader_name }} has ₹{{ formatINR(leaderLedgerBalance.current_balance) }} unallocated advance in the core ledger. Allocate to this period to deduct against wages and prevent cash overpayment.
+          </p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+        <UButton 
+          icon="i-lucide-zap"
+          :label="`⚡ Allocate ₹${formatINR(Math.min(netPayable, leaderLedgerBalance.current_balance))} to Period`"
+          color="warning"
+          variant="solid"
+          size="xs"
+          class="font-black cursor-pointer shadow-sm text-xs"
+          :loading="allocating"
+          @click="handleQuickAllocate"
+        />
+      </div>
+    </div>
+
     <!-- Financial Snapshot Cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <div class="p-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
@@ -89,7 +124,12 @@
         <p class="text-[8px] text-gray-400 mt-0.5">{{ localExpenses.length }} items logged</p>
       </div>
       <div class="p-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
-        <p class="text-[9px] font-bold uppercase text-amber-500 tracking-wider">Advances Issued</p>
+        <div class="flex items-center justify-between">
+          <p class="text-[9px] font-bold uppercase text-amber-500 tracking-wider">Advances Issued</p>
+          <span v-if="hasUnallocatedLedgerAdvance" class="text-[8px] text-blue-600 dark:text-blue-400 font-bold">
+            +₹{{ formatINR(leaderLedgerBalance.current_balance) }} in Ledger
+          </span>
+        </div>
         <p class="text-base font-black text-amber-600 dark:text-amber-400 mt-0.5">₹{{ formatINR(sumAdvances) }}</p>
         <p class="text-[8px] text-amber-500/80 mt-0.5">{{ advances.length }} advance vouchers</p>
       </div>
@@ -307,9 +347,14 @@
             class="flex items-center justify-between p-2 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-100 dark:border-amber-900/30 text-xs"
           >
             <div>
-              <div class="text-xs font-bold text-amber-900 dark:text-amber-200">Advance Issued</div>
+              <div class="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                <span>Advance Issued</span>
+                <span v-if="adv.ledger_voucher_group_id === 'ALLOCATED_FROM_LEDGER'" class="text-[8px] font-extrabold bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded">
+                  ⚡ Allocated from Ledger
+                </span>
+              </div>
               <div class="text-[9px] text-amber-600 dark:text-amber-400">
-                Paid on {{ formatDate(adv.payment_date) }} • {{ adv.paid_from_bank_account_id ? 'Bank Account' : 'Cash' }}
+                Paid on {{ formatDate(adv.payment_date) }} • {{ adv.paid_from_bank_account_id ? 'Bank Account' : (adv.ledger_voucher_group_id === 'ALLOCATED_FROM_LEDGER' ? 'General Ledger Advance' : 'Cash') }}
               </div>
             </div>
             <div class="text-xs font-black text-amber-700 dark:text-amber-300">
@@ -388,24 +433,44 @@
             </div>
           </div>
 
+          <!-- Unallocated Ledger Advance Notice in Modal -->
+          <div v-if="hasUnallocatedLedgerAdvance" class="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg text-xs space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-amber-900 dark:text-amber-200 text-[11px]">
+                Available Core Ledger Advance: ₹{{ formatINR(leaderLedgerBalance.current_balance) }} DR
+              </span>
+              <UButton 
+                label="Set Payout ₹0 (Adjust Advance)" 
+                size="xs" 
+                color="warning" 
+                variant="soft" 
+                class="text-[10px] font-bold cursor-pointer"
+                @click="settlementForm.paid_amount = 0; settlementForm.adjustment_reason = 'Adjusted against Core Ledger Advance'"
+              />
+            </div>
+            <p class="text-[10px] text-amber-800 dark:text-amber-400">
+              Setting actual paid amount to ₹0 will clear the ₹{{ formatINR(netPayable) }} wage liability against the leader's ₹{{ formatINR(leaderLedgerBalance.current_balance) }} general advance without disbursing additional cash.
+            </p>
+          </div>
+
           <form @submit.prevent="submitSettlement" class="space-y-4 text-xs">
             <div class="space-y-1">
-              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Actual Paid Amount (INR)*</label>
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Actual Cash/Bank Payout (INR)*</label>
               <UInput v-model.number="settlementForm.paid_amount" type="number" min="0" step="0.01" size="sm" class="w-full font-black text-sm" required />
             </div>
             <div v-if="Math.abs(netPayable - (settlementForm.paid_amount || 0)) > 0.01" class="space-y-1">
-              <label class="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Adjustment Reason (Discount/Discrepancy)</label>
+              <label class="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Adjustment Reason (Discount/Advance/Discrepancy)</label>
               <UInput v-model="settlementForm.adjustment_reason" placeholder="Explain adjustment rationale..." size="sm" class="w-full font-semibold" />
             </div>
             <div class="space-y-1">
               <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Payment Date*</label>
               <UInput v-model="settlementForm.payment_date" type="date" size="sm" class="w-full font-semibold cursor-pointer" required />
             </div>
-            <div class="space-y-1">
+            <div class="space-y-1" v-if="settlementForm.paid_amount > 0">
               <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Payment Mode*</label>
               <USelect v-model="settlementForm.payment_mode" :items="['CASH', 'BANK', 'CHEQUE', 'UPI']" size="sm" class="w-full font-semibold cursor-pointer" />
             </div>
-            <div v-if="settlementForm.payment_mode !== 'CASH'" class="space-y-1">
+            <div v-if="settlementForm.paid_amount > 0 && settlementForm.payment_mode !== 'CASH'" class="space-y-1">
               <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Paid From Bank Account*</label>
               <USelect v-model="settlementForm.bank_account_id" :items="bankAccountOptions" size="sm" class="w-full font-semibold cursor-pointer" />
             </div>
@@ -436,6 +501,7 @@ const {
   periodDetails, 
   syncPeriodData, 
   payAdvance, 
+  allocateAdvance,
   settlePeriod, 
   exportPeriodExcel 
 } = useLabor();
@@ -443,10 +509,16 @@ const {
 const period = computed(() => periodDetails.value?.period);
 const advances = computed(() => periodDetails.value?.advances || []);
 const bankAccounts = computed(() => periodDetails.value?.bankAccounts || []);
+const leaderLedgerBalance = computed(() => periodDetails.value?.leaderLedgerBalance || { current_balance: 0, current_balance_type: 'DR' });
+
+const hasUnallocatedLedgerAdvance = computed(() => {
+  return (leaderLedgerBalance.value.current_balance || 0) > 0 && leaderLedgerBalance.value.current_balance_type === 'DR';
+});
 
 const localWorkers = ref<any[]>([]);
 const localExpenses = ref<any[]>([]);
 const savingData = ref(false);
+const allocating = ref(false);
 
 const isAdvanceModalOpen = ref(false);
 const postingAdvance = ref(false);
@@ -701,6 +773,28 @@ const submitAdvance = async () => {
   }
 };
 
+const handleQuickAllocate = async () => {
+  if (!period.value?.id) return;
+  const allocAmount = Math.min(netPayable.value, leaderLedgerBalance.value.current_balance);
+  if (allocAmount <= 0) {
+    alert('No remaining net payable balance to allocate.');
+    return;
+  }
+  allocating.value = true;
+  try {
+    await allocateAdvance({
+      period_id: period.value.id,
+      amount: allocAmount,
+      payment_date: new Date().toISOString().split('T')[0]
+    });
+    await loadDetails();
+  } catch (err: any) {
+    alert(err.message || 'Error allocating ledger advance');
+  } finally {
+    allocating.value = false;
+  }
+};
+
 const openSettlementModal = () => {
   settlementForm.paid_amount = netPayable.value;
   settlementForm.payment_date = new Date().toISOString().split('T')[0];
@@ -718,7 +812,7 @@ const submitSettlement = async () => {
       paid_amount: settlementForm.paid_amount,
       payment_date: settlementForm.payment_date,
       payment_mode: settlementForm.payment_mode,
-      bank_account_id: settlementForm.payment_mode === 'CASH' ? null : settlementForm.bank_account_id,
+      bank_account_id: (settlementForm.paid_amount > 0 && settlementForm.payment_mode !== 'CASH') ? settlementForm.bank_account_id : null,
       adjustment_reason: settlementForm.adjustment_reason
     });
     isSettlementModalOpen.value = false;

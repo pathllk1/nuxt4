@@ -4,6 +4,10 @@ export interface IChartOfAccounts extends Document {
   firm_id: mongoose.Types.ObjectId;
   account_name: string;
   account_type: string;
+  pan?: string | null;
+  aadhaar_number?: string | null;
+  gstin?: string | null;
+  phone?: string | null;
   is_system: boolean;
   is_active: boolean;
   created_by?: mongoose.Types.ObjectId | null;
@@ -28,6 +32,28 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
     account_type: {
       type: String,
       required: true,
+    },
+    pan: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+    },
+    aadhaar_number: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    gstin: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+    },
+    phone: {
+      type: String,
+      default: null,
+      trim: true,
     },
     is_system: {
       type: Boolean,

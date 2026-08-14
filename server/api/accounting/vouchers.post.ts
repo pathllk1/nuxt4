@@ -103,6 +103,33 @@ export default defineEventHandler(async (event) => {
     await session.commitTransaction();
     session.endSession();
 
+    // Cross-module sync: If payment voucher is linked to a Labor Period, record in labor_advances
+    if (vtype === 'PAYMENT') {
+      try {
+        const { getSql, connectPostgres } = await import('../../utils/pg.config');
+        let sql = getSql();
+        if (!sql) sql = await connectPostgres();
+        if (sql) {
+          for (const entry of entries) {
+            const periodId = entry.laborPeriodId || body.laborPeriodId;
+            if (periodId && entry.amount > 0) {
+              const paymentDate = vdate || new Date().toISOString().split('T')[0];
+              const paidFromBankId = (mainAccount && mongoose.Types.ObjectId.isValid(mainAccount)) ? String(mainAccount) : null;
+              await sql`
+                INSERT INTO labor_advances (
+                  firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id
+                ) VALUES (
+                  ${String(user.firm_id)}, ${periodId}, ${entry.amount}, ${paymentDate}, ${paidFromBankId}, ${String(voucherId)}
+                )
+              `;
+            }
+          }
+        }
+      } catch (laborSyncErr) {
+        console.warn('Cross-module labor advance sync notice:', laborSyncErr);
+      }
+    }
+
     return {
       success: true,
       message: `${vtype} voucher created successfully`,

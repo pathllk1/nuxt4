@@ -112,6 +112,15 @@ export const useLabor = () => {
     }
   };
 
+  const allocateAdvance = async (payload: any) => {
+    loading.value = true;
+    try {
+      return await api.post('/labor/payments/allocate-advance', payload);
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const settlePeriod = async (payload: any) => {
     loading.value = true;
     try {
@@ -141,6 +150,7 @@ export const useLabor = () => {
     fetchPeriodDetails,
     syncPeriodData,
     payAdvance,
+    allocateAdvance,
     settlePeriod,
     exportPeriodExcel
   };

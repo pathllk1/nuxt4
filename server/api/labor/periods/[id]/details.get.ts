@@ -87,6 +87,57 @@ export default defineEventHandler(async (event) => {
     // 7. Fetch Bank Accounts from MongoDB for payment options
     const bankAccounts = await BankAccount.find({ firm_id: session.firm_id }).sort({ account_name: 1 }).lean();
 
+    // 8. Fetch Leader's current General Ledger balance from MongoDB to detect unallocated advances
+    let leaderLedgerBalance = { current_balance: 0, current_balance_type: 'DR', raw_net: 0 };
+    try {
+      const mongoose = await import('mongoose');
+      const Ledger = (await import('../../../../models/Ledger')).default;
+      const OpeningBalance = (await import('../../../../models/OpeningBalance')).default;
+
+      const firmIdStr = String(session.firm_id);
+      const firmIdObj = new mongoose.Types.ObjectId(firmIdStr);
+      const leaderName = period.leader_name;
+
+      const [ob, ledger] = await Promise.all([
+        (OpeningBalance as any).findOne({
+          $or: [{ firmId: firmIdObj }, { firmId: firmIdStr }, { firm_id: firmIdObj }, { firm_id: firmIdStr }],
+          accountHead: leaderName
+        }).lean(),
+        Ledger.aggregate([
+          {
+            $match: {
+              $or: [{ firmId: firmIdObj }, { firmId: firmIdStr }, { firm_id: firmIdObj }, { firm_id: firmIdStr }],
+              accountHead: leaderName
+            }
+          },
+          {
+            $group: {
+              _id: '$accountHead',
+              totalDebit: { $sum: '$debitAmount' },
+              totalCredit: { $sum: '$creditAmount' }
+            }
+          }
+        ])
+      ]);
+
+      const ob_debit = ob ? (Number(ob.debitAmount) || 0) : 0;
+      const ob_credit = ob ? (Number(ob.creditAmount) || 0) : 0;
+      const ledger_debit = (ledger && ledger[0]) ? (Number(ledger[0].totalDebit) || 0) : 0;
+      const ledger_credit = (ledger && ledger[0]) ? (Number(ledger[0].totalCredit) || 0) : 0;
+
+      const totalDebit = ob_debit + ledger_debit;
+      const totalCredit = ob_credit + ledger_credit;
+      const rawNet = totalDebit - totalCredit;
+
+      leaderLedgerBalance = {
+        current_balance: Math.abs(rawNet),
+        current_balance_type: rawNet >= 0 ? 'DR' : 'CR',
+        raw_net: rawNet
+      };
+    } catch (err) {
+      console.warn('Error fetching leader ledger balance:', err);
+    }
+
     return {
       success: true,
       data: {
@@ -96,7 +147,8 @@ export default defineEventHandler(async (event) => {
         expenses,
         advances,
         settlement: settlement || null,
-        bankAccounts: bankAccounts || []
+        bankAccounts: bankAccounts || [],
+        leaderLedgerBalance
       }
     };
   } catch (error: any) {

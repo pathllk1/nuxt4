@@ -1,6 +1,16 @@
 import mongoose from 'mongoose';
 import type { LedgerEntryParams } from './ledger.service';
 
+export interface VoucherLineInput {
+  accountHead: string;
+  amount?: number;
+  debitAmount?: number;
+  creditAmount?: number;
+  accountType?: string;
+  type?: string;
+  laborPeriodId?: string;
+}
+
 export class SmartVoucherConverter {
   static convertToLedgerEntries(
     firmId: mongoose.Types.ObjectId,
@@ -9,7 +19,7 @@ export class SmartVoucherConverter {
     vtype: string,
     vdate: string,
     mainAccount: string,
-    entries: Array<{ accountHead: string; amount: number; type: string }>,
+    entries: VoucherLineInput[],
     narration: string,
     createdBy: string
   ): LedgerEntryParams[] {
@@ -29,165 +39,155 @@ export class SmartVoucherConverter {
     } else if (vtype === 'RECEIPT') {
       return this.handleReceipt(docs, base, mainAccount, entries);
     } else if (vtype === 'JOURNAL') {
-      return this.handleJournal(docs, base, mainAccount, entries);
+      return this.handleJournal(docs, base, entries);
     }
 
     return docs;
   }
 
+  /**
+   * Tally Single-Entry Payment Voucher
+   * - Positive line amount: Debit party/expense (e.g. ₹5,050 Dr)
+   * - Negative line amount: Credit deduction/TDS/discount (e.g. ₹50 Cr)
+   * - Net Bank/Cash Outflow: Credit Bank/Cash account (e.g. ₹5,000 Cr)
+   * Mathematical proof: Total Debits (5050) = Total Credits (5000 + 50)
+   */
   private static handlePayment(
     docs: LedgerEntryParams[],
     base: any,
     mainAccount: string,
-    entries: Array<{ accountHead: string; amount: number; type: string }>
+    entries: VoucherLineInput[]
   ): LedgerEntryParams[] {
-    const mainAmount = entries
-      .filter(e => e.type === 'MAIN')
-      .reduce((sum, e) => sum + e.amount, 0);
+    let totalDebit = 0;
+    let totalDeductions = 0;
 
-    const deductionsTotal = entries
-      .filter(e => e.type === 'DEDUCTION')
-      .reduce((sum, e) => sum + e.amount, 0);
+    for (const entry of entries) {
+      const amt = Number(entry.amount) || 0;
+      if (amt === 0) continue;
 
-    const taxTotal = entries
-      .filter(e => e.type === 'TAX')
-      .reduce((sum, e) => sum + e.amount, 0);
+      if (amt > 0) {
+        // Normal payment/expense/party line -> DEBIT
+        totalDebit += amt;
+        docs.push({
+          ...base,
+          accountHead: entry.accountHead,
+          accountType: entry.accountType || 'EXPENSE',
+          debitAmount: amt,
+          creditAmount: 0
+        });
+      } else {
+        // Negative amount (Deduction/TDS/Discount/Recovery) -> CREDIT
+        const positiveDeduction = Math.abs(amt);
+        totalDeductions += positiveDeduction;
+        docs.push({
+          ...base,
+          accountHead: entry.accountHead,
+          accountType: entry.accountType || 'LIABILITY',
+          debitAmount: 0,
+          creditAmount: positiveDeduction
+        });
+      }
+    }
 
-    const otherTotal = entries
-      .filter(e => e.type === 'OTHER')
-      .reduce((sum, e) => sum + e.amount, 0);
+    const netBankPayout = totalDebit - totalDeductions;
+    if (netBankPayout < 0) {
+      throw new Error(`Invalid Payment Voucher: Total deductions (₹${totalDeductions.toFixed(2)}) exceed gross payout (₹${totalDebit.toFixed(2)}). Net amount cannot be negative.`);
+    }
 
-    const netAmount = mainAmount - deductionsTotal + taxTotal + otherTotal;
-
-    // Credit bank/cash account (money going out)
+    // Credit Bank / Cash with actual net outflow
     docs.push({
       ...base,
       accountHead: mainAccount,
       accountType: 'BANK',
       debitAmount: 0,
-      creditAmount: netAmount
+      creditAmount: netBankPayout
     });
-
-    const mainEntries = entries.filter(e => e.type === 'MAIN');
-    for (const entry of mainEntries) {
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: 'PARTY',
-        debitAmount: entry.amount,
-        creditAmount: 0
-      });
-    }
-
-    const deductionEntries = entries.filter(e => e.type === 'DEDUCTION');
-    for (const entry of deductionEntries) {
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: 'EXPENSE',
-        debitAmount: 0,
-        creditAmount: entry.amount
-      });
-    }
-
-    const taxEntries = entries.filter(e => e.type === 'TAX');
-    for (const entry of taxEntries) {
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: 'EXPENSE',
-        debitAmount: 0,
-        creditAmount: entry.amount
-      });
-    }
-
-    const otherEntries = entries.filter(e => e.type === 'OTHER');
-    for (const entry of otherEntries) {
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: 'EXPENSE',
-        debitAmount: entry.amount,
-        creditAmount: 0
-      });
-    }
 
     return docs;
   }
 
+  /**
+   * Tally Single-Entry Receipt Voucher
+   * - Positive line amount: Credit customer/income (e.g. ₹10,000 Cr)
+   * - Negative line amount: Debit deduction/gateway charge/TDS receivable (e.g. ₹200 Dr)
+   * - Net Bank/Cash Inflow: Debit Bank/Cash account (e.g. ₹9,800 Dr)
+   * Mathematical proof: Total Debits (9800 + 200) = Total Credits (10000)
+   */
   private static handleReceipt(
     docs: LedgerEntryParams[],
     base: any,
     mainAccount: string,
-    entries: Array<{ accountHead: string; amount: number; type: string }>
+    entries: VoucherLineInput[]
   ): LedgerEntryParams[] {
-    const mainAmount = entries
-      .filter(e => e.type === 'MAIN')
-      .reduce((sum, e) => sum + e.amount, 0);
+    let totalCredit = 0;
+    let totalDeductions = 0;
 
-    const deductionsTotal = entries
-      .filter(e => e.type === 'DEDUCTION')
-      .reduce((sum, e) => sum + e.amount, 0);
+    for (const entry of entries) {
+      const amt = Number(entry.amount) || 0;
+      if (amt === 0) continue;
 
-    const netAmount = mainAmount - deductionsTotal;
+      if (amt > 0) {
+        // Normal receipt from customer/income -> CREDIT
+        totalCredit += amt;
+        docs.push({
+          ...base,
+          accountHead: entry.accountHead,
+          accountType: entry.accountType || 'PARTY',
+          debitAmount: 0,
+          creditAmount: amt
+        });
+      } else {
+        // Negative amount (Deduction/Gateway charge/Customer TDS) -> DEBIT
+        const positiveDeduction = Math.abs(amt);
+        totalDeductions += positiveDeduction;
+        docs.push({
+          ...base,
+          accountHead: entry.accountHead,
+          accountType: entry.accountType || 'EXPENSE',
+          debitAmount: positiveDeduction,
+          creditAmount: 0
+        });
+      }
+    }
 
+    const netBankInflow = totalCredit - totalDeductions;
+    if (netBankInflow < 0) {
+      throw new Error(`Invalid Receipt Voucher: Total deductions (₹${totalDeductions.toFixed(2)}) exceed gross receipt (₹${totalCredit.toFixed(2)}). Net amount cannot be negative.`);
+    }
+
+    // Debit Bank / Cash with actual net inflow
     docs.push({
       ...base,
       accountHead: mainAccount,
       accountType: 'BANK',
-      debitAmount: netAmount,
+      debitAmount: netBankInflow,
       creditAmount: 0
     });
-
-    const mainEntries = entries.filter(e => e.type === 'MAIN');
-    for (const entry of mainEntries) {
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: 'PARTY',
-        debitAmount: 0,
-        creditAmount: entry.amount
-      });
-    }
-
-    const deductionEntries = entries.filter(e => e.type === 'DEDUCTION');
-    for (const entry of deductionEntries) {
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: 'EXPENSE',
-        debitAmount: entry.amount,
-        creditAmount: 0
-      });
-    }
 
     return docs;
   }
 
+  /**
+   * Pure Double-Entry Journal Voucher
+   */
   private static handleJournal(
     docs: LedgerEntryParams[],
     base: any,
-    mainAccount: string,
-    entries: Array<{ accountHead: string; amount: number; type: string }>
+    entries: VoucherLineInput[]
   ): LedgerEntryParams[] {
     for (const entry of entries) {
-      if (entry.type === 'MAIN' || entry.type === 'OTHER') {
-        docs.push({
-          ...base,
-          accountHead: entry.accountHead,
-          accountType: 'ASSET',
-          debitAmount: entry.amount,
-          creditAmount: 0
-        });
-      } else if (entry.type === 'DEDUCTION') {
-        docs.push({
-          ...base,
-          accountHead: entry.accountHead,
-          accountType: 'ASSET',
-          debitAmount: 0,
-          creditAmount: entry.amount
-        });
-      }
+      const dr = Number(entry.debitAmount) || 0;
+      const cr = Number(entry.creditAmount) || 0;
+
+      if (dr === 0 && cr === 0) continue;
+
+      docs.push({
+        ...base,
+        accountHead: entry.accountHead,
+        accountType: entry.accountType || 'GENERAL',
+        debitAmount: dr,
+        creditAmount: cr
+      });
     }
 
     return docs;

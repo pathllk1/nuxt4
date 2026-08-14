@@ -11,6 +11,9 @@ export default defineEventHandler(async (event) => {
 
     const query = getQuery(event);
     const firmId = (query.firm_id as string) || session.firm_id;
+    const status = query.status ? String(query.status) : null;
+    const leaderName = query.leader_name ? String(query.leader_name).trim() : null;
+    const leaderId = query.leader_id ? String(query.leader_id) : null;
 
     const periods = await sql`
       SELECT 
@@ -23,6 +26,9 @@ export default defineEventHandler(async (event) => {
       FROM labor_periods p
       JOIN labor_leaders l ON p.leader_id = l.id
       WHERE p.firm_id = ${firmId}
+        ${status ? sql`AND p.status = ${status}` : sql``}
+        ${leaderName ? sql`AND l.name = ${leaderName}` : sql``}
+        ${leaderId ? sql`AND p.leader_id = ${leaderId}` : sql``}
       ORDER BY p.start_date DESC
     `;
 

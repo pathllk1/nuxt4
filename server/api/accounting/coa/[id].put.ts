@@ -18,6 +18,10 @@ export default defineEventHandler(async (event) => {
 
   if (body.account_name) update.account_name = String(body.account_name).trim();
   if (body.account_type) update.account_type = String(body.account_type).toUpperCase();
+  if (body.pan !== undefined) update.pan = body.pan ? String(body.pan).trim().toUpperCase() : null;
+  if (body.aadhaar_number !== undefined) update.aadhaar_number = body.aadhaar_number ? String(body.aadhaar_number).trim() : null;
+  if (body.gstin !== undefined) update.gstin = body.gstin ? String(body.gstin).trim().toUpperCase() : null;
+  if (body.phone !== undefined) update.phone = body.phone ? String(body.phone).trim() : null;
   if (body.is_active !== undefined) update.is_active = body.is_active !== false;
 
   const account = await (ChartOfAccounts as any).findOneAndUpdate(

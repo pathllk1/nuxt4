@@ -14,6 +14,9 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
           firm_id VARCHAR(24) NOT NULL,
           name VARCHAR(255) NOT NULL,
           phone VARCHAR(20),
+          pan VARCHAR(10),
+          aadhaar_number VARCHAR(12),
+          gst_number VARCHAR(15),
           bank_name VARCHAR(255),
           account_number VARCHAR(50),
           ifsc_code VARCHAR(20),
@@ -21,6 +24,14 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+    `;
+
+    // Safe non-destructive column additions for existing live tables
+    await clientSql`
+      ALTER TABLE labor_leaders 
+      ADD COLUMN IF NOT EXISTS pan VARCHAR(10),
+      ADD COLUMN IF NOT EXISTS aadhaar_number VARCHAR(12),
+      ADD COLUMN IF NOT EXISTS gst_number VARCHAR(15);
     `;
 
     // 2. Labor Periods (Work Batches)
