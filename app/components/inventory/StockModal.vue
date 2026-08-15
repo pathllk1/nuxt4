@@ -66,7 +66,7 @@
                       <tr 
                         class="transition-colors cursor-pointer group text-xs font-bold text-slate-700 dark:text-zinc-300"
                         :class="[
-                          isStockActive(stock) ? 'bg-blue-100/90 dark:bg-blue-950/90 ring-2 ring-blue-500 ring-inset shadow-md' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
+                          isStockActive(stock) ? 'bg-blue-100/90 dark:bg-blue-950/90 ring-2 ring-blue-500 ring-inset shadow-md active-stock-row' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
                         ]"
                         @click="toggleStock(stock)"
                       >
@@ -165,7 +165,7 @@
                                       :key="batch._id || batch.batch"
                                       class="transition-colors cursor-pointer"
                                       :class="[
-                                         isBatchActive(stock, batch) ? 'bg-indigo-100 dark:bg-indigo-900/90 ring-2 ring-indigo-500 font-extrabold text-indigo-900 dark:text-white' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
+                                         isBatchActive(stock, batch) ? 'bg-indigo-100 dark:bg-indigo-900/90 ring-2 ring-indigo-500 font-extrabold text-indigo-900 dark:text-white active-stock-row' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
                                       ]"
                                       @click.stop="selectRow(stock, batch)"
                                     >
@@ -247,6 +247,13 @@ watch(() => props.modelValue, (isOpen) => {
 
 watch(search, () => {
   selectedIndex.value = 0;
+});
+
+watch(selectedIndex, () => {
+  nextTick(() => {
+    const activeRow = document.querySelector('.active-stock-row');
+    activeRow?.scrollIntoView({ block: 'nearest' });
+  });
 });
 
 const filteredStocks = computed(() => {

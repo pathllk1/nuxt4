@@ -249,7 +249,16 @@
             type="button" 
             @click="onPartySelect(party)"
           >
-            <strong>{{ party.name || party.firm }}</strong>
+            <div class="flex items-center justify-between w-full gap-2">
+              <strong class="truncate">{{ party.name || party.firm }}</strong>
+              <span 
+                v-if="party.formattedBalance || party.openingBalance !== undefined" 
+                class="party-bal-badge"
+                :class="party.closingBalanceType === 'DR' ? 'bal-dr' : (party.closingBalanceType === 'CR' ? 'bal-cr' : 'bal-nil')"
+              >
+                {{ party.formattedBalance || ('₹' + (Number(party.openingBalance) || 0).toFixed(2) + ' ' + (party.balanceType || 'DR')) }}
+              </span>
+            </div>
             <span>{{ party.gstin || 'UNREGISTERED' }} | {{ party.state || '-' }}</span>
           </button>
           <div v-if="filteredParties.length === 0" class="p-8 text-center text-slate-400 text-xs">
@@ -320,9 +329,21 @@ watch(partySearchQuery, () => {
   partySelectedIndex.value = 0;
 });
 
-function onReverseChargeEnter() {
-  saveFocus();
-  showPartyModal.value = true;
+watch(partySelectedIndex, () => {
+  nextTick(() => {
+    const activeEl = document.querySelector('.party-option.active');
+    activeEl?.scrollIntoView({ block: 'nearest' });
+  });
+});
+
+function onReverseChargeEnter(e: KeyboardEvent) {
+  if (!state.selectedParty) {
+    saveFocus();
+    showPartyModal.value = true;
+  } else {
+    const container = document.querySelector('.invoice-page') as HTMLElement;
+    if (container) handleEnterKey(e, container);
+  }
 }
 
 function onDetailEnter(e: KeyboardEvent) {
@@ -343,7 +364,7 @@ function onNarrationEnter(e: KeyboardEvent) {
   if (e.shiftKey) return;
   e.preventDefault();
   if (state.cart.length > 0) {
-    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input') as HTMLElement;
+    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input, tr[data-row="0"] input.item-name-input') as HTMLElement;
     if (firstQtyInput) {
       firstQtyInput.focus();
       if (firstQtyInput instanceof HTMLInputElement) firstQtyInput.select();
@@ -375,6 +396,8 @@ function handlePartyDrawerKeydown(e: KeyboardEvent) {
     if (filteredParties.value.length > 0 && partySelectedIndex.value < filteredParties.value.length) {
       const selected = filteredParties.value[partySelectedIndex.value];
       onPartySelect(selected);
+    } else if (filteredParties.value.length === 0) {
+      openCreatePartyFromDrawer();
     }
   } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') || (e.altKey && e.key.toLowerCase() === 'c')) {
     e.preventDefault();
@@ -488,6 +511,40 @@ watch(showOtherChargesModal, (isOpen) => {
 watch(showStockModal, (isOpen) => {
   if (isOpen) {
     saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showCreatePartyModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showCreateStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showEditStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showHelpModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
   }
 });
 
@@ -536,12 +593,14 @@ const handleKeydown = (e: KeyboardEvent) => {
     e.preventDefault();
     resetForm();
   } else if (e.key === 'Enter') {
+    if (e.defaultPrevented) return;
     const activeEl = document.activeElement as HTMLElement;
     if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed') && !activeEl.closest('[role="dialog"]')) {
       const container = document.querySelector('.invoice-page') as HTMLElement;
       handleEnterKey(e, container);
     }
   } else if (e.key === 'Backspace') {
+    if (e.defaultPrevented) return;
     const activeEl = document.activeElement as HTMLElement;
     if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed') && !activeEl.closest('[role="dialog"]')) {
       const container = document.querySelector('.invoice-page') as HTMLElement;
@@ -595,7 +654,15 @@ async function loadExistingBill(id: string) {
     if (res.success) {
       const bill = res.data;
       state.currentBill = bill;
-      state.selectedParty = { _id: bill.partyId, name: bill.partyName, address: bill.partyAddress, gstin: bill.partyGstin };
+      const party = state.parties.find(p => p._id === bill.partyId);
+      if (party) {
+        state.selectedParty = party;
+        const loc = party.gstLocations?.find((l: any) => l.gstin === bill.partyGstin);
+        state.selectedPartyLocation = loc || null;
+      } else {
+        state.selectedParty = { _id: bill.partyId, name: bill.partyName, address: bill.partyAddress, gstin: bill.partyGstin };
+        state.selectedPartyLocation = null;
+      }
       state.selectedPartyGstin = bill.partyGstin;
       state.meta.billType = bill.billSubtype?.toLowerCase() === 'inter-state' ? 'inter-state' : 'intra-state';
       state.meta.reverseCharge = bill.reverseCharge;
@@ -650,7 +717,10 @@ async function loadBillForEditing(id: string) {
         disc: item.disc || 0,
         itemType: item.itemType || 'GOODS',
         batch: item.batch || '',
-        mrp: item.mrp || 0
+        mrp: item.mrp || 0,
+        narration: item.narration || '',
+        pno: item.pno,
+        oem: item.oem
       }));
       
       state.otherCharges = bill.otherCharges || [];
@@ -749,6 +819,28 @@ function addServiceLine() {
 
 function removeCartItem(index: number) {
   state.cart.splice(index, 1);
+  nextTick(() => {
+    if (state.cart.length > 0) {
+      const targetIndex = Math.min(index, state.cart.length - 1);
+      const targetRow = document.querySelector(`tr[data-row="${targetIndex}"]`);
+      if (targetRow) {
+        const input = (targetRow.querySelector('input.item-name-input') || targetRow.querySelector('input.qty-input')) as HTMLElement;
+        if (input) {
+          input.focus();
+          if (input instanceof HTMLInputElement) input.select();
+          return;
+        }
+      }
+    } else {
+      const emptyBtn = document.querySelector('.empty-state button') as HTMLElement;
+      if (emptyBtn) {
+        emptyBtn.focus();
+        return;
+      }
+      const narration = document.querySelector('.detail-panel textarea') as HTMLElement;
+      narration?.focus();
+    }
+  });
 }
 
 function handleServiceInput() {}
@@ -1169,6 +1261,36 @@ h1 {
   font-size: 10px;
   color: #64748b;
   font-weight: 700;
+}
+.party-bal-badge {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.bal-dr {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.bal-cr {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.bal-nil {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+.party-option.active .party-bal-badge {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 kbd {
   padding: 1px 4px;

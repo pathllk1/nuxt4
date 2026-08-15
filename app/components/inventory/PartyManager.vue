@@ -17,8 +17,17 @@
 
     <div v-else class="selected-party">
       <div class="party-title-row">
-        <div class="min-w-0">
-          <h3>{{ state.selectedParty.name || state.selectedParty.firm }}</h3>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between gap-2">
+            <h3>{{ state.selectedParty.name || state.selectedParty.firm }}</h3>
+            <span 
+              v-if="state.selectedParty.formattedBalance || state.selectedParty.openingBalance !== undefined" 
+              class="balance-badge"
+              :class="state.selectedParty.closingBalanceType === 'DR' ? 'dr-badge' : (state.selectedParty.closingBalanceType === 'CR' ? 'cr-badge' : 'nil-badge')"
+            >
+              Bal: {{ state.selectedParty.formattedBalance || ('₹' + (Number(state.selectedParty.openingBalance) || 0).toFixed(2) + ' ' + (state.selectedParty.balanceType || 'DR')) }}
+            </span>
+          </div>
           <p class="font-mono text-xs font-bold text-slate-500">{{ state.selectedPartyGstin || 'UNREGISTERED' }}</p>
         </div>
         <button v-if="!state.isReturnMode" class="change-btn" type="button" title="Change party (F3)" @click="$emit('open-modal')">
@@ -33,6 +42,8 @@
           <select 
             :value="state.selectedPartyLocation?.gstin || state.selectedPartyGstin || ''" 
             @change="onPartyGstinChange" 
+            @keydown.enter.prevent="onInputEnter($event)"
+            @keydown.backspace="onInputBackspace($event)"
             class="gst-select"
           >
             <option 
@@ -47,6 +58,12 @@
       </div>
 
       <dl class="party-meta">
+        <div>
+          <dt>Closing Balance</dt>
+          <dd class="font-mono font-bold" :class="state.selectedParty.closingBalanceType === 'DR' ? 'text-amber-700' : (state.selectedParty.closingBalanceType === 'CR' ? 'text-emerald-700' : 'text-slate-700')">
+            {{ state.selectedParty.formattedBalance || ('₹' + (Number(state.selectedParty.openingBalance) || 0).toFixed(2) + ' ' + (state.selectedParty.balanceType || 'DR')) }}
+          </dd>
+        </div>
         <div>
           <dt>State</dt>
           <dd>{{ state.selectedPartyLocation?.state || state.selectedParty.state || '-' }}</dd>
@@ -65,6 +82,8 @@
           v-model="state.consigneeSameAsBillTo" 
           type="checkbox" 
           @change="handleConsigneeToggle" 
+          @keydown.enter.prevent="onInputEnter($event)"
+          @keydown.backspace="onInputBackspace($event)"
         />
         <span>Ship to billing address</span>
       </label>
@@ -75,7 +94,12 @@
         <div v-if="state.selectedParty?.gstLocations?.length > 1" class="party-branch-picker">
           <label class="gst-select-label">
             <span>Ship to Party Branch:</span>
-            <select @change="onConsigneeLocationChange" class="gst-select">
+            <select 
+              @change="onConsigneeLocationChange" 
+              @keydown.enter.prevent="onInputEnter($event)"
+              @keydown.backspace="onInputBackspace($event)"
+              class="gst-select"
+            >
               <option value="">-- Choose Party Location or Custom --</option>
               <option 
                 v-for="loc in state.selectedParty.gstLocations" 
@@ -242,7 +266,7 @@ function buildConsigneeFromParty() {
 
 function getEnclosingContainer(e: KeyboardEvent): HTMLElement | null {
   const target = e.target as HTMLElement;
-  return (target && target.closest('.side-panel')) as HTMLElement || partyPanelRef.value;
+  return (target && target.closest('.invoice-page')) as HTMLElement || (target && target.closest('.side-panel')) as HTMLElement || partyPanelRef.value;
 }
 
 function onInputEnter(e: KeyboardEvent) {
@@ -355,6 +379,30 @@ h2 {
   font-size: 14px;
   font-weight: 800;
   color: #0f172a;
+}
+.balance-badge {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.dr-badge {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.cr-badge {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.nil-badge {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
 }
 .gst-selector-container,
 .party-branch-picker {

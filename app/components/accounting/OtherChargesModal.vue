@@ -244,5 +244,16 @@ function addCharge() {
 
 function removeCharge(index: number) {
   props.otherCharges.splice(index, 1);
+  nextTick(() => {
+    if (props.otherCharges.length > 0) {
+      const targetIndex = Math.min(index, props.otherCharges.length - 1);
+      const row = modalContainerRef.value?.querySelector(`[data-charge-row="${targetIndex}"]`);
+      const nameInput = row?.querySelector('input.name-input') as HTMLElement;
+      if (nameInput) {
+        nameInput.focus();
+        (nameInput as HTMLInputElement).select();
+      }
+    }
+  });
 }
 </script>

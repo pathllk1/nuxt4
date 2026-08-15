@@ -287,6 +287,15 @@ function removeLocation(index: number) {
     const firstLoc = form.gstLocations[0];
     if (firstLoc) firstLoc.isPrimary = true;
   }
+  nextTick(() => {
+    const targetIndex = Math.min(index, form.gstLocations.length - 1);
+    const locRows = modalContainerRef.value?.querySelectorAll('input[placeholder*="27ABCDE"]') || [];
+    const targetGstin = locRows[targetIndex] as HTMLElement;
+    if (targetGstin) {
+      targetGstin.focus();
+      (targetGstin as HTMLInputElement).select();
+    }
+  });
 }
 
 function setPrimary(index: number) {

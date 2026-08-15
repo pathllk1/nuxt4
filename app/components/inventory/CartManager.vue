@@ -136,7 +136,7 @@
                 </button>
               </td>
             </tr>
-            <tr class="note-row" :data-note-row="index">
+            <tr class="note-row" :data-note-row="index" @keydown="onRowKeydown($event, index)">
               <td></td>
               <td :colspan="noteRowColspan">
                 <input 
@@ -146,6 +146,7 @@
                   placeholder="Line note (Optional)" 
                   @keydown.enter.prevent="onNoteEnter($event, index)"
                   @keydown.backspace="onCellBackspace($event)"
+                  @focus="($event.target as HTMLInputElement).select()"
                 />
               </td>
             </tr>
@@ -214,14 +215,14 @@ function onCellEnter(e: KeyboardEvent, rowIndex: number, cellType: string) {
   if (!container) return;
 
   if (cellType === 'last') {
-    // Jump to line note or next row
+    // Jump to item narration (line note) for this row
     const noteInput = container.querySelector(`tr[data-note-row="${rowIndex}"] input.note-input`) as HTMLElement;
-    if (noteInput && noteInput.value) {
-      // If note exists or focused, move to next row
-      focusNextRowOrAddItem(container, rowIndex);
-    } else {
-      focusNextRowOrAddItem(container, rowIndex);
+    if (noteInput) {
+      noteInput.focus();
+      if (noteInput instanceof HTMLInputElement) noteInput.select();
+      return;
     }
+    focusNextRowOrAddItem(container, rowIndex);
   } else {
     handleEnterKey(e, container);
   }
@@ -234,13 +235,16 @@ function onNoteEnter(e: KeyboardEvent, rowIndex: number) {
 }
 
 function focusNextRowOrAddItem(container: HTMLElement, rowIndex: number) {
-  const nextRowQtyInput = container.querySelector(`tr[data-row="${rowIndex + 1}"] input.qty-input`) as HTMLElement;
-  if (nextRowQtyInput) {
-    nextRowQtyInput.focus();
-    if (nextRowQtyInput instanceof HTMLInputElement) nextRowQtyInput.select();
-  } else {
-    emit('add-item');
+  const nextRow = container.querySelector(`tr[data-row="${rowIndex + 1}"]`) as HTMLElement;
+  if (nextRow) {
+    const targetInput = (nextRow.querySelector('input.item-name-input') || nextRow.querySelector('input.qty-input')) as HTMLElement;
+    if (targetInput) {
+      targetInput.focus();
+      if (targetInput instanceof HTMLInputElement) targetInput.select();
+      return;
+    }
   }
+  emit('add-item');
 }
 
 function onCellBackspace(e: KeyboardEvent) {

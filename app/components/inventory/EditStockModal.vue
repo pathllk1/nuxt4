@@ -343,6 +343,16 @@ function addBatch() {
 
 function removeBatch(index: number) {
   form.batches.splice(index, 1);
+  nextTick(() => {
+    if (form.batches.length > 0) {
+      const targetIndex = Math.min(index, form.batches.length - 1);
+      const batchInput = modalContainerRef.value?.querySelector(`[data-batch-row="${targetIndex}"] input`) as HTMLElement;
+      if (batchInput) {
+        batchInput.focus();
+        (batchInput as HTMLInputElement).select();
+      }
+    }
+  });
 }
 
 async function saveChanges() {

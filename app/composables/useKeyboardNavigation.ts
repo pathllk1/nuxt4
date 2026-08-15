@@ -44,13 +44,12 @@ export function useKeyboardNavigation() {
         }
         return
       }
-      if (fallbackSelector) {
-        const el = document.querySelector(fallbackSelector) as HTMLElement
-        if (el && typeof el.focus === 'function') {
-          el.focus()
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-            el.select?.()
-          }
+      const sel = fallbackSelector || '.first-input, .search-input, input:not([type="hidden"]), select'
+      const el = document.querySelector(sel) as HTMLElement
+      if (el && typeof el.focus === 'function') {
+        el.focus()
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+          el.select?.()
         }
       }
     }, 50)
@@ -104,11 +103,6 @@ export function useKeyboardNavigation() {
 
     // Always prevent default on Enter to stop newline in textarea & form submit
     e.preventDefault()
-
-    // Checkbox: Enter toggles state and advances
-    if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-      target.click()
-    }
 
     const inputs = getFocusableInputs(container)
     const currentIndex = inputs.indexOf(target)

@@ -155,22 +155,50 @@
             <p class="eyebrow">Records</p>
             <h2>Select supplier</h2>
           </div>
-          <button type="button" class="drawer-close" @click="showPartyModal = false">Close</button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="create-party-btn text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-1 rounded" @click="openCreatePartyFromDrawer">
+              + New Party (Insert)
+            </button>
+            <button type="button" class="drawer-close" @click="showPartyModal = false">Close</button>
+          </div>
         </header>
         <div class="search-box">
           <input 
+            ref="partySearchInputRef"
             v-model="partySearchQuery" 
             type="text" 
-            placeholder="Search by name, GSTIN, state..." 
+            placeholder="Search party... (↑↓ Navigate • Enter Select • Insert New • ESC Close)" 
             class="search-input" 
-            @keydown.stop
+            @keydown="handlePartyDrawerKeydown"
           />
         </div>
         <div class="party-list">
-          <button v-for="party in filteredParties" :key="party._id" class="party-option" type="button" @click="onPartySelect(party)">
-            <strong>{{ party.name || party.firm }}</strong>
+          <button 
+            v-for="(party, idx) in filteredParties" 
+            :key="party._id" 
+            class="party-option" 
+            :class="{ active: partySelectedIndex === idx }" 
+            type="button" 
+            @click="onPartySelect(party)"
+          >
+            <div class="flex items-center justify-between w-full gap-2">
+              <strong class="truncate">{{ party.name || party.firm }}</strong>
+              <span 
+                v-if="party.formattedBalance || party.openingBalance !== undefined" 
+                class="party-bal-badge"
+                :class="party.closingBalanceType === 'DR' ? 'bal-dr' : (party.closingBalanceType === 'CR' ? 'bal-cr' : 'bal-nil')"
+              >
+                {{ party.formattedBalance || ('₹' + (Number(party.openingBalance) || 0).toFixed(2) + ' ' + (party.balanceType || 'DR')) }}
+              </span>
+            </div>
             <span>{{ party.gstin || 'UNREGISTERED' }} | {{ party.state || '-' }}</span>
           </button>
+          <div v-if="filteredParties.length === 0" class="p-8 text-center text-slate-400 text-xs">
+            <p>No matching party found.</p>
+            <button type="button" class="mt-2 text-emerald-600 font-bold underline" @click="openCreatePartyFromDrawer">
+              Press Insert to Register New Party
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -178,7 +206,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useBillingState } from '@/composables/useBillingState';
 import PartyManager from '@/components/accounting/PartyManager.vue';
@@ -195,7 +223,12 @@ import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 const router = useRouter();
 const route = useRoute();
 const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo } = useBillingState();
-const { saveFocus, restoreFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
+const { saveFocus, restoreFocus, trackPageFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
+
+const firstInputRef = ref<HTMLElement | null>(null);
+const referenceInputRef = ref<HTMLElement | null>(null);
+const partySearchInputRef = ref<HTMLInputElement | null>(null);
+const partySelectedIndex = ref(0);
 
 const showStockModal = ref(false);
 const showPartyModal = ref(false);
@@ -203,6 +236,62 @@ const partySearchQuery = ref('');
 const showPrintModal = ref(false);
 const createdBill = ref<any>(null);
 const isEditMode = ref(false);
+
+watch(showPartyModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+    partySelectedIndex.value = 0;
+    nextTick(() => partySearchInputRef.value?.focus());
+  } else {
+    partySearchQuery.value = '';
+    restoreFocus();
+  }
+});
+
+watch(partySearchQuery, () => {
+  partySelectedIndex.value = 0;
+});
+
+watch(partySelectedIndex, () => {
+  nextTick(() => {
+    const activeEl = document.querySelector('.party-option.active');
+    activeEl?.scrollIntoView({ block: 'nearest' });
+  });
+});
+
+function openCreatePartyFromDrawer() {
+  showPartyModal.value = false;
+  showCreatePartyModal.value = true;
+}
+
+function handlePartyDrawerKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0) {
+      partySelectedIndex.value = (partySelectedIndex.value + 1) % filteredParties.value.length;
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0) {
+      partySelectedIndex.value = (partySelectedIndex.value - 1 + filteredParties.value.length) % filteredParties.value.length;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0 && partySelectedIndex.value < filteredParties.value.length) {
+      const selected = filteredParties.value[partySelectedIndex.value];
+      onPartySelect(selected);
+    } else if (filteredParties.value.length === 0) {
+      openCreatePartyFromDrawer();
+    }
+  } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') || (e.altKey && e.key.toLowerCase() === 'c')) {
+    e.preventDefault();
+    openCreatePartyFromDrawer();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    showPartyModal.value = false;
+    restoreFocus();
+  }
+}
 
 function onDetailEnter(e: KeyboardEvent) {
   const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
@@ -222,7 +311,7 @@ function onNarrationEnter(e: KeyboardEvent) {
   if (e.shiftKey) return;
   e.preventDefault();
   if (state.cart.length > 0) {
-    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input') as HTMLElement;
+    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input, tr[data-row="0"] input.item-name-input') as HTMLElement;
     if (firstQtyInput) {
       firstQtyInput.focus();
       if (firstQtyInput instanceof HTMLInputElement) firstQtyInput.select();
@@ -302,11 +391,6 @@ const filteredParties = computed(() => {
   });
 });
 
-watch(showPartyModal, (val) => {
-  if (!val) {
-    partySearchQuery.value = '';
-  }
-});
 const showCreatePartyModal = ref(false);
 const showCreateStockModal = ref(false);
 const showEditStockModal = ref(false);
@@ -314,17 +398,97 @@ const showOtherChargesModal = ref(false);
 const selectedStockToEdit = ref<any>(null);
 const loading = ref(false);
 
+watch(showOtherChargesModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showCreatePartyModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showCreateStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showEditStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
 function onEditStock(stock: any) {
   selectedStockToEdit.value = stock;
   showEditStockModal.value = true;
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'F2') { e.preventDefault(); showStockModal.value = true; }
-  else if (e.key === 'F3') { e.preventDefault(); showPartyModal.value = true; }
-  else if (e.key === 'F4') { e.preventDefault(); showOtherChargesModal.value = true; }
-  else if (e.key === 'F8') { e.preventDefault(); saveInvoice(); }
-  else if (e.key === 'F9') { e.preventDefault(); resetForm(); }
+  if (
+    showStockModal.value ||
+    showPartyModal.value ||
+    showCreatePartyModal.value ||
+    showCreateStockModal.value ||
+    showEditStockModal.value ||
+    showOtherChargesModal.value ||
+    showPrintModal.value
+  ) {
+    return;
+  }
+
+  if (e.key === 'F2') {
+    e.preventDefault();
+    saveFocus();
+    showStockModal.value = true;
+  } else if (e.key === 'F3') {
+    e.preventDefault();
+    saveFocus();
+    showPartyModal.value = true;
+  } else if (e.key === 'F4') {
+    e.preventDefault();
+    saveFocus();
+    showOtherChargesModal.value = true;
+  } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
+    e.preventDefault();
+    if (canSave.value) saveInvoice();
+  } else if (e.key === 'F9') {
+    e.preventDefault();
+    resetForm();
+  } else if (e.key === 'Enter') {
+    if (e.defaultPrevented) return;
+    const activeEl = document.activeElement as HTMLElement;
+    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed') && !activeEl.closest('[role="dialog"]')) {
+      const container = document.querySelector('.invoice-page') as HTMLElement;
+      handleEnterKey(e, container);
+    }
+  } else if (e.key === 'Backspace') {
+    if (e.defaultPrevented) return;
+    const activeEl = document.activeElement as HTMLElement;
+    if (activeEl && !activeEl.closest('.table-wrap') && !activeEl.closest('.drawer-backdrop') && !activeEl.closest('.fixed') && !activeEl.closest('[role="dialog"]')) {
+      const container = document.querySelector('.invoice-page') as HTMLElement;
+      handleBackspaceKey(e, container);
+    }
+  }
 };
 
 onMounted(async () => {
@@ -342,6 +506,8 @@ onMounted(async () => {
   } else {
     await fetchNextBillNo('PURCHASE');
   }
+
+  trackPageFocus();
 });
 
 onUnmounted(() => {
@@ -354,7 +520,15 @@ async function loadExistingBill(id: string) {
     if (res.success) {
       const bill = res.data;
       state.currentBill = bill;
-      state.selectedParty = { _id: bill.partyId, name: bill.partyName, address: bill.partyAddress, gstin: bill.partyGstin };
+      const party = state.parties.find(p => p._id === bill.partyId);
+      if (party) {
+        state.selectedParty = party;
+        const loc = party.gstLocations?.find((l: any) => l.gstin === bill.partyGstin);
+        state.selectedPartyLocation = loc || null;
+      } else {
+        state.selectedParty = { _id: bill.partyId, name: bill.partyName, address: bill.partyAddress, gstin: bill.partyGstin };
+        state.selectedPartyLocation = null;
+      }
       state.selectedPartyGstin = bill.partyGstin;
       state.meta.billType = bill.billSubtype?.toLowerCase() === 'inter-state' ? 'inter-state' : 'intra-state';
       state.meta.reverseCharge = bill.reverseCharge;
@@ -409,6 +583,7 @@ async function loadBillForEditing(id: string) {
         itemType: item.itemType || 'GOODS',
         batch: item.batch || '',
         mrp: item.mrp || 0,
+        narration: item.narration || '',
         pno: item.pno,
         oem: item.oem
       }));
@@ -488,6 +663,28 @@ function onStockSelect(stock: any) {
 
 function removeCartItem(index: number) {
   state.cart.splice(index, 1);
+  nextTick(() => {
+    if (state.cart.length > 0) {
+      const targetIndex = Math.min(index, state.cart.length - 1);
+      const targetRow = document.querySelector(`tr[data-row="${targetIndex}"]`);
+      if (targetRow) {
+        const input = (targetRow.querySelector('input.item-name-input') || targetRow.querySelector('input.qty-input')) as HTMLElement;
+        if (input) {
+          input.focus();
+          if (input instanceof HTMLInputElement) input.select();
+          return;
+        }
+      }
+    } else {
+      const emptyBtn = document.querySelector('.empty-state button') as HTMLElement;
+      if (emptyBtn) {
+        emptyBtn.focus();
+        return;
+      }
+      const narration = document.querySelector('.detail-panel textarea') as HTMLElement;
+      narration?.focus();
+    }
+  });
 }
 
 function resetForm() {
@@ -835,11 +1032,56 @@ textarea:focus {
   cursor: pointer;
 }
 .party-option:hover {
-  border-color: #047857;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+.party-option.active {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: white;
+}
+.party-option.active strong,
+.party-option.active span {
+  color: white;
+}
+.party-option strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
 }
 .party-option span {
   color: #64748b;
-  font-size: 12px;
+  font-size: 11px;
+}
+.party-bal-badge {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.bal-dr {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.bal-cr {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.bal-nil {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+.party-option.active .party-bal-badge {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 @media (max-width: 1100px) {
   .invoice-page {
