@@ -270,6 +270,12 @@
         </div>
       </div>
     </div>
+
+    <!-- Custom Print Configuration Modal (Alt+P) -->
+    <PrintConfigModal 
+      v-model="showPrintConfigModal" 
+      :bill="createdBill || (isEditMode ? { _id: route.params.id, bno: state.meta.billNo } : null)" 
+    />
   </div>
 </template>
 
@@ -285,6 +291,7 @@ import CreateStockModal from '@/components/inventory/CreateStockModal.vue';
 import EditStockModal from '@/components/inventory/EditStockModal.vue';
 import PartyModal from '@/components/accounting/PartyModal.vue';
 import OtherChargesModal from '@/components/accounting/OtherChargesModal.vue';
+import PrintConfigModal from '@/components/accounting/PrintConfigModal.vue';
 import { api } from '@/utils/api';
 import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
@@ -303,6 +310,7 @@ const showStockModal = ref(false);
 const showPartyModal = ref(false);
 const partySearchQuery = ref('');
 const showPrintModal = ref(false);
+const showPrintConfigModal = ref(false);
 const showHelpModal = ref(false);
 const createdBill = ref<any>(null);
 const isEditMode = ref(false);
@@ -563,6 +571,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     showEditStockModal.value ||
     showOtherChargesModal.value ||
     showPrintModal.value ||
+    showPrintConfigModal.value ||
     showHelpModal.value
   ) {
     return;
@@ -571,6 +580,13 @@ const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'F1' || (e.shiftKey && e.key === '?')) {
     e.preventDefault();
     showHelpModal.value = !showHelpModal.value;
+  } else if ((e.altKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'p' || e.key === 'P')) {
+    e.preventDefault();
+    if (isEditMode.value && route.params.id) {
+      showPrintConfigModal.value = true;
+    } else if (createdBill.value) {
+      showPrintConfigModal.value = true;
+    }
   } else if (e.key === 'F2') {
     e.preventDefault();
     saveFocus();

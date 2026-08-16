@@ -119,9 +119,9 @@ export default defineEventHandler(async (event) => {
       status: 'ACTIVE'
     };
 
-    const newBill = session
-      ? (await Bill.create([billData], { session }))[0]!
-      : await Bill.create(billData);
+    const newBill: any = session
+      ? (await (Bill as any).create([billData], { session }))[0]!
+      : await (Bill as any).create(billData);
 
     const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
 

@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Invalid or missing status parameter' });
     }
 
-    const firm = await Firm.findByIdAndUpdate(firmId, { $set: { status } }, { new: true });
+    const firm = await Firm.findByIdAndUpdate(firmId, { $set: { status } }, { returnDocument: 'after' });
     if (!firm) {
       throw createError({ statusCode: 404, statusMessage: 'Firm not found' });
     }

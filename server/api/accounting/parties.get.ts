@@ -23,23 +23,29 @@ export default defineEventHandler(async (event) => {
     ];
   }
 
-  const [parties, ledgerByPartyId, ledgerByHead] = await Promise.all([
+  // 1. Fetch parties
+  // 2. Aggregate all ledger entries by normalized account head (standard double-entry ledger)
+  // 3. Aggregate any entries tagged with partyId (to catch renamed accounts or legacy entries without double-counting)
+  const [parties, ledgerByHead, ledgerByPartyId] = await Promise.all([
     Party.find(filter).sort({ name: 1 }).lean(),
     Ledger.aggregate([
-      { $match: { firmId: firmIdObj, partyId: { $exists: true, $ne: null } } },
+      { $match: { firmId: firmIdObj } },
       {
         $group: {
-          _id: '$partyId',
+          _id: { $toLower: { $trim: { input: { $ifNull: ['$accountHead', ''] } } } },
           totalDebit: { $sum: '$debitAmount' },
           totalCredit: { $sum: '$creditAmount' }
         }
       }
     ]),
     Ledger.aggregate([
-      { $match: { firmId: firmIdObj } },
+      { $match: { firmId: firmIdObj, partyId: { $exists: true, $ne: null } } },
       {
         $group: {
-          _id: '$accountHead',
+          _id: {
+            partyId: '$partyId',
+            head: { $toLower: { $trim: { input: { $ifNull: ['$accountHead', ''] } } } }
+          },
           totalDebit: { $sum: '$debitAmount' },
           totalCredit: { $sum: '$creditAmount' }
         }
@@ -47,14 +53,19 @@ export default defineEventHandler(async (event) => {
     ])
   ]);
 
-  const partyIdMap = new Map<string, { totalDebit: number; totalCredit: number }>();
-  ledgerByPartyId.forEach((item: any) => {
-    partyIdMap.set(String(item._id), { totalDebit: item.totalDebit || 0, totalCredit: item.totalCredit || 0 });
-  });
-
   const headMap = new Map<string, { totalDebit: number; totalCredit: number }>();
   ledgerByHead.forEach((item: any) => {
-    if (item._id) headMap.set(String(item._id).trim().toLowerCase(), { totalDebit: item.totalDebit || 0, totalCredit: item.totalCredit || 0 });
+    if (item._id) {
+      headMap.set(String(item._id), { totalDebit: item.totalDebit || 0, totalCredit: item.totalCredit || 0 });
+    }
+  });
+
+  const partyOrphanMap = new Map<string, Array<{ head: string; totalDebit: number; totalCredit: number }>>();
+  ledgerByPartyId.forEach((item: any) => {
+    const pId = String(item._id?.partyId);
+    const head = String(item._id?.head || '');
+    if (!partyOrphanMap.has(pId)) partyOrphanMap.set(pId, []);
+    partyOrphanMap.get(pId)!.push({ head, totalDebit: item.totalDebit || 0, totalCredit: item.totalCredit || 0 });
   });
 
   const enrichedParties = parties.map((p: any) => {
@@ -63,14 +74,22 @@ export default defineEventHandler(async (event) => {
     const obDr = obType === 'DR' ? ob : 0;
     const obCr = obType === 'CR' ? ob : 0;
 
-    // Check by partyId first, then fallback to accountHead (party name)
-    const byId = partyIdMap.get(String(p._id));
-    const byHead = headMap.get(String(p.name || '').trim().toLowerCase());
+    const normName = String(p.name || '').trim().toLowerCase();
+    const headData = headMap.get(normName) || { totalDebit: 0, totalCredit: 0 };
 
-    const ledgerDr = (byId?.totalDebit ?? byHead?.totalDebit) || 0;
-    const ledgerCr = (byId?.totalCredit ?? byHead?.totalCredit) || 0;
+    let totalDr = headData.totalDebit;
+    let totalCr = headData.totalCredit;
 
-    const netBalance = (obDr + ledgerDr) - (obCr + ledgerCr);
+    // Add any entries tagged with this partyId whose accountHead did not match p.name (prevents double counting while catching mismatches)
+    const partyEntries = partyOrphanMap.get(String(p._id)) || [];
+    partyEntries.forEach(pe => {
+      if (pe.head !== normName) {
+        totalDr += pe.totalDebit;
+        totalCr += pe.totalCredit;
+      }
+    });
+
+    const netBalance = (obDr + totalDr) - (obCr + totalCr);
     const closingBalance = Math.abs(Number(netBalance.toFixed(2)));
     const closingBalanceType: 'DR' | 'CR' | 'NIL' = netBalance > 0.005 ? 'DR' : (netBalance < -0.005 ? 'CR' : 'NIL');
 

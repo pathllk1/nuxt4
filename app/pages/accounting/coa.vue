@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useApi } from '@/utils/api';
+import { suggestSAC } from '@/composables/useAccountingInvoiceState';
 
 const api = useApi();
 
@@ -13,6 +14,8 @@ interface COAEntry {
   aadhaar_number?: string;
   gstin?: string;
   phone?: string;
+  hsn_sac?: string;
+  gst_rate?: number;
   is_system: boolean;
   is_active: boolean;
   opening_balance?: number;
@@ -58,9 +61,13 @@ const form = ref({
   aadhaar_number: '',
   gstin: '',
   phone: '',
+  hsn_sac: '',
+  gst_rate: null as number | null,
   opening_balance: 0,
   balance_type: 'DR'
 });
+
+const sacSuggestion = ref<{ sac: string; gstRate: number; description: string } | null>(null);
 
 const isPartyType = computed(() => {
   const t = (form.value.account_type || '').toUpperCase();
@@ -71,6 +78,29 @@ const isLaborType = computed(() => {
   const t = (form.value.account_type || '').toUpperCase();
   return t.includes('LABOR');
 });
+
+const isServiceAccountType = computed(() => {
+  const t = (form.value.account_type || '').toUpperCase();
+  return ['INCOME', 'EXPENSE', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE'].includes(t);
+});
+
+function onAccountNameInput() {
+  if (!isServiceAccountType.value) return;
+  const suggestion = suggestSAC(form.value.account_name);
+  sacSuggestion.value = suggestion;
+}
+
+function applySacSuggestion() {
+  if (sacSuggestion.value) {
+    form.value.hsn_sac = sacSuggestion.value.sac;
+    form.value.gst_rate = sacSuggestion.value.gstRate;
+    sacSuggestion.value = null;
+  }
+}
+
+function setGstRate(rate: number) {
+  form.value.gst_rate = rate;
+}
 
 function onGstinChange() {
   const g = (form.value.gstin || '').trim().toUpperCase();
@@ -98,6 +128,7 @@ const fetchCOA = async () => {
 };
 
 const openModal = (entry?: any) => {
+  sacSuggestion.value = null;
   if (entry) {
     form.value = {
       _id: entry._id,
@@ -107,6 +138,8 @@ const openModal = (entry?: any) => {
       aadhaar_number: entry.aadhaar_number || '',
       gstin: entry.gstin || '',
       phone: entry.phone || '',
+      hsn_sac: entry.hsn_sac || '',
+      gst_rate: entry.gst_rate ?? null,
       opening_balance: entry.opening_balance || 0,
       balance_type: entry.balance_type || 'DR'
     };
@@ -119,6 +152,8 @@ const openModal = (entry?: any) => {
       aadhaar_number: '',
       gstin: '',
       phone: '',
+      hsn_sac: '',
+      gst_rate: null,
       opening_balance: 0,
       balance_type: 'DR'
     };
@@ -329,6 +364,12 @@ onMounted(fetchCOA);
                     </div>
                     <!-- Statutory Badges (PAN, GSTIN, Aadhaar) -->
                     <div class="flex flex-wrap items-center gap-1.5 text-[9px]">
+                      <span v-if="acc.hsn_sac" class="bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 font-mono font-bold px-1.5 py-0.2 rounded border border-teal-200 dark:border-teal-800">
+                        SAC: {{ acc.hsn_sac }}
+                      </span>
+                      <span v-if="acc.gst_rate != null" class="bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 font-mono font-bold px-1.5 py-0.2 rounded border border-orange-200 dark:border-orange-800">
+                        GST: {{ acc.gst_rate }}%
+                      </span>
                       <span v-if="acc.gstin" class="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono font-bold px-1.5 py-0.2 rounded border border-blue-200 dark:border-blue-800">
                         GSTIN: {{ acc.gstin }}
                       </span>
@@ -393,7 +434,15 @@ onMounted(fetchCOA);
         <form @submit.prevent="saveAccount" class="space-y-4 p-4 text-xs">
           <div>
             <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Name *</label>
-            <UInput v-model="form.account_name" placeholder="e.g. Acme Supplies / Moti Chouhan / Office Rent" required />
+            <UInput v-model="form.account_name" placeholder="e.g. Acme Supplies / Moti Chouhan / Office Rent" required @input="onAccountNameInput" />
+            <!-- SAC Auto-Suggest Badge -->
+            <div v-if="sacSuggestion && isServiceAccountType && !form.hsn_sac" class="mt-1.5 flex items-center gap-2">
+              <button type="button" @click="applySacSuggestion" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-300 text-[10px] font-bold hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors cursor-pointer">
+                <span>💡</span>
+                <span>Suggested: SAC {{ sacSuggestion.sac }} • {{ sacSuggestion.gstRate }}% GST</span>
+                <span class="text-teal-500">— Click to apply</span>
+              </button>
+            </div>
           </div>
           
           <div>
@@ -472,6 +521,45 @@ onMounted(fetchCOA);
           <div v-if="!isPartyType && !isLaborType" class="space-y-1">
             <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Contact Phone / Mobile (Optional)</label>
             <UInput v-model="form.phone" placeholder="e.g. 9876543210" />
+          </div>
+
+          <!-- Context-Sensitive Section: SAC & GST (Income / Expense accounts) -->
+          <div v-if="isServiceAccountType" class="p-3.5 bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 rounded-xl space-y-3">
+            <h4 class="text-[10px] font-black uppercase tracking-wider text-teal-900 dark:text-teal-200 flex items-center gap-1.5">
+              <span>📋</span> GST Service Tax Configuration (Optional)
+            </h4>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">SAC Code (6 Digits)</label>
+                <UInput 
+                  v-model="form.hsn_sac" 
+                  placeholder="e.g. 998311" 
+                  maxlength="6"
+                  class="font-mono font-bold"
+                />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Default GST Rate (%)</label>
+                <UInput 
+                  v-model.number="form.gst_rate" 
+                  type="number" 
+                  step="0.01"
+                  placeholder="e.g. 18"
+                  class="font-mono font-bold"
+                />
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase mr-1">Quick Set:</span>
+              <button v-for="rate in [0, 5, 12, 18, 28]" :key="rate" type="button" @click="setGstRate(rate)" :class="[
+                'px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border',
+                form.gst_rate === rate
+                  ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
+                  : 'bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border-slate-200 dark:border-zinc-700 hover:bg-teal-50 dark:hover:bg-teal-950/30 hover:border-teal-300 dark:hover:border-teal-700'
+              ]">
+                {{ rate }}%
+              </button>
+            </div>
           </div>
 
           <!-- Opening Balance -->

@@ -67,7 +67,7 @@ export default defineEventHandler(async (event) => {
       Object.assign(body, legacy);
     }
 
-    const firm = await Firm.findByIdAndUpdate(firmId, { $set: body }, { new: true });
+    const firm = await Firm.findByIdAndUpdate(firmId, { $set: body }, { returnDocument: 'after' });
     if (!firm) {
       throw createError({ statusCode: 404, statusMessage: 'Firm not found' });
     }

@@ -9,7 +9,7 @@ async function getNextVoucherGroupId(firmId: mongoose.Types.ObjectId): Promise<n
   const seq = await VoucherSequence.findOneAndUpdate(
     { firmId },
     { $inc: { lastNo: 1 } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return seq.lastNo;
 }

@@ -1,10 +1,9 @@
 import mongoose from 'mongoose';
 import Bill from '../../models/Bill';
 import Party from '../../models/Party';
-import StockReg from '../../models/StockReg';
+import ChartOfAccounts from '../../models/ChartOfAccounts';
 import { LedgerService } from '../../utils/accounting/ledger.service';
-import { StockService } from '../../utils/inventory/stock.service';
-import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, getNextVoucherNumber, calcBillTotals } from '../../utils/accounting/bill-utils';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 import { connectDB } from '../../plugins/mongodb';
@@ -12,10 +11,10 @@ import { connectDB } from '../../plugins/mongodb';
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const body = await readBody(event) || {};
-  const { meta, party, cart, otherCharges, consignee } = body;
+  const { meta, party, cart, otherCharges } = body;
 
   if (!cart?.length) {
-    throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
+    throw createError({ statusCode: 400, statusMessage: 'At least one ledger entry is required' });
   }
 
   await connectDB();
@@ -37,38 +36,51 @@ export default defineEventHandler(async (event) => {
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
 
     const billType = (meta?.billType || 'intra-state').toLowerCase();
-    const billNo = await getNextBillNumber(firmIdObj, 'SALES');
+    const billNo = await getNextBillNumber(firmIdObj, 'ACCOUNTING_SALES');
     const voucherId = await getNextVoucherNumber(firmIdObj);
 
-    const gstEnabled = await isGstEnabled(firmIdObj);
-    const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);
+    // Build virtual cart items for calcBillTotals compatibility
+    const virtualCart = cart.map((item: any) => ({
+      qty: 1,
+      rate: parseFloat(item.amount) || 0,
+      disc: 0,
+      grate: parseFloat(item.gstRate) || 0,
+    }));
 
+    const gstEnabled = await isGstEnabled(firmIdObj);
+    const totals = calcBillTotals(virtualCart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge);
+
+    // Process items for Bill storage
     const processedItems = cart.map((item: any) => {
-      const qty = getEffectiveItemQty(item);
-      const lineValue = qty * (item.rate || 0) * (1 - ((item.disc || 0) / 100));
+      const amount = parseFloat(item.amount) || 0;
+      const gstRate = parseFloat(item.gstRate) || 0;
       let itemCgst = 0, itemSgst = 0, itemIgst = 0;
       if (gstEnabled) {
-        const taxRate = parseFloat(item.grate) || 0;
         if (billType === 'intra-state') {
-          itemCgst = lineValue * (taxRate / 200);
-          itemSgst = lineValue * (taxRate / 200);
+          itemCgst = amount * (gstRate / 200);
+          itemSgst = amount * (gstRate / 200);
         } else {
-          itemIgst = lineValue * (taxRate / 100);
+          itemIgst = amount * (gstRate / 100);
         }
       }
       return {
-        ...item,
-        qty,
-        total: lineValue,
+        item: item.ledgerAccountHead || item.description || 'Service',
+        hsn: item.sacCode || '',
+        qty: 1,
+        uom: 'NOS',
+        rate: amount,
+        grate: gstRate,
+        disc: 0,
+        total: amount,
         cgst: itemCgst,
         sgst: itemSgst,
-        igst: itemIgst
+        igst: itemIgst,
+        itemType: 'SERVICE' as const,
+        narration: item.narration || '',
+        ledgerAccountId: item.ledgerAccountId ? new mongoose.Types.ObjectId(item.ledgerAccountId) : undefined,
+        ledgerAccountHead: item.ledgerAccountHead || '',
       };
     });
-
-    const consigneeStateCode = consignee?.stateCode || 
-      consignee?.state_code || 
-      (consignee?.gstin && consignee.gstin !== 'UNREGISTERED' && consignee.gstin.length >= 2 ? consignee.gstin.substring(0, 2) : null);
 
     const billData = {
       firmId: firmIdObj,
@@ -91,84 +103,33 @@ export default defineEventHandler(async (event) => {
       cgst: totals.cgst,
       sgst: totals.sgst,
       igst: totals.igst,
-      btype: 'SALES',
-      billSubtype: billType.toUpperCase(),
+      btype: 'SALES' as const,
+      billSubtype: 'SERVICE',
+      invoiceMode: 'ACCOUNTING' as const,
       items: processedItems,
       otherCharges: otherCharges || [],
       orderNo: meta?.referenceNo,
-      vehicleNo: meta?.vehicleNo,
-      dispatchThrough: meta?.dispatchThrough,
-      consigneeName: consignee?.name,
-      consigneeGstin: consignee?.gstin,
-      consigneeAddress: consignee?.address,
-      consigneeState: consignee?.state,
-      consigneePin: consignee?.pin,
-      consigneeStateCode,
       narration: meta?.narration,
       reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
-      status: 'ACTIVE'
+      status: 'ACTIVE' as const,
     };
 
-    const newBill: any = session 
+    const newBill: any = session
       ? (await (Bill as any).create([billData], { session }))[0]!
       : await (Bill as any).create(billData);
 
-    const cogsLines: Array<{ stockId: any; stockRegId: any; item: string; cogsValue: number }> = [];
-    let taxableItemsTotal = 0;
-
-    for (const item of processedItems) {
-      const isService = isServiceItem(item);
-      const qty = item.qty;
-      const lineValue = item.total;
-      taxableItemsTotal += lineValue;
-
-      if (isService) {
-        const sRegData = {
-          firm_id: firmIdObj,
-          type: 'SALE',
-          bno: billNo,
-          bdate: newBill.bdate,
-          supply: partyDoc.name,
-          item: item.item,
-          item_type: 'SERVICE',
-          qty,
-          uom: item.uom,
-          hsn: item.hsn,
-          rate: item.rate,
-          grate: item.grate,
-          disc: item.disc || 0,
-          total: lineValue,
-          bill_id: newBill._id,
-          user: username,
-          qtyh: 0,
-          item_narration: item.narration
-        };
-        if (session) {
-          await StockReg.create([sRegData], { session });
-        } else {
-          await StockReg.create(sRegData);
-        }
-        continue;
-      }
-
-      if (item.stockId) {
-        const { cogsValue } = await StockService.updateStockOutward({
-          firmId: firmIdObj,
-          itemData: { ...item, stockId: new mongoose.Types.ObjectId(item.stockId), qty, narration: item.narration },
-          billData: { bno: billNo, bdate: newBill.bdate, supply: partyDoc.name, billId: newBill._id as mongoose.Types.ObjectId, btype: 'SALE' },
-          user: username,
-          session
-        });
-        const regQuery = StockReg.findOne({ bill_id: newBill._id, stock_id: item.stockId }).sort({ createdAt: -1 });
-        if (session) regQuery.session(session);
-        const reg = await regQuery;
-        cogsLines.push({ stockId: item.stockId, stockRegId: reg?._id, item: item.item, cogsValue });
-      }
-    }
+    // Build service items array for ledger posting
+    const serviceItems = cart.map((item: any) => ({
+      ledgerAccountHead: item.ledgerAccountHead,
+      ledgerAccountId: item.ledgerAccountId,
+      description: item.description || '',
+      amount: parseFloat(item.amount) || 0,
+      sacCode: item.sacCode || '',
+    }));
 
     // Post to Double-Entry Ledger
-    const ledgerParams = {
+    await LedgerService.postAccountingSalesLedger({
       firmId: firmIdObj,
       billId: newBill._id,
       voucherId: String(voucherId),
@@ -181,13 +142,40 @@ export default defineEventHandler(async (event) => {
       igst: totals.igst,
       roundOff: totals.roundOff,
       otherCharges: otherCharges || [],
-      taxableItemsTotal,
-      cogsLines,
+      serviceItems,
+      reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
-      session
-    };
+      session,
+    });
 
-    await LedgerService.postSalesLedger(ledgerParams as any);
+    // Intelligent Master Learning: Sync SAC code, GST rate & description back to Chart of Accounts if empty
+    for (const item of cart) {
+      if (item.ledgerAccountId) {
+        const updateFields: any = {};
+        if (item.sacCode) updateFields.hsn_sac = item.sacCode;
+        if (item.gstRate !== undefined && item.gstRate !== null) updateFields.gst_rate = parseFloat(item.gstRate) || 0;
+        if (item.description) updateFields.description = item.description;
+
+        if (Object.keys(updateFields).length > 0) {
+          const coaUpdateQuery = ChartOfAccounts.updateOne(
+            {
+              _id: new mongoose.Types.ObjectId(item.ledgerAccountId),
+              firm_id: firmIdObj,
+              $or: [
+                { hsn_sac: null },
+                { hsn_sac: '' },
+                { gst_rate: null },
+                { description: null },
+                { description: '' }
+              ]
+            },
+            { $set: updateFields }
+          );
+          if (session) coaUpdateQuery.session(session);
+          await coaUpdateQuery.exec();
+        }
+      }
+    }
 
     return newBill;
   };
@@ -202,8 +190,8 @@ export default defineEventHandler(async (event) => {
     session.endSession();
     return {
       success: true,
-      message: 'Sales invoice created successfully',
-      data: createdBill
+      message: 'Accounting sales invoice created successfully',
+      data: createdBill,
     };
   } catch (err: any) {
     if (session) {
@@ -211,19 +199,18 @@ export default defineEventHandler(async (event) => {
       try { session.endSession(); } catch (_) {}
     }
 
-    // If transaction/session error (e.g. standalone Mongo, MongoClient mismatch), retry cleanly without transaction
     if (
       err.message?.includes('ClientSession must be from the same MongoClient') ||
       err.message?.includes('replica set') ||
       err.message?.includes('Transaction numbers')
     ) {
-      console.warn('Retrying sales invoice post without transaction session:', err.message);
+      console.warn('Retrying accounting sales invoice post without transaction session:', err.message);
       try {
         const createdBill = await executeSave(undefined);
         return {
           success: true,
-          message: 'Sales invoice created successfully',
-          data: createdBill
+          message: 'Accounting sales invoice created successfully',
+          data: createdBill,
         };
       } catch (retryErr: any) {
         throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });

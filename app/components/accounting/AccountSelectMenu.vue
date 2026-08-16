@@ -117,6 +117,18 @@
               >
                 {{ formatAccountType(item.account_type) }}
               </span>
+              <span 
+                v-if="item.hsn_sac" 
+                class="text-[8px] font-mono font-bold text-teal-600 dark:text-teal-400 px-1 py-0.2 rounded bg-teal-50 dark:bg-teal-950/40 shrink-0"
+              >
+                SAC: {{ item.hsn_sac }}
+              </span>
+              <span 
+                v-if="item.gst_rate != null" 
+                class="text-[8px] font-mono font-bold text-orange-600 dark:text-orange-400 px-1 py-0.2 rounded bg-orange-50 dark:bg-orange-950/40 shrink-0"
+              >
+                {{ item.gst_rate }}% GST
+              </span>
             </div>
 
             <!-- Balance Preview -->

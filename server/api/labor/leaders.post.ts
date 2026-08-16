@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
             created_by: session._id ? new mongoose.Types.ObjectId(String(session._id)) : null
           }
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     } catch (coaErr) {
       console.warn('Failed to sync leader to ChartOfAccounts:', coaErr);

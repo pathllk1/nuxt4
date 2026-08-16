@@ -106,7 +106,7 @@ export default defineEventHandler(async (event) => {
           itemData: {
             stockId: reg.stock_id,
             qty: reg.qty,
-            rate: reg.rate,
+            rate: reg.rate || 0,
             batch: reg.batch
           },
           session

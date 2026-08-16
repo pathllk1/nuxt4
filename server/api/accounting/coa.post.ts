@@ -26,6 +26,9 @@ export default defineEventHandler(async (event) => {
       aadhaar_number: body.aadhaar_number ? String(body.aadhaar_number).trim() : null,
       gstin: body.gstin ? String(body.gstin).trim().toUpperCase() : null,
       phone: body.phone ? String(body.phone).trim() : null,
+      hsn_sac: body.hsn_sac ? String(body.hsn_sac).trim() : null,
+      gst_rate: body.gst_rate != null ? parseFloat(body.gst_rate) || null : null,
+      description: body.description ? String(body.description).trim() : null,
       is_system: false,
       is_active: body.is_active !== false,
       created_by: userIdObj,
@@ -41,7 +44,7 @@ export default defineEventHandler(async (event) => {
           creditAmount: balanceType === 'CR' ? openingBalance : 0,
           createdBy: String(user._id)
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     }
 

@@ -48,7 +48,7 @@ export default defineEventHandler(async (event) => {
         balanceType: body.balanceType || 'DR'
       }
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
 
   if (!updated) {

@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
     const employee = await MasterRoll.findOneAndUpdate(
       { _id: new mongoose.Types.ObjectId(id), firm_id: user.firm_id },
       update,
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     if (!employee) {

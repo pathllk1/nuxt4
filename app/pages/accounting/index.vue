@@ -135,6 +135,30 @@
             
             <div class="space-y-2">
                <h3 class="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest ml-1 leading-none">Quick Workflows</h3>
+               <button @click="$router.push('/accounting/sales/service')" class="w-full p-2 px-3 flex items-center gap-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 transition-all border border-emerald-200/60 dark:border-emerald-800/40 group">
+                  <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                     <UIcon name="i-heroicons-document-currency-rupee" class="w-4.5 h-4.5" />
+                  </div>
+                  <div class="text-left min-w-0">
+                     <h4 class="text-xs font-bold text-gray-900 dark:text-white leading-none flex items-center gap-1.5">
+                       Service Sales Invoice
+                       <span class="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">New</span>
+                     </h4>
+                     <p class="text-[9px] text-gray-400 dark:text-zinc-500 font-bold uppercase mt-0.5 leading-none">Book revenue without inventory</p>
+                  </div>
+               </button>
+               <button @click="$router.push('/accounting/purchases/service')" class="w-full p-2 px-3 flex items-center gap-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100/70 dark:hover:bg-rose-900/40 transition-all border border-rose-200/60 dark:border-rose-800/40 group">
+                  <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                     <UIcon name="i-heroicons-receipt-percent" class="w-4.5 h-4.5" />
+                  </div>
+                  <div class="text-left min-w-0">
+                     <h4 class="text-xs font-bold text-gray-900 dark:text-white leading-none flex items-center gap-1.5">
+                       Service Purchase Bill
+                       <span class="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300">New</span>
+                     </h4>
+                     <p class="text-[9px] text-gray-400 dark:text-zinc-500 font-bold uppercase mt-0.5 leading-none">Book expenses & vendor bills</p>
+                  </div>
+               </button>
                <button @click="$router.push('/accounting/coa')" class="w-full p-2 px-3 flex items-center gap-3 rounded-xl bg-gray-50/60 dark:bg-zinc-800/40 hover:bg-gray-100 dark:hover:bg-zinc-850/60 transition-all border border-gray-100/50 dark:border-zinc-800/50 group">
                   <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                      <UIcon name="i-heroicons-clipboard-document-list" class="w-4.5 h-4.5" />

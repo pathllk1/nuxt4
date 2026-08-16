@@ -8,6 +8,9 @@ export interface IChartOfAccounts extends Document {
   aadhaar_number?: string | null;
   gstin?: string | null;
   phone?: string | null;
+  hsn_sac?: string | null;
+  gst_rate?: number | null;
+  description?: string | null;
   is_system: boolean;
   is_active: boolean;
   created_by?: mongoose.Types.ObjectId | null;
@@ -51,6 +54,20 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
       uppercase: true,
     },
     phone: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    hsn_sac: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    gst_rate: {
+      type: Number,
+      default: null,
+    },
+    description: {
       type: String,
       default: null,
       trim: true,

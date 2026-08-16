@@ -22,12 +22,14 @@ export default defineEventHandler(async (event) => {
   if (body.aadhaar_number !== undefined) update.aadhaar_number = body.aadhaar_number ? String(body.aadhaar_number).trim() : null;
   if (body.gstin !== undefined) update.gstin = body.gstin ? String(body.gstin).trim().toUpperCase() : null;
   if (body.phone !== undefined) update.phone = body.phone ? String(body.phone).trim() : null;
+  if (body.hsn_sac !== undefined) update.hsn_sac = body.hsn_sac ? String(body.hsn_sac).trim() : null;
+  if (body.gst_rate !== undefined) update.gst_rate = body.gst_rate != null ? parseFloat(body.gst_rate) || null : null;
   if (body.is_active !== undefined) update.is_active = body.is_active !== false;
 
   const account = await (ChartOfAccounts as any).findOneAndUpdate(
     { _id: new mongoose.Types.ObjectId(accountId), firm_id: firmIdObj },
     { $set: update },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
 
   if (!account) {
@@ -46,7 +48,7 @@ export default defineEventHandler(async (event) => {
         creditAmount: balanceType === 'CR' ? openingBalance : 0,
         createdBy: String(user._id)
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
   }
 

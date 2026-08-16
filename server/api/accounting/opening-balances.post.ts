@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
       creditAmount,
       createdBy: String(user._id)
     },
-    { upsert: true, new: true, runValidators: true }
+    { upsert: true, returnDocument: 'after', runValidators: true }
   );
 
   await (Ledger as any).deleteMany({

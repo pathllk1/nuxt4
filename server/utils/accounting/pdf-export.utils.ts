@@ -2,6 +2,7 @@
 import pdfMake from 'pdfmake';
 import path from 'path';
 import fs from 'fs';
+import mongoose from 'mongoose';
 import StockReg from '../../models/StockReg';
 import Bill from '../../models/Bill';
 import BankAccount from '../../models/BankAccount';
@@ -27,13 +28,23 @@ const fonts = {
 
 (pdfMake as any).setFonts(fonts);
 
+// Silence pdfMake security warnings by setting explicit access policies
+if (typeof (pdfMake as any).setUrlAccessPolicy === 'function') {
+  (pdfMake as any).setUrlAccessPolicy(() => false);
+}
+if (typeof (pdfMake as any).setLocalAccessPolicy === 'function') {
+  (pdfMake as any).setLocalAccessPolicy(() => true);
+}
+
 const C = {
-  primary: '#1B3A6B',
-  border: '#A0B4CC',
-  borderDark: '#1B3A6B',
-  textDark: '#1A1A2E',
-  textMid: '#3D4D6A',
-  textLight: '#6B7A99',
+  primary: '#0F172A',      // Crisp deep charcoal/black for titles & headers
+  border: '#CBD5E1',       // Clean, crisp hairline border (0.5pt/1pt)
+  borderDark: '#334155',   // Crisp solid outer boundary
+  tableHdrBg: '#F8FAFC',   // Ultra-light 3-4% neutral background (100% ink-efficient)
+  tableHdrText: '#0F172A', // Crisp bold dark text
+  textDark: '#0F172A',     // Primary body text
+  textMid: '#334155',      // Secondary meta labels
+  textLight: '#64748B',    // Footnotes / small hints
   red: '#991B1B',
   green: '#059669',
 };
@@ -179,7 +190,7 @@ export async function createPdfBufferFromDocDef(docDefinition: any): Promise<Buf
   });
 }
 
-export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise<Buffer> {
+export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printConfig?: any): Promise<Buffer> {
   const billObj = typeof bill.toObject === 'function' ? bill.toObject() : bill;
   const firmId = billObj.firmId || billObj.firm_id;
 
@@ -202,27 +213,48 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise
     gstEnabled = true;
   }
 
-  let bankDetails: any = null;
-  try {
-    bankDetails = await BankAccount.findOne({
-      $or: [{ firmId }, { firm_id: firmId }],
-      is_default: true,
-      status: 'ACTIVE',
-    }).select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
+  // Column flags from printConfig
+  const showHsn = printConfig?.showHsn !== false && printConfig?.showHsn !== 'false';
+  const showQty = printConfig?.showQty !== false && printConfig?.showQty !== 'false';
+  const showUom = printConfig?.showUom !== false && printConfig?.showUom !== 'false';
+  const showRate = printConfig?.showRate !== false && printConfig?.showRate !== 'false';
+  const showDisc = printConfig?.showDisc !== false && printConfig?.showDisc !== 'false';
+  const showGst = printConfig?.showGst !== false && printConfig?.showGst !== 'false';
+  const showBatch = printConfig?.showBatch !== false && printConfig?.showBatch !== 'false';
+  const showNarration = printConfig?.showNarration !== false && printConfig?.showNarration !== 'false';
+  const showBank = printConfig?.showBank !== false && printConfig?.showBank !== 'false';
+  const copyType = printConfig?.copyType || '';
 
-    if (!bankDetails && (firm?.bank_account_number || firm?.bank_name || firm?.ifsc_code || firm?.bank_branch)) {
-      bankDetails = {
-        account_name: firm.bank_name || 'Default Bank Account',
-        account_holder_name: firm.name || '',
-        bank_name: firm.bank_name || '',
-        branch_name: firm.bank_branch || '',
-        account_number: firm.bank_account_number || '',
-        ifsc_code: firm.ifsc_code || '',
-        upi_id: null,
-      };
+  let bankDetails: any = null;
+  if (showBank) {
+    try {
+      if (printConfig?.bankAccountId && mongoose.Types.ObjectId.isValid(printConfig.bankAccountId)) {
+        bankDetails = await BankAccount.findById(printConfig.bankAccountId)
+          .select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
+      }
+
+      if (!bankDetails) {
+        bankDetails = await BankAccount.findOne({
+          $or: [{ firmId }, { firm_id: firmId }],
+          is_default: true,
+          status: 'ACTIVE',
+        }).select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
+      }
+
+      if (!bankDetails && (firm?.bank_account_number || firm?.bank_name || firm?.ifsc_code || firm?.bank_branch)) {
+        bankDetails = {
+          account_name: firm.bank_name || 'Default Bank Account',
+          account_holder_name: firm.name || '',
+          bank_name: firm.bank_name || '',
+          branch_name: firm.bank_branch || '',
+          account_number: firm.bank_account_number || '',
+          ifsc_code: firm.ifsc_code || '',
+          upi_id: null,
+        };
+      }
+    } catch {
+      bankDetails = null;
     }
-  } catch {
-    bankDetails = null;
   }
 
   const firmGstin = billObj.firmGstin || firm?.gst_number || '';
@@ -254,10 +286,157 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise
   const roundedGrandTotal = billObj.netTotal || (gstEnabled ? Math.round(taxableValue + totalTax) : Math.round(taxableValue));
   const roundOff = billObj.roundOff || 0;
 
+  // Build items table columns & widths dynamically
+  const tableWidths: any[] = [15, '*'];
+  const headerRow: any[] = [
+    { text: '#', style: 'tblHdr', alignment: 'center' },
+    { text: 'Description of Goods / Services', style: 'tblHdr' },
+  ];
+
+  if (showHsn) {
+    tableWidths.push(52);
+    headerRow.push({ text: 'HSN/SAC', style: 'tblHdr', alignment: 'center' });
+  }
+  if (showQty) {
+    tableWidths.push(33);
+    headerRow.push({ text: 'Qty', style: 'tblHdr', alignment: 'center' });
+  }
+  if (showUom) {
+    tableWidths.push(26);
+    headerRow.push({ text: 'UOM', style: 'tblHdr', alignment: 'center' });
+  }
+  if (showRate) {
+    tableWidths.push(65);
+    headerRow.push({ text: 'Rate (₹)', style: 'tblHdr', alignment: 'right' });
+  }
+  if (showDisc) {
+    tableWidths.push(38);
+    headerRow.push({ text: 'Disc%', style: 'tblHdr', alignment: 'right' });
+  }
+  if (showGst) {
+    tableWidths.push(40);
+    headerRow.push({ text: 'GST%', style: 'tblHdr', alignment: 'right' });
+  }
+  tableWidths.push(80);
+  headerRow.push({ text: 'Amount (₹)', style: 'tblHdr', alignment: 'right' });
+
+  const tableBody: any[] = [headerRow];
+
+  items.forEach((it: any, idx: number) => {
+    const rowCells: any[] = [
+      { text: idx + 1, alignment: 'center', style: 'tblCell' },
+      {
+        stack: [
+          { text: it.item || '', bold: true, fontSize: 8.5 },
+          ...(showBatch && !isServiceItem(it) && it.batch ? [{ text: `Batch: ${it.batch}`, fontSize: 7.5, color: C.textLight }] : []),
+          ...(showNarration && (it.narration || it.itemNarration) ? [{ text: it.narration || it.itemNarration, fontSize: 7.5, color: C.textLight }] : []),
+        ],
+        style: 'tblCell',
+      }
+    ];
+
+    if (showHsn) rowCells.push({ text: it.hsn || '', alignment: 'center', style: 'tblCell' });
+    if (showQty) rowCells.push({ text: shouldShowQty(it) ? formatQuantity(it.qty) : '', alignment: 'center', style: 'tblCell' });
+    if (showUom) rowCells.push({ text: shouldShowQty(it) ? (it.uom || '') : '', alignment: 'center', style: 'tblCell' });
+    if (showRate) rowCells.push({ text: formatCurrency(it.rate), alignment: 'right', noWrap: true, style: 'tblCell' });
+    if (showDisc) rowCells.push({ text: formatPercentage(it.disc), alignment: 'right', style: 'tblCell' });
+    if (showGst) rowCells.push({ text: gstEnabled ? formatPercentage(it.grate) : '-', alignment: 'right', style: 'tblCell' });
+    rowCells.push({ text: formatCurrency(it.total), alignment: 'right', bold: true, noWrap: true, style: 'tblCell' });
+
+    tableBody.push(rowCells);
+  });
+
+  otherCharges.forEach((ch: any, idx: number) => {
+    const rowCells: any[] = [
+      { text: items.length + idx + 1, alignment: 'center', style: 'tblCell' },
+      {
+        stack: [
+          { text: ch.name || ch.type || 'Other Charge', bold: true, fontSize: 8.5 },
+          ...(showHsn ? [{ text: `HSN/SAC: ${ch.hsnSac || ''}`, fontSize: 7.5, color: C.textLight }] : []),
+        ],
+        style: 'tblCell',
+      }
+    ];
+
+    if (showHsn) rowCells.push({ text: ch.hsnSac || '', alignment: 'center', style: 'tblCell' });
+    if (showQty) rowCells.push({ text: '1', alignment: 'center', style: 'tblCell' });
+    if (showUom) rowCells.push({ text: 'NOS', alignment: 'center', style: 'tblCell' });
+    if (showRate) rowCells.push({ text: formatCurrency(ch.amount), alignment: 'right', noWrap: true, style: 'tblCell' });
+    if (showDisc) rowCells.push({ text: '0.00%', alignment: 'right', style: 'tblCell' });
+    if (showGst) rowCells.push({ text: gstEnabled ? formatPercentage(ch.grate || ch.gstRate) : '-', alignment: 'right', style: 'tblCell' });
+    rowCells.push({ text: formatCurrency(ch.amount), alignment: 'right', bold: true, noWrap: true, style: 'tblCell' });
+
+    tableBody.push(rowCells);
+  });
+
+  // Terms and jurisdiction
+  const customJurisdiction = printConfig?.jurisdiction || (firm?.city ? `Subject to ${firm.city} Jurisdiction only.` : 'Subject to local jurisdiction only.');
+  let customTerms: any = null;
+  if (printConfig?.terms) {
+    try {
+      customTerms = Array.isArray(printConfig.terms) ? printConfig.terms : JSON.parse(printConfig.terms);
+    } catch {
+      customTerms = [String(printConfig.terms)];
+    }
+  }
+
+  const termsList = customTerms && customTerms.length > 0 ? customTerms : [
+    isPurchase ? '1. Subject to mutually agreed payment terms.' : '1. Goods once sold will not be taken back.',
+    `2. ${customJurisdiction}`,
+    '3. E. & O.E.'
+  ];
+
+  const signatoryLabel = printConfig?.signatoryTitle || `For ${seller.name}`;
+
   const docDefinition: any = {
     defaultStyle: { font: 'DejaVuSans', fontSize: 8.5, color: C.textDark, lineHeight: 1.1 },
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 38, 30, 32],
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [30, 10, 30, 0],
+        stack: [
+          {
+            columns: [
+              { text: `${(seller.name || '').toUpperCase()} — ${getInvoiceTypeLabel(btype)}`, bold: true, fontSize: 8, color: C.textDark },
+              { text: `${isPurchase ? 'Bill No:' : 'Invoice No:'} ${billObj.bno || '-'}  |  Date: ${formatDate(billObj.bdate)}`, alignment: 'center', bold: true, fontSize: 8, color: C.textDark },
+              { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid },
+            ]
+          },
+          {
+            columns: [
+              { text: `${isPurchase ? 'Supplier' : 'Buyer'}: ${billObj.partyName || ''}${billObj.partyGstin ? ' (GSTIN: ' + billObj.partyGstin + ')' : ''}`, fontSize: 7.5, color: C.textLight, margin: [0, 2, 0, 0] },
+              { text: `(Continuation from Page ${currentPage - 1})`, alignment: 'right', fontSize: 7.5, italic: true, color: C.textLight, margin: [0, 2, 0, 0] }
+            ]
+          },
+          { canvas: [{ type: 'line', x1: 0, y1: 4, x2: 535, y2: 4, lineWidth: 0.75, lineColor: C.borderDark }] }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [30, 8, 30, 0],
+        stack: [
+          { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 535, y2: 0, lineWidth: 0.5, lineColor: C.border }] },
+          {
+            columns: [
+              { text: `${isPurchase ? 'Bill No:' : 'Invoice No:'} ${billObj.bno || ''}`, fontSize: 7.5, color: C.textLight, margin: [0, 3, 0, 0] },
+              { text: `Generated via BusinessPro Suite  •  E. & O.E.`, alignment: 'center', fontSize: 7.5, color: C.textLight, margin: [0, 3, 0, 0] },
+              { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', fontSize: 7.5, bold: true, color: C.textDark, margin: [0, 3, 0, 0] }
+            ]
+          }
+        ]
+      };
+    },
     content: [
+      ...(copyType ? [{
+        text: copyType.toUpperCase(),
+        bold: true,
+        fontSize: 8,
+        color: C.textMid,
+        alignment: 'right',
+        margin: [0, 0, 0, 4]
+      }] : []),
       {
         table: {
           widths: ['*', 185],
@@ -350,55 +529,9 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise
       {
         table: {
           headerRows: 1,
-          widths: [15, '*', 52, 33, 26, 65, 38, 40, 80],
-          body: [
-            [
-              { text: '#', style: 'tblHdr', alignment: 'center' },
-              { text: 'Description of Goods / Services', style: 'tblHdr' },
-              { text: 'HSN/SAC', style: 'tblHdr', alignment: 'center' },
-              { text: 'Qty', style: 'tblHdr', alignment: 'center' },
-              { text: 'UOM', style: 'tblHdr', alignment: 'center' },
-              { text: 'Rate (₹)', style: 'tblHdr', alignment: 'right' },
-              { text: 'Disc%', style: 'tblHdr', alignment: 'right' },
-              { text: 'GST%', style: 'tblHdr', alignment: 'right' },
-              { text: 'Amount (₹)', style: 'tblHdr', alignment: 'right' },
-            ],
-            ...items.map((it: any, idx: number) => [
-              { text: idx + 1, alignment: 'center', style: 'tblCell' },
-              {
-                stack: [
-                  { text: it.item || '', bold: true, fontSize: 8.5 },
-                  ...(!isServiceItem(it) && it.batch ? [{ text: `Batch: ${it.batch}`, fontSize: 7.5, color: C.textLight }] : []),
-                  ...((it.narration || it.itemNarration) ? [{ text: it.narration || it.itemNarration, fontSize: 7.5, color: C.textLight }] : []),
-                ],
-                style: 'tblCell',
-              },
-              { text: it.hsn || '', alignment: 'center', style: 'tblCell' },
-              { text: shouldShowQty(it) ? formatQuantity(it.qty) : '', alignment: 'center', style: 'tblCell' },
-              { text: shouldShowQty(it) ? (it.uom || '') : '', alignment: 'center', style: 'tblCell' },
-              { text: formatCurrency(it.rate), alignment: 'right', noWrap: true, style: 'tblCell' },
-              { text: formatPercentage(it.disc), alignment: 'right', style: 'tblCell' },
-              { text: gstEnabled ? formatPercentage(it.grate) : '-', alignment: 'right', style: 'tblCell' },
-              { text: formatCurrency(it.total), alignment: 'right', bold: true, noWrap: true, style: 'tblCell' },
-            ]),
-            ...otherCharges.map((ch: any, idx: number) => [
-              { text: items.length + idx + 1, alignment: 'center', style: 'tblCell' },
-              {
-                stack: [
-                  { text: ch.name || ch.type || 'Other Charge', bold: true, fontSize: 8.5 },
-                  { text: `HSN/SAC: ${ch.hsnSac || ''}`, fontSize: 7.5, color: C.textLight },
-                ],
-                style: 'tblCell',
-              },
-              { text: ch.hsnSac || '', alignment: 'center', style: 'tblCell' },
-              { text: '1', alignment: 'center', style: 'tblCell' },
-              { text: 'NOS', alignment: 'center', style: 'tblCell' },
-              { text: formatCurrency(ch.amount), alignment: 'right', noWrap: true, style: 'tblCell' },
-              { text: '0.00%', alignment: 'right', style: 'tblCell' },
-              { text: gstEnabled ? formatPercentage(ch.grate || ch.gstRate) : '-', alignment: 'right', style: 'tblCell' },
-              { text: formatCurrency(ch.amount), alignment: 'right', bold: true, noWrap: true, style: 'tblCell' },
-            ]),
-          ],
+          dontBreakRows: true,
+          widths: tableWidths,
+          body: tableBody,
         },
         layout: {
           hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length) ? 1.5 : 0.5,
@@ -460,10 +593,11 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise
                 ] : []),
                 ...(bankDetails ? [
                   { text: 'BANK DETAILS', style: 'footerSectionTitle', margin: [0, 8, 0, 2] },
-                  { text: `A/C: ${bankDetails.account_number || '-'}`, fontSize: 7.5, color: C.textLight },
+                  { text: `A/C Name: ${bankDetails.account_holder_name || bankDetails.account_name || '-'}`, fontSize: 7.5, color: C.textLight },
+                  { text: `A/C No: ${bankDetails.account_number || '-'}`, fontSize: 7.5, color: C.textDark, bold: true },
                   { text: `Bank: ${bankDetails.bank_name || '-'}`, fontSize: 7.5, color: C.textLight },
                   { text: `Branch: ${bankDetails.branch_name || '-'}`, fontSize: 7.5, color: C.textLight },
-                  { text: `IFSC: ${bankDetails.ifsc_code || '-'}`, fontSize: 7.5, color: C.textLight },
+                  { text: `IFSC: ${bankDetails.ifsc_code || '-'}`, fontSize: 7.5, color: C.textDark, bold: true },
                   ...(bankDetails.upi_id ? [{ text: `UPI: ${bankDetails.upi_id}`, fontSize: 7.5, color: C.textLight }] : []),
                 ] : []),
               ],
@@ -524,15 +658,13 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise
             {
               stack: [
                 { text: 'TERMS & CONDITIONS', style: 'footerSectionTitle' },
-                { text: isPurchase ? '1. Subject to mutually agreed payment terms.' : '1. Goods once sold will not be taken back.', fontSize: 7.5, color: C.textLight },
-                { text: '2. Subject to local jurisdiction only.', fontSize: 7.5, color: C.textLight },
-                { text: '3. E. & O.E.', fontSize: 7.5, color: C.textLight },
+                ...termsList.map((t: string) => ({ text: t, fontSize: 7.5, color: C.textLight })),
               ],
               margin: [8, 6, 8, 6],
             },
             {
               stack: [
-                { text: `For ${seller.name}`, alignment: 'right', bold: true, fontSize: 8.5, color: C.textDark },
+                { text: signatoryLabel, alignment: 'right', bold: true, fontSize: 8.5, color: C.textDark },
                 { text: '', margin: [0, 15, 0, 0] },
                 { text: 'Authorised Signatory', alignment: 'right', fontSize: 7.5, color: C.textLight },
               ],
@@ -561,11 +693,11 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any): Promise
       partyName: { fontSize: 10, bold: true, color: C.textDark },
       partyMeta: { fontSize: 8, color: C.textMid },
       partyGstin: { fontSize: 8, bold: true, color: C.textDark },
-      tblHdr: { fontSize: 8, bold: true, color: '#FFFFFF', fillColor: C.primary, margin: [2, 3, 2, 3] },
+      tblHdr: { fontSize: 8, bold: true, color: C.tableHdrText, fillColor: C.tableHdrBg, margin: [2, 3, 2, 3] },
       tblCell: { fontSize: 8 },
-      hsnHdr: { fontSize: 7.5, bold: true, color: '#FFFFFF', fillColor: C.primary, margin: [2, 2, 2, 2] },
+      hsnHdr: { fontSize: 7.5, bold: true, color: C.tableHdrText, fillColor: C.tableHdrBg, margin: [2, 2, 2, 2] },
       hsnCell: { fontSize: 7.5 },
-      footerSectionTitle: { fontSize: 7.5, bold: true, color: C.primary },
+      footerSectionTitle: { fontSize: 7.5, bold: true, color: C.textMid },
       totLabel: { fontSize: 8, color: C.textMid },
       totValue: { fontSize: 8, color: C.textDark },
       grandTotLabel: { fontSize: 9.5, bold: true, color: C.primary },
@@ -584,14 +716,34 @@ export async function exportBillsToPdfBuffer(bills: any[], firm: any): Promise<B
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 36, 30, 30],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [30, 10, 30, 0],
+        columns: [
+          { text: `${(firm?.name || 'Company Name').toUpperCase()} — BILLS & INVOICES REGISTER`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [30, 8, 30, 0],
+        columns: [
+          { text: 'Bills Register  •  BusinessPro Suite', fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       { text: (firm?.name || 'Company Name').toUpperCase(), fontSize: 14, bold: true, color: C.primary, alignment: 'center' },
       { text: 'BILLS & INVOICES REGISTER', fontSize: 12, bold: true, alignment: 'center', margin: [0, 2, 0, 15] },
       {
         table: {
           headerRows: 1,
+          dontBreakRows: true,
           widths: [60, 60, 55, '*', 65, 60, 60, 65, 45],
           body: [
             [
@@ -624,7 +776,7 @@ export async function exportBillsToPdfBuffer(bills: any[], firm: any): Promise<B
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);
@@ -643,8 +795,27 @@ export async function exportLedgerToPdfBuffer(data: {
 }): Promise<Buffer> {
   const docDefinition: any = {
     pageSize: 'A4',
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 36, 30, 30],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [30, 10, 30, 0],
+        columns: [
+          { text: `${(data.firmName || '').toUpperCase()} — LEDGER: ${data.accountHead.toUpperCase()}`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [30, 8, 30, 0],
+        columns: [
+          { text: `Account Ledger  •  ${data.periodText}`, fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
       { text: `ACCOUNT LEDGER: ${data.accountHead.toUpperCase()}`, fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
@@ -652,6 +823,7 @@ export async function exportLedgerToPdfBuffer(data: {
       {
         table: {
           headerRows: 1,
+          dontBreakRows: true,
           widths: [55, 80, '*', 65, 65, 75],
           body: [
             [
@@ -690,7 +862,7 @@ export async function exportLedgerToPdfBuffer(data: {
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);
@@ -746,7 +918,7 @@ export async function exportTrialBalanceToPdfBuffer(data: {
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);
@@ -805,7 +977,7 @@ export async function exportProfitLossToPdfBuffer(data: {
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);
@@ -870,7 +1042,7 @@ export async function exportBalanceSheetToPdfBuffer(data: {
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);
@@ -930,7 +1102,7 @@ export async function exportDrillDownToPdfBuffer(data: {
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.primary, color: '#FFFFFF', margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);

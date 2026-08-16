@@ -1,4 +1,4 @@
-import { defineEventHandler, getRouterParam, createError, setHeader } from 'h3';
+import { defineEventHandler, getRouterParam, getQuery, createError, setHeader } from 'h3';
 import Bill from '../../../../models/Bill';
 import Firm from '../../../../models/Firm';
 import { requireAuthSession } from '../../../../utils/auth';
@@ -7,6 +7,7 @@ import { exportSingleBillToPdfBuffer } from '../../../../utils/accounting/pdf-ex
 export default defineEventHandler(async (event) => {
   const session = await requireAuthSession(event);
   const id = getRouterParam(event, 'id');
+  const query = getQuery(event);
 
   if (!id) {
     throw createError({ statusCode: 400, statusMessage: 'Bill ID is required' });
@@ -22,7 +23,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const firm = await Firm.findById(session.firm_id).lean();
-  const buffer = await exportSingleBillToPdfBuffer(bill, firm);
+  const buffer = await exportSingleBillToPdfBuffer(bill, firm, query);
 
   const safeBno = String((bill as any).bno || 'invoice').replace(/[^a-zA-Z0-9._-]/g, '_');
   setHeader(event, 'Content-Type', 'application/pdf');

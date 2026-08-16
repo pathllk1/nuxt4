@@ -16,6 +16,8 @@ export interface IBillItem {
   batch?: string;
   itemType?: 'GOODS' | 'SERVICE';
   narration?: string;
+  ledgerAccountId?: mongoose.Types.ObjectId;
+  ledgerAccountHead?: string;
 }
 
 export interface IBillOtherCharge {
@@ -58,6 +60,7 @@ export interface IBill extends Document {
 
   btype: 'SALES' | 'PURCHASE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'PROFORMA' | 'DELIVERY_NOTE';
   billSubtype?: string;
+  invoiceMode?: 'INVENTORY' | 'ACCOUNTING';
   
   items: IBillItem[];
   otherCharges: IBillOtherCharge[];
@@ -108,7 +111,9 @@ const BillItemSchema = new Schema({
   igst: { type: Number, default: 0 },
   batch: { type: String },
   itemType: { type: String, enum: ['GOODS', 'SERVICE'], default: 'GOODS' },
-  narration: { type: String }
+  narration: { type: String },
+  ledgerAccountId: { type: Schema.Types.ObjectId, ref: 'ChartOfAccounts', required: false },
+  ledgerAccountHead: { type: String }
 });
 
 const BillSchema: Schema = new Schema(
@@ -139,6 +144,7 @@ const BillSchema: Schema = new Schema(
 
     btype: { type: String, enum: ['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'PROFORMA', 'DELIVERY_NOTE'], required: true },
     billSubtype: { type: String },
+    invoiceMode: { type: String, enum: ['INVENTORY', 'ACCOUNTING'], default: 'INVENTORY' },
     
     items: [BillItemSchema],
     otherCharges: [{ type: Schema.Types.Mixed }],

@@ -158,7 +158,7 @@ async function upsertCache(gstin: string, rawData: any): Promise<void> {
       },
       $inc: { fetchCount: 1 },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   console.log(`[GST_CACHE] Cached/updated ${gstin} (expires ${expiresAt.toISOString()})`);

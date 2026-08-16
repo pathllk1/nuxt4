@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
     await FirmSettings.findOneAndUpdate(
       { firmId, settingKey: 'gst_enabled' },
       { $set: { settingValue } },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     return {

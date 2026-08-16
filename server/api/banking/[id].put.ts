@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
         status: status || 'ACTIVE',
         account_type: account_type || 'CURRENT'
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
 
     if (!updated) throw createError({ statusCode: 404, statusMessage: 'Bank account not found' });

@@ -46,6 +46,24 @@
               class="font-bold text-xs h-8"
               @click="$router.push('/accounting/sales/new')"
             />
+            <UButton
+              color="primary"
+              variant="subtle"
+              size="sm"
+              icon="i-heroicons-document-currency-rupee"
+              label="Service Sale"
+              class="font-bold text-xs h-8"
+              @click="$router.push('/accounting/sales/service')"
+            />
+            <UButton
+              color="neutral"
+              variant="subtle"
+              size="sm"
+              icon="i-heroicons-receipt-percent"
+              label="Service Purchase"
+              class="font-bold text-xs h-8"
+              @click="$router.push('/accounting/purchases/service')"
+            />
           </div>
           <UButton
             color="primary"

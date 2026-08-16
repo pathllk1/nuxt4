@@ -140,7 +140,7 @@ export async function updateConversation(id: string, userId: string, updates: { 
     const conv: any = await AiConversation.findOneAndUpdate(
       { _id: id, user_id: userId },
       { $set: updateFields },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
 
     if (!conv) return null;

@@ -46,7 +46,8 @@ export function getEffectiveItemQty(item: any) {
 export const BILL_PREFIX: any = {
   SALES: 'SI', PURCHASE: 'PI', CREDIT_NOTE: 'CN', DEBIT_NOTE: 'DN',
   PROFORMA: 'PFI', DELIVERY_NOTE: 'DC',
-  PAYMENT: 'PV', RECEIPT: 'RV', JOURNAL: 'JV', CONTRA: 'CV'
+  PAYMENT: 'PV', RECEIPT: 'RV', JOURNAL: 'JV', CONTRA: 'CV',
+  ACCOUNTING_SALES: 'ASI', ACCOUNTING_PURCHASE: 'API'
 };
 
 export async function getNextBillNumber(firmId: mongoose.Types.ObjectId, type: string = 'SALES') {
