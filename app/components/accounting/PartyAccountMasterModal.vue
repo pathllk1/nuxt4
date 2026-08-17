@@ -6,6 +6,9 @@
   >
     <div 
       ref="modalContainerRef" 
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="master-modal-title"
       class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col"
     >
       <!-- Header -->
@@ -17,7 +20,7 @@
             </span>
             <span class="text-xs opacity-80 font-mono" v-if="form._id">ID: {{ form._id.slice(-6) }}</span>
           </div>
-          <h2 class="text-lg font-black uppercase tracking-tight mt-0.5">
+          <h2 id="master-modal-title" class="text-lg font-black uppercase tracking-tight mt-0.5">
             {{ isEditing ? `Edit: ${form.account_name || 'Account Head'}` : (modalTitleByType) }}
           </h2>
           <p class="text-[10px] font-bold opacity-80 uppercase tracking-wider mt-0.5">
@@ -27,6 +30,7 @@
         <button 
           @click="closeModal" 
           type="button" 
+          aria-label="Close dialog"
           class="w-8 h-8 flex items-center justify-center rounded-xl bg-white/20 hover:bg-white/30 transition-colors cursor-pointer"
         >
           <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
@@ -38,7 +42,7 @@
         <form @submit.prevent="saveMasterRecord" id="master-party-form" class="space-y-4">
           
           <!-- Classification Selector (Adaptive Switch) -->
-          <div class="p-3 bg-slate-50 dark:bg-zinc-850 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-1.5">
+          <div class="p-3 bg-slate-50 dark:bg-zinc-800/70 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-1.5">
             <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
               Account Classification / Entity Type *
             </label>
@@ -60,15 +64,15 @@
           </div>
 
           <!-- Section 1: Basic Identity Information -->
-          <div class="p-4 bg-slate-50/70 dark:bg-zinc-850/60 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
+          <div class="p-4 bg-slate-50/70 dark:bg-zinc-800/40 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
             <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
               <UIcon name="i-heroicons-identification" class="w-4 h-4 text-emerald-600" />
               <span>1. Basic Identity & Credentials</span>
             </h3>
 
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="flex flex-wrap gap-3">
               <!-- Name -->
-              <div class="md:col-span-6 space-y-1">
+              <div class="flex-[2] min-w-[240px] space-y-1">
                 <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
                   {{ isLaborLeader ? 'Leader / Contractor Name *' : (isParty ? 'Party / Firm Trade Name *' : 'Account Head Name *') }}
                 </label>
@@ -83,7 +87,7 @@
               </div>
 
               <!-- Contact / Phone (For Party & Labor) -->
-              <div class="md:col-span-3 space-y-1" v-if="requiresContact">
+              <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresContact">
                 <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Contact Phone</label>
                 <input
                   type="text"
@@ -95,7 +99,7 @@
               </div>
 
               <!-- PAN Number (For Party & Labor) -->
-              <div class="md:col-span-3 space-y-1" v-if="requiresPan">
+              <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresPan">
                 <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">PAN Number</label>
                 <input
                   type="text"
@@ -103,12 +107,13 @@
                   maxlength="10"
                   placeholder="ABCDE1234F"
                   class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none font-mono font-bold uppercase text-xs text-slate-900 dark:text-white"
+                  @input="form.pan = form.pan.toUpperCase()"
                   @keydown.enter.prevent="onInputEnter($event)"
                 />
               </div>
 
               <!-- Aadhaar Number (Strictly for Labor Leader) -->
-              <div class="md:col-span-3 space-y-1" v-if="requiresAadhaar">
+              <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresAadhaar">
                 <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Aadhaar Number (12 Digits)</label>
                 <input
                   type="text"
@@ -123,7 +128,7 @@
           </div>
 
           <!-- Section 2: Multi-Location GST Registrations (Visible ONLY for Customer / Supplier) -->
-          <div v-if="requiresGstSection" class="p-4 bg-slate-50/70 dark:bg-zinc-850/60 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
+          <div v-if="requiresGstSection" class="p-4 bg-slate-50/70 dark:bg-zinc-800/40 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
             <div class="flex items-center justify-between">
               <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                 <UIcon name="i-heroicons-building-office-2" class="w-4 h-4 text-emerald-600" />
@@ -142,8 +147,8 @@
             <div class="space-y-3">
               <div 
                 v-for="(loc, index) in form.gstLocations" 
-                :key="index" 
-                class="bg-white dark:bg-zinc-800/80 rounded-xl border border-slate-200 dark:border-zinc-700 p-3 relative transition-all shadow-2xs"
+                :key="loc._uid" 
+                class="bg-white dark:bg-zinc-800/80 rounded-xl border border-slate-200 dark:border-zinc-700 p-3 relative transition-all shadow-sm"
                 :class="{ 'ring-2 ring-emerald-500': loc.isPrimary }"
               >
                 <div class="absolute top-2.5 right-2.5 flex items-center gap-2">
@@ -183,6 +188,7 @@
                         maxlength="15"
                         placeholder="27ABCDE1234F1Z5"
                         class="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg font-mono font-bold text-xs uppercase text-slate-900 dark:text-white outline-none"
+                        @input="loc.gstin = loc.gstin.toUpperCase()"
                         @blur="onGstinBlur(index)"
                         @keydown.enter.prevent="onGstinEnter($event, index)"
                       />
@@ -406,7 +412,7 @@
           </div>
 
           <!-- Section 5: Opening Balance (Ledgers) -->
-          <div class="p-3 bg-slate-50/70 dark:bg-zinc-850/60 rounded-2xl border border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div class="p-3 bg-slate-50/70 dark:bg-zinc-800/40 rounded-2xl border border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div class="flex items-center gap-2">
               <UIcon name="i-heroicons-scale" class="w-4 h-4 text-slate-500" />
               <span class="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">Financial Opening Balance:</span>
@@ -433,7 +439,7 @@
       </div>
 
       <!-- Modal Footer -->
-      <footer class="px-6 py-3 bg-slate-100 dark:bg-zinc-850 border-t border-slate-200 dark:border-zinc-800 flex justify-between items-center shrink-0">
+      <footer class="px-6 py-3 bg-slate-100 dark:bg-zinc-800/70 border-t border-slate-200 dark:border-zinc-800 flex justify-between items-center shrink-0">
         <button
           type="button"
           @click="closeModal"
@@ -476,6 +482,13 @@ const emit = defineEmits<{
 const api = useApi();
 const toast = useToast();
 
+let uidCounter = 0;
+function nextUid() {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `loc_${Date.now()}_${uidCounter++}`;
+}
+
 const modalContainerRef = ref<HTMLElement | null>(null);
 const isSaving = ref(false);
 const fetchingGstIndices = ref<Set<number>>(new Set());
@@ -513,7 +526,7 @@ const form = ref({
   opening_balance: 0,
   balance_type: 'DR',
   gstLocations: [
-    { gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
+    { _uid: nextUid(), gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
   ]
 });
 
@@ -542,6 +555,32 @@ const modalTitleByType = computed(() => {
 
 function setType(val: string) {
   form.value.account_type = val;
+
+  // Clear fields tied to sections that just became hidden, so switching
+  // classification doesn't silently carry stale data into the save payload.
+  const willShowAadhaar = val === 'LABOR_LEADER';
+  const willShowGst = ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS'].includes(val) && val !== 'LABOR_LEADER';
+  const willShowBank = val === 'LABOR_LEADER' || val === 'SUNDRY_CREDITORS' || val === 'BANK';
+  const willShowTaxHsn = ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'INCOME', 'DIRECT_INCOME', 'DUTIES_AND_TAXES'].includes(val);
+
+  if (!willShowAadhaar) form.value.aadhaar_number = '';
+  if (!willShowGst) {
+    form.value.gstLocations = [
+      { _uid: nextUid(), gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
+    ];
+  }
+  if (!willShowBank) {
+    form.value.bank_name = '';
+    form.value.branch_name = '';
+    form.value.account_number = '';
+    form.value.ifsc_code = '';
+    form.value.is_default = false;
+    ifscVerified.value = false;
+  }
+  if (!willShowTaxHsn) {
+    form.value.hsn_sac = '';
+    form.value.gst_rate = null;
+  }
 }
 
 function resetForm() {
@@ -565,7 +604,7 @@ function resetForm() {
     opening_balance: 0,
     balance_type: 'DR',
     gstLocations: [
-      { gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
+      { _uid: nextUid(), gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
     ]
   };
   ifscVerified.value = false;
@@ -573,10 +612,10 @@ function resetForm() {
 
 watch(() => props.modelValue, async (isOpen) => {
   if (isOpen) {
-    if (props.accountId) {
-      await loadAccount(props.accountId);
-    } else if (props.initialData) {
+    if (props.initialData) {
       hydrateInitialData(props.initialData);
+    } else if (props.accountId) {
+      await loadAccount(props.accountId);
     } else {
       resetForm();
     }
@@ -589,7 +628,7 @@ watch(() => props.modelValue, async (isOpen) => {
 function hydrateInitialData(data: any) {
   resetForm();
   if (data._id) form.value._id = String(data._id);
-  if (data.account_name || data.name) form.value.account_name = data.account_name || data.name;
+  if (data.account_name || data.name || data.firm) form.value.account_name = data.account_name || data.name || data.firm;
 
   // 1. Initial type assignment from defaultType if provided
   if (props.defaultType) {
@@ -597,14 +636,13 @@ function hydrateInitialData(data: any) {
   }
 
   // 2. Parse classification or account type
-  if (data.account_type || data.partyType) {
-    let t = String(data.account_type || data.partyType).toUpperCase();
-    if (t === 'CUSTOMER') {
+  if (data.account_type || data.partyType || data.type) {
+    let t = String(data.account_type || data.partyType || data.type).toUpperCase();
+    if (t === 'CUSTOMER' || t === 'SUNDRY_DEBTORS') {
       form.value.account_type = 'SUNDRY_DEBTORS';
-    } else if (t === 'SUPPLIER') {
+    } else if (t === 'SUPPLIER' || t === 'SUNDRY_CREDITORS') {
       form.value.account_type = 'SUNDRY_CREDITORS';
     } else if (['CURRENT', 'SAVINGS', 'OD', 'CC', 'OTHER'].includes(t)) {
-      // This is a Bank Account sub-type
       form.value.account_type = 'BANK';
       form.value.bank_account_type = t;
     } else if (typeOptions.some(opt => opt.value === t)) {
@@ -623,49 +661,70 @@ function hydrateInitialData(data: any) {
   if (data.bank_name || data.bankName) form.value.bank_name = data.bank_name || data.bankName;
   if (data.branch_name || data.branchName) form.value.branch_name = data.branch_name || data.branchName;
   if (data.account_number || data.accountNumber) form.value.account_number = data.account_number || data.accountNumber;
-  if (data.ifsc_code || data.ifscCode) {
-    form.value.ifsc_code = data.ifsc_code || data.ifscCode;
+  if (data.ifsc_code || data.ifscCode || data.ifsc) {
+    form.value.ifsc_code = data.ifsc_code || data.ifscCode || data.ifsc;
     ifscVerified.value = true;
   }
   if (data.bank_account_type) form.value.bank_account_type = data.bank_account_type;
   if (data.is_default !== undefined) form.value.is_default = !!data.is_default;
   if (data.status) form.value.status = data.status;
-  if (data.hsn_sac) form.value.hsn_sac = data.hsn_sac;
+  if (data.hsn_sac || data.hsn) form.value.hsn_sac = data.hsn_sac || data.hsn;
   if (data.gst_rate !== undefined) form.value.gst_rate = data.gst_rate;
   if (data.description || data.notes) form.value.description = data.description || data.notes;
-  if (data.opening_balance !== undefined || data.balance !== undefined) {
-    form.value.opening_balance = data.opening_balance ?? data.balance ?? 0;
+  if (data.opening_balance !== undefined || data.openingBalance !== undefined || data.balance !== undefined) {
+    form.value.opening_balance = data.opening_balance ?? data.openingBalance ?? data.balance ?? 0;
   }
   if (data.balance_type || data.balanceType) {
     form.value.balance_type = data.balance_type || data.balanceType || 'DR';
   }
-  if (data.gstLocations && data.gstLocations.length > 0) form.value.gstLocations = data.gstLocations;
+  if (data.gstLocations && data.gstLocations.length > 0) {
+    form.value.gstLocations = data.gstLocations.map((l: any) => ({
+      _uid: l._uid || nextUid(),
+      fetchStatus: l.fetchStatus || (l.gstin && l.gstin.length === 15 ? 'success' : 'none'),
+      gstin: l.gstin || '',
+      state: l.state || '',
+      stateCode: l.stateCode || (l.gstin && l.gstin.length >= 2 && l.gstin !== 'UNREGISTERED' ? l.gstin.substring(0, 2) : ''),
+      address: l.address || '',
+      pincode: l.pincode || l.pin || '',
+      contact: l.contact || '',
+      isPrimary: !!l.isPrimary
+    }));
+  } else if (data.gstin || data.address || data.state) {
+    form.value.gstLocations = [{
+      _uid: nextUid(),
+      gstin: data.gstin === 'UNREGISTERED' ? '' : (data.gstin || ''),
+      state: data.state || '',
+      stateCode: data.stateCode || (data.gstin && data.gstin.length >= 2 && data.gstin !== 'UNREGISTERED' ? data.gstin.substring(0, 2) : ''),
+      address: data.address || '',
+      pincode: data.pin || data.pincode || '',
+      contact: data.contact || data.phone || '',
+      isPrimary: true,
+      fetchStatus: data.gstin && data.gstin.length === 15 ? 'success' : 'none'
+    }];
+  }
 }
 
 async function loadAccount(id: string) {
   try {
     const res: any = await api.get('/accounting/coa');
     if (res && res.data) {
-      const match = res.data.find((a: any) => a._id === id);
+      let match = res.data.find((a: any) => a._id === id);
+      if (!match && (props.initialData?.name || props.initialData?.account_name)) {
+        const targetName = (props.initialData.name || props.initialData.account_name).trim().toLowerCase();
+        match = res.data.find((a: any) => (a.account_name || '').trim().toLowerCase() === targetName);
+      }
       if (match) {
-        form.value._id = match._id;
-        form.value.account_name = match.account_name || '';
-        form.value.account_type = match.account_type || 'SUNDRY_DEBTORS';
-        form.value.phone = match.phone || '';
-        form.value.pan = match.pan || '';
-        form.value.aadhaar_number = match.aadhaar_number || '';
-        form.value.bank_name = match.bank_name || '';
-        form.value.branch_name = match.branch_name || '';
-        form.value.account_number = match.account_number || '';
-        form.value.ifsc_code = match.ifsc_code || '';
-        form.value.bank_account_type = match.bank_account_type || match.account_type_code || 'CURRENT';
-        form.value.is_default = !!match.is_default;
-        form.value.status = match.status || 'ACTIVE';
-        form.value.hsn_sac = match.hsn_sac || '';
-        form.value.gst_rate = match.gst_rate;
-        form.value.description = match.description || '';
-        form.value.opening_balance = match.opening_balance || 0;
-        form.value.balance_type = match.balance_type || 'DR';
+        hydrateInitialData(match);
+        return;
+      }
+    }
+
+    // Also check parties if not matched in COA
+    const partyRes: any = await api.get('/accounting/parties');
+    if (partyRes && partyRes.data) {
+      const partyMatch = partyRes.data.find((p: any) => p._id === id || p.name === props.initialData?.name);
+      if (partyMatch) {
+        hydrateInitialData(partyMatch);
       }
     }
   } catch (err: any) {
@@ -687,6 +746,7 @@ function closeModal() {
 
 function addGstLocation() {
   form.value.gstLocations.push({
+    _uid: nextUid(),
     gstin: '',
     state: '',
     stateCode: '',
@@ -805,7 +865,8 @@ async function fetchIfscDetails() {
 }
 
 function onIfscInput() {
-  const ifsc = (form.value.ifsc_code || '').trim().toUpperCase();
+  const ifsc = (form.value.ifsc_code || '').toUpperCase();
+  if (form.value.ifsc_code !== ifsc) form.value.ifsc_code = ifsc;
   if (ifsc.length === 11 && !ifscVerified.value) {
     fetchIfscDetails();
   } else if (ifsc.length < 11) {
@@ -887,7 +948,7 @@ async function saveMasterRecord() {
       description: form.value.description || null,
       opening_balance: form.value.opening_balance || 0,
       balance_type: form.value.balance_type || 'DR',
-      gstLocations: form.value.gstLocations
+      gstLocations: form.value.gstLocations.map(({ _uid, ...rest }) => rest)
     };
 
     let res: any;

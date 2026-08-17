@@ -73,6 +73,7 @@
           empty-subtitle="Customer record (Press F3 to Select)"
           @open-modal="openPartyDrawer"
           @create-party="openCreatePartyModal"
+          @edit-party="openEditPartyModal(selectedParty)"
           @location-change="onPartyLocationChange"
         />
 
@@ -161,6 +162,7 @@
     <!-- Modals -->
     <LedgerModal v-model="showLedgerModal" @select="onLedgerSelect" />
     <PartyModal v-model="showCreatePartyModal" @saved="onPartySaved" />
+    <PartyModal v-model="showEditPartyModal" :account-id="selectedPartyToEdit?._id" :initial-data="selectedPartyToEdit" @saved="onPartyEditedAndSaved" />
     <OtherChargesModal v-model="showOtherChargesModal" :other-charges="otherCharges" />
 
     <!-- Print & Success Modal with Complete Zero-Mouse Keyboard Support -->
@@ -272,7 +274,7 @@
             ref="partySearchRef"
             v-model="partySearch"
             type="text"
-            placeholder="Search party... (↑↓ Navigate • Enter Select • Insert New • ESC Close)"
+            placeholder="Search party... (↑↓ Navigate • Enter Select • Ctrl+E Edit • Insert New • ESC Close)"
             class="search-input"
             @keydown="onPartySearchKeydown"
           />
@@ -350,6 +352,8 @@ const otherCharges = ref<any[]>([]);
 const showLedgerModal = ref(false);
 const showPartyDrawer = ref(false);
 const showCreatePartyModal = ref(false);
+const showEditPartyModal = ref(false);
+const selectedPartyToEdit = ref<any>(null);
 const showOtherChargesModal = ref(false);
 const showSuccessModal = ref(false);
 const showHelpModal = ref(false);
@@ -411,6 +415,21 @@ function closePartyDrawer() {
 
 function openCreatePartyModal() {
   showCreatePartyModal.value = true;
+}
+
+function openEditPartyModal(party: any) {
+  if (!party) return;
+  selectedPartyToEdit.value = party;
+  showEditPartyModal.value = true;
+}
+
+function onPartyEditedAndSaved(party: any) {
+  showEditPartyModal.value = false;
+  fetchParties();
+  if (party) {
+    showPartyDrawer.value = false;
+    selectParty(party);
+  }
 }
 
 function openOtherChargesModal() {
@@ -748,6 +767,11 @@ function onPartySearchKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Insert' || (e.ctrlKey && e.key.toLowerCase() === 'n')) {
     e.preventDefault();
     openCreatePartyFromDrawer();
+  } else if ((e.ctrlKey || e.altKey) && e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0 && partyActiveIdx.value < filteredParties.value.length) {
+      openEditPartyModal(filteredParties.value[partyActiveIdx.value]);
+    }
   }
 }
 
@@ -767,6 +791,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     showLedgerModal.value ||
     showPartyDrawer.value ||
     showCreatePartyModal.value ||
+    showEditPartyModal.value ||
     showOtherChargesModal.value ||
     showSuccessModal.value ||
     showHelpModal.value
@@ -795,6 +820,13 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
     e.preventDefault();
     openCreatePartyModal();
+  } else if ((e.altKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'e' || e.key === 'E')) {
+    e.preventDefault();
+    if (selectedParty.value) {
+      openEditPartyModal(selectedParty.value);
+    } else {
+      openPartyDrawer();
+    }
   }
 }
 

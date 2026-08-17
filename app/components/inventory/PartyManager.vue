@@ -5,9 +5,14 @@
         <p class="eyebrow">Party</p>
         <h2>{{ title }}</h2>
       </div>
-      <button v-if="!state.isReturnMode" class="link-btn" type="button" @click="$emit('create-party')">
-        New (Insert)
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button v-if="state.selectedParty && !state.isReturnMode" class="link-btn" type="button" title="Edit party (Alt+E)" @click="$emit('edit-party', state.selectedParty)">
+          Edit (Alt+E)
+        </button>
+        <button v-if="!state.isReturnMode" class="link-btn" type="button" @click="$emit('create-party')">
+          New (Insert)
+        </button>
+      </div>
     </header>
 
     <button v-if="!state.selectedParty" class="empty-party" type="button" @click="$emit('open-modal')">
@@ -18,19 +23,10 @@
     <div v-else class="selected-party">
       <div class="party-title-row">
         <div class="min-w-0 flex-1">
-          <div class="flex items-center justify-between gap-2">
-            <h3>{{ state.selectedParty.name || state.selectedParty.firm }}</h3>
-            <span 
-              v-if="state.selectedParty.formattedBalance || state.selectedParty.openingBalance !== undefined" 
-              class="balance-badge"
-              :class="state.selectedParty.closingBalanceType === 'DR' ? 'dr-badge' : (state.selectedParty.closingBalanceType === 'CR' ? 'cr-badge' : 'nil-badge')"
-            >
-              Bal: {{ state.selectedParty.formattedBalance || ('₹' + (Number(state.selectedParty.openingBalance) || 0).toFixed(2) + ' ' + (state.selectedParty.balanceType || 'DR')) }}
-            </span>
-          </div>
+          <h3 class="truncate">{{ state.selectedParty.name || state.selectedParty.firm }}</h3>
           <p class="font-mono text-xs font-bold text-slate-500">{{ state.selectedPartyGstin || 'UNREGISTERED' }}</p>
         </div>
-        <button v-if="!state.isReturnMode" class="change-btn" type="button" title="Change party (F3)" @click="$emit('open-modal')">
+        <button v-if="!state.isReturnMode" class="change-btn shrink-0" type="button" title="Change party (F3)" @click="$emit('open-modal')">
           Change (F3)
         </button>
       </div>
@@ -58,19 +54,24 @@
       </div>
 
       <dl class="party-meta">
-        <div>
+        <div class="party-meta-row">
           <dt>Closing Balance</dt>
-          <dd class="font-mono font-bold" :class="state.selectedParty.closingBalanceType === 'DR' ? 'text-amber-700' : (state.selectedParty.closingBalanceType === 'CR' ? 'text-emerald-700' : 'text-slate-700')">
-            {{ state.selectedParty.formattedBalance || ('₹' + (Number(state.selectedParty.openingBalance) || 0).toFixed(2) + ' ' + (state.selectedParty.balanceType || 'DR')) }}
+          <dd>
+            <span 
+              class="closing-bal-val"
+              :class="state.selectedParty.closingBalanceType === 'DR' ? 'bal-dr' : (state.selectedParty.closingBalanceType === 'CR' ? 'bal-cr' : 'bal-nil')"
+            >
+              {{ state.selectedParty.formattedBalance || ('₹' + (Number(state.selectedParty.openingBalance) || 0).toFixed(2) + ' ' + (state.selectedParty.balanceType || 'DR')) }}
+            </span>
           </dd>
         </div>
-        <div>
+        <div class="party-meta-row">
           <dt>State</dt>
-          <dd>{{ state.selectedPartyLocation?.state || state.selectedParty.state || '-' }}</dd>
+          <dd class="state-val">{{ state.selectedPartyLocation?.state || state.selectedParty.state || '-' }}</dd>
         </div>
-        <div>
+        <div class="party-meta-row address-row">
           <dt>Address</dt>
-          <dd>{{ state.selectedPartyLocation?.address || state.selectedParty.address || '-' }}</dd>
+          <dd class="address-val">{{ state.selectedPartyLocation?.address || state.selectedParty.address || '-' }}</dd>
         </div>
       </dl>
     </div>
@@ -207,7 +208,7 @@ const props = withDefaults(defineProps<{
   emptySubtitle: 'Customer or supplier record'
 });
 
-const emit = defineEmits(['open-modal', 'create-party', 'location-change']);
+const emit = defineEmits(['open-modal', 'create-party', 'edit-party', 'location-change']);
 const { handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
 const partyPanelRef = ref<HTMLElement | null>(null);
 
@@ -436,9 +437,9 @@ h2 {
 }
 .party-meta {
   margin: 8px 0 0;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   font-size: 11px;
 }
 .party-meta dt {
@@ -446,11 +447,86 @@ h2 {
   font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
 }
 .party-meta dd {
   margin: 0;
   color: #334155;
   font-weight: 600;
+}
+.party-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.party-meta-row dt,
+.party-meta-row dd {
+  margin: 0;
+}
+.state-val {
+  font-weight: 750;
+  color: #1e293b;
+  font-size: 11px;
+}
+:global(.dark) .state-val {
+  color: #f1f5f9;
+}
+.party-meta-row.address-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.address-val {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: #475569;
+  font-weight: 500;
+}
+:global(.dark) .address-val {
+  color: #94a3b8;
+}
+.closing-bal-val {
+  display: inline-flex;
+  align-items: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 800;
+  font-size: 11px;
+  padding: 1.5px 7px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+.closing-bal-val.bal-dr {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.closing-bal-val.bal-cr {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.closing-bal-val.bal-nil {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+:global(.dark) .closing-bal-val.bal-dr {
+  background: rgba(180, 83, 9, 0.2);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+:global(.dark) .closing-bal-val.bal-cr {
+  background: rgba(4, 120, 87, 0.2);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.35);
+}
+:global(.dark) .closing-bal-val.bal-nil {
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 .consignee-block {
   margin-top: 10px;

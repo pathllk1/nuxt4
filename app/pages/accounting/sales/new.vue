@@ -73,6 +73,7 @@
           empty-subtitle="Customer record (Press F3 to Select)"
           @open-modal="showPartyModal = true"
           @create-party="showCreatePartyModal = true"
+          @edit-party="openEditPartyModal(state.selectedParty)"
           @location-change="onPartyLocationChange"
         />
 
@@ -124,6 +125,7 @@
     <CreateStockModal v-model="showCreateStockModal" @saved="fetchData" />
     <EditStockModal v-model="showEditStockModal" :stock="selectedStockToEdit" @saved="fetchData" />
     <PartyModal v-model="showCreatePartyModal" @saved="(p: any) => { fetchData(); onPartySelect(p); }" />
+    <PartyModal v-model="showEditPartyModal" :account-id="selectedPartyToEdit?._id" :initial-data="selectedPartyToEdit" @saved="onPartyEditedAndSaved" />
     <OtherChargesModal v-model="showOtherChargesModal" :other-charges="state.otherCharges" />
 
     <!-- Print & Success Modal with Complete Zero-Mouse Keyboard Support -->
@@ -235,7 +237,7 @@
             ref="partySearchInputRef"
             v-model="partySearchQuery" 
             type="text" 
-            placeholder="Search party... (↑↓ Navigate • Enter Select • Insert New • ESC Close)" 
+            placeholder="Search party... (↑↓ Navigate • Enter Select • Ctrl+E Edit • Insert New • ESC Close)" 
             class="search-input" 
             @keydown="handlePartyDrawerKeydown"
           />
@@ -249,16 +251,7 @@
             type="button" 
             @click="onPartySelect(party)"
           >
-            <div class="flex items-center justify-between w-full gap-2">
-              <strong class="truncate">{{ party.name || party.firm }}</strong>
-              <span 
-                v-if="party.formattedBalance || party.openingBalance !== undefined" 
-                class="party-bal-badge"
-                :class="party.closingBalanceType === 'DR' ? 'bal-dr' : (party.closingBalanceType === 'CR' ? 'bal-cr' : 'bal-nil')"
-              >
-                {{ party.formattedBalance || ('₹' + (Number(party.openingBalance) || 0).toFixed(2) + ' ' + (party.balanceType || 'DR')) }}
-              </span>
-            </div>
+            <strong>{{ party.name || party.firm }}</strong>
             <span>{{ party.gstin || 'UNREGISTERED' }} | {{ party.state || '-' }}</span>
           </button>
           <div v-if="filteredParties.length === 0" class="p-8 text-center text-slate-400 text-xs">
@@ -410,6 +403,12 @@ function handlePartyDrawerKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') || (e.altKey && e.key.toLowerCase() === 'c')) {
     e.preventDefault();
     openCreatePartyFromDrawer();
+  } else if ((e.ctrlKey || e.metaKey || e.altKey) && e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    if (filteredParties.value.length > 0 && partySelectedIndex.value < filteredParties.value.length) {
+      const selected = filteredParties.value[partySelectedIndex.value];
+      openEditPartyModal(selected);
+    }
   } else if (e.key === 'Escape') {
     e.preventDefault();
     showPartyModal.value = false;
@@ -502,6 +501,8 @@ const filteredParties = computed(() => {
 });
 
 const showCreatePartyModal = ref(false);
+const showEditPartyModal = ref(false);
+const selectedPartyToEdit = ref<any>(null);
 const showCreateStockModal = ref(false);
 const showEditStockModal = ref(false);
 const showOtherChargesModal = ref(false);
@@ -531,6 +532,30 @@ watch(showCreatePartyModal, (isOpen) => {
     restoreFocus();
   }
 });
+
+watch(showEditPartyModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+function openEditPartyModal(party: any) {
+  if (!party) return;
+  saveFocus();
+  selectedPartyToEdit.value = party;
+  showEditPartyModal.value = true;
+}
+
+async function onPartyEditedAndSaved(updatedParty: any) {
+  showEditPartyModal.value = false;
+  await fetchData();
+  if (updatedParty) {
+    showPartyModal.value = false;
+    onPartySelect(updatedParty);
+  }
+}
 
 watch(showCreateStockModal, (isOpen) => {
   if (isOpen) {
@@ -567,6 +592,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     showStockModal.value ||
     showPartyModal.value ||
     showCreatePartyModal.value ||
+    showEditPartyModal.value ||
     showCreateStockModal.value ||
     showEditStockModal.value ||
     showOtherChargesModal.value ||
@@ -580,6 +606,14 @@ const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'F1' || (e.shiftKey && e.key === '?')) {
     e.preventDefault();
     showHelpModal.value = !showHelpModal.value;
+  } else if ((e.altKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'e' || e.key === 'E')) {
+    e.preventDefault();
+    if (state.selectedParty) {
+      openEditPartyModal(state.selectedParty);
+    } else {
+      saveFocus();
+      showPartyModal.value = true;
+    }
   } else if ((e.altKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'p' || e.key === 'P')) {
     e.preventDefault();
     if (isEditMode.value && route.params.id) {
