@@ -33,48 +33,54 @@ export interface BankAccountOption {
 
 const LOCAL_STORAGE_KEY = 'erp_print_config_terminal';
 
-export function usePrintSettings() {
-  const loading = ref(false);
-  const saving = ref(false);
-  const bankAccounts = ref<BankAccountOption[]>([]);
-  const firmInfo = ref<any>(null);
+// Module-level Singleton State
+const loading = ref(false);
+const saving = ref(false);
+const bankAccounts = ref<BankAccountOption[]>([]);
+const firmInfo = ref<any>(null);
 
-  const printConfig = reactive<PrintConfig>({
-    showHsn: true,
-    showQty: true,
-    showUom: true,
-    showRate: true,
-    showDisc: true,
-    showGst: true,
-    showBatch: true,
-    showNarration: true,
-    showBank: true,
-    defaultBankAccountId: '',
-    jurisdiction: 'Subject to local jurisdiction only.',
-    terms: [
-      '1. Goods once sold will not be taken back.',
-      '2. Subject to local jurisdiction only.',
-      '3. E. & O.E.'
-    ],
-    declaration: 'Certified that the particulars given above are true and correct.',
-    signatoryTitle: 'Authorised Signatory',
-    defaultCopyType: 'ORIGINAL FOR RECIPIENT'
-  });
+const printConfig = reactive<PrintConfig>({
+  showHsn: true,
+  showQty: true,
+  showUom: true,
+  showRate: true,
+  showDisc: false,
+  showGst: true,
+  showBatch: true,
+  showNarration: true,
+  showBank: true,
+  defaultBankAccountId: '',
+  jurisdiction: 'Subject to local jurisdiction only.',
+  terms: [
+    '1. Goods once sold will not be taken back.',
+    '2. Subject to local jurisdiction only.',
+    '3. E. & O.E.'
+  ],
+  declaration: 'Certified that the particulars given above are true and correct.',
+  signatoryTitle: 'Authorised Signatory',
+  defaultCopyType: 'ORIGINAL FOR RECIPIENT'
+});
 
-  // Load from local storage cache first for instant UI response
-  function loadFromLocalCache() {
-    try {
-      if (typeof window !== 'undefined') {
-        const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          Object.assign(printConfig, parsed);
-        }
+// Load from local storage immediately
+function loadFromLocalCache() {
+  try {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        Object.assign(printConfig, parsed);
       }
-    } catch (e) {
-      console.warn('Error reading print config from local storage:', e);
     }
+  } catch (e) {
+    console.warn('Error reading print config from local storage:', e);
   }
+}
+
+if (typeof window !== 'undefined') {
+  loadFromLocalCache();
+}
+
+export function usePrintSettings() {
 
   // Fetch official settings from Server
   async function fetchPrintSettings() {
@@ -82,20 +88,21 @@ export function usePrintSettings() {
     loading.value = true;
     try {
       const res = await api.get('/accounting/print-settings');
-      if (res && res.data) {
-        if (res.data.printConfig) {
+      const payload = res?.data || res;
+      if (payload) {
+        if (payload.printConfig) {
           // Merge server settings (server takes priority unless user had terminal overrides)
-          Object.assign(printConfig, res.data.printConfig);
+          Object.assign(printConfig, payload.printConfig);
           // Sync to local storage
           if (typeof window !== 'undefined') {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(printConfig));
           }
         }
-        if (res.data.bankAccounts) {
-          bankAccounts.value = res.data.bankAccounts;
+        if (payload.bankAccounts && Array.isArray(payload.bankAccounts)) {
+          bankAccounts.value = payload.bankAccounts;
         }
-        if (res.data.firm) {
-          firmInfo.value = res.data.firm;
+        if (payload.firm) {
+          firmInfo.value = payload.firm;
         }
       }
     } catch (err) {

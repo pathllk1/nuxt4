@@ -205,7 +205,7 @@
 
               <!-- Actions -->
               <td class="px-6 py-4">
-                <div class="flex items-center justify-center gap-1">
+                <div class="flex items-center justify-center gap-1.5">
                   <UButton 
                     size="xs" 
                     variant="ghost" 
@@ -218,18 +218,9 @@
                   <UButton 
                     size="xs" 
                     variant="ghost" 
-                    color="indigo" 
-                    icon="i-heroicons-printer" 
-                    title="Print with Custom Config (Alt+P)"
-                    class="cursor-pointer"
-                    @click="openPrintConfig(bill)" 
-                  />
-                  <UButton 
-                    size="xs" 
-                    variant="ghost" 
                     color="primary" 
-                    icon="i-heroicons-document" 
-                    title="Quick Download PDF"
+                    icon="i-heroicons-arrow-down-tray" 
+                    title="Download PDF"
                     class="cursor-pointer"
                     @click="downloadBillPdf(bill)" 
                   />
@@ -247,27 +238,19 @@
       @cancelled="handleFilterChange"
       @view-bill="viewBillDetails"
     />
-
-    <PrintConfigModal
-      v-model="showPrintModal"
-      :bill="selectedBillForPrint"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { useBilling } from '@/composables/useBilling';
 import { api } from '@/utils/api';
 import BillDetailsModal from '@/components/accounting/BillDetailsModal.vue';
-import PrintConfigModal from '@/components/accounting/PrintConfigModal.vue';
 
 const { bills, fetchBills, loading } = useBilling();
 
 const selectedBillId = ref<string | null>(null);
 const showDetailsModal = ref(false);
-const selectedBillForPrint = ref<any>(null);
-const showPrintModal = ref(false);
 const partySearch = ref('');
 
 const filters = reactive({
@@ -345,20 +328,6 @@ function getStatusColor(status: string) {
   }
 }
 
-function openPrintConfig(bill: any) {
-  selectedBillForPrint.value = bill;
-  showPrintModal.value = true;
-}
-
-function handleGlobalKeydown(e: KeyboardEvent) {
-  if (e.altKey && (e.key === 'p' || e.key === 'P')) {
-    e.preventDefault();
-    if (filteredBills.value.length > 0) {
-      openPrintConfig(filteredBills.value[0]);
-    }
-  }
-}
-
 async function downloadBillPdf(bill: any) {
   try {
     const res = await api.get(`/accounting/bills/${bill._id}/pdf`, { responseType: 'blob' });
@@ -407,10 +376,5 @@ async function exportPDF() {
 
 onMounted(() => {
   fetchBills();
-  window.addEventListener('keydown', handleGlobalKeydown);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleGlobalKeydown);
 });
 </script>

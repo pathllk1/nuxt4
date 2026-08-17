@@ -397,7 +397,13 @@ async function handleCancel(id: string) {
 
 async function downloadPDF(bill: any) {
   try {
-    await (api as any).download(`/accounting/bills/${bill._id}/pdf`, `Invoice_${bill.bno}.pdf`);
+    const res = await api.get(`/accounting/bills/${bill._id}/pdf`, { responseType: 'blob' });
+    const url = window.URL.createObjectURL(res);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Invoice_${bill.bno || bill._id}.pdf`;
+    link.click();
+    window.URL.revokeObjectURL(url);
   } catch (err) {
     alert('PDF download failed.');
   }

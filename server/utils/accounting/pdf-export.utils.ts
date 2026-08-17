@@ -213,30 +213,62 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
     gstEnabled = true;
   }
 
-  // Column flags from printConfig
-  const showHsn = printConfig?.showHsn !== false && printConfig?.showHsn !== 'false';
-  const showQty = printConfig?.showQty !== false && printConfig?.showQty !== 'false';
-  const showUom = printConfig?.showUom !== false && printConfig?.showUom !== 'false';
-  const showRate = printConfig?.showRate !== false && printConfig?.showRate !== 'false';
-  const showDisc = printConfig?.showDisc !== false && printConfig?.showDisc !== 'false';
-  const showGst = printConfig?.showGst !== false && printConfig?.showGst !== 'false';
-  const showBatch = printConfig?.showBatch !== false && printConfig?.showBatch !== 'false';
-  const showNarration = printConfig?.showNarration !== false && printConfig?.showNarration !== 'false';
-  const showBank = printConfig?.showBank !== false && printConfig?.showBank !== 'false';
-  const copyType = printConfig?.copyType || '';
+  // 1. Fetch saved print settings from FirmSettings
+  let settingsMap: Record<string, string> = {};
+  try {
+    const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
+    const settingDocs = await FirmSettings.find({
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj as any }, { firmId: String(firmId) as any }],
+      settingKey: { $regex: '^print_' }
+    }).lean();
+    settingDocs.forEach(s => {
+      settingsMap[s.settingKey.replace('print_', '')] = s.settingValue;
+    });
+  } catch (err) {
+    console.error('Error loading print settings in pdf-export:', err);
+  }
+
+  // Column flags and layout settings with precedence: query/printConfig > FirmSettings DB > defaults
+  const showHsn = printConfig?.showHsn !== undefined ? (printConfig.showHsn === true || printConfig.showHsn === 'true') : (settingsMap.showHsn !== 'false');
+  const showQty = printConfig?.showQty !== undefined ? (printConfig.showQty === true || printConfig.showQty === 'true') : (settingsMap.showQty !== 'false');
+  const showUom = printConfig?.showUom !== undefined ? (printConfig.showUom === true || printConfig.showUom === 'true') : (settingsMap.showUom !== 'false');
+  const showRate = printConfig?.showRate !== undefined ? (printConfig.showRate === true || printConfig.showRate === 'true') : (settingsMap.showRate !== 'false');
+  const showDisc = printConfig?.showDisc !== undefined ? (printConfig.showDisc === true || printConfig.showDisc === 'true') : (settingsMap.showDisc !== 'false');
+  const showGst = printConfig?.showGst !== undefined ? (printConfig.showGst === true || printConfig.showGst === 'true') : (settingsMap.showGst !== 'false');
+  const showBatch = printConfig?.showBatch !== undefined ? (printConfig.showBatch === true || printConfig.showBatch === 'true') : (settingsMap.showBatch !== 'false');
+  const showNarration = printConfig?.showNarration !== undefined ? (printConfig.showNarration === true || printConfig.showNarration === 'true') : (settingsMap.showNarration !== 'false');
+  const showBank = printConfig?.showBank !== undefined ? (printConfig.showBank === true || printConfig.showBank === 'true') : (settingsMap.showBank !== 'false');
+  
+  const copyType = printConfig?.copyType || printConfig?.defaultCopyType || settingsMap.defaultCopyType || '';
+
+  // Determine target bank account ID
+  const targetBankId = printConfig?.bankAccountId || printConfig?.defaultBankAccountId || settingsMap.defaultBankAccountId || '';
 
   let bankDetails: any = null;
   if (showBank) {
     try {
-      if (printConfig?.bankAccountId && mongoose.Types.ObjectId.isValid(printConfig.bankAccountId)) {
-        bankDetails = await BankAccount.findById(printConfig.bankAccountId)
+      if (targetBankId && mongoose.Types.ObjectId.isValid(String(targetBankId))) {
+        bankDetails = await BankAccount.findById(new mongoose.Types.ObjectId(String(targetBankId)))
           .select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
+
+        if (!bankDetails) {
+          bankDetails = await BankAccount.findOne({
+            _id: String(targetBankId)
+          }).select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
+        }
       }
 
       if (!bankDetails) {
         bankDetails = await BankAccount.findOne({
           $or: [{ firmId }, { firm_id: firmId }],
           is_default: true,
+          status: 'ACTIVE',
+        }).select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
+      }
+
+      if (!bankDetails) {
+        bankDetails = await BankAccount.findOne({
+          $or: [{ firmId }, { firm_id: firmId }],
           status: 'ACTIVE',
         }).select('account_name account_holder_name bank_name branch_name account_number ifsc_code upi_id').lean();
       }
@@ -369,24 +401,29 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
     tableBody.push(rowCells);
   });
 
-  // Terms and jurisdiction
-  const customJurisdiction = printConfig?.jurisdiction || (firm?.city ? `Subject to ${firm.city} Jurisdiction only.` : 'Subject to local jurisdiction only.');
-  let customTerms: any = null;
-  if (printConfig?.terms) {
-    try {
-      customTerms = Array.isArray(printConfig.terms) ? printConfig.terms : JSON.parse(printConfig.terms);
-    } catch {
-      customTerms = [String(printConfig.terms)];
-    }
+  // Terms, Declaration, and Jurisdiction
+  const customJurisdiction = (printConfig?.jurisdiction || settingsMap.jurisdiction || (firm?.city ? `Subject to ${firm.city} Jurisdiction only.` : 'Subject to local jurisdiction only.')).trim();
+  const declarationText = (printConfig?.declaration || settingsMap.declaration || 'Certified that the particulars given above are true and correct and the amount indicated represents the price actually charged.').trim();
+  const rawSignatory = (printConfig?.signatoryTitle || settingsMap.signatoryTitle || 'Authorised Signatory').trim();
+
+  // Normalize signatory designation so company name is never printed twice
+  let signatoryTitle = rawSignatory;
+  if (
+    signatoryTitle.toLowerCase() === `for ${seller.name.toLowerCase()}` || 
+    signatoryTitle.toLowerCase() === seller.name.toLowerCase() ||
+    !signatoryTitle
+  ) {
+    signatoryTitle = 'Authorised Signatory';
+  } else if (signatoryTitle.toLowerCase().startsWith('for ')) {
+    signatoryTitle = signatoryTitle.replace(/^for\s+.*?[-—:\s]+/i, '').trim() || 'Authorised Signatory';
   }
 
-  const termsList = customTerms && customTerms.length > 0 ? customTerms : [
+  // Build authoritative Terms list with dynamic jurisdiction
+  const termsList = [
     isPurchase ? '1. Subject to mutually agreed payment terms.' : '1. Goods once sold will not be taken back.',
-    `2. ${customJurisdiction}`,
+    customJurisdiction.startsWith('2.') ? customJurisdiction : `2. ${customJurisdiction}`,
     '3. E. & O.E.'
   ];
-
-  const signatoryLabel = printConfig?.signatoryTitle || `For ${seller.name}`;
 
   const docDefinition: any = {
     defaultStyle: { font: 'DejaVuSans', fontSize: 8.5, color: C.textDark, lineHeight: 1.1 },
@@ -653,20 +690,25 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
 
       {
         table: {
-          widths: ['*', 180],
+          widths: ['*', 190],
           body: [[
             {
               stack: [
+                ...(declarationText ? [
+                  { text: 'DECLARATION', style: 'footerSectionTitle' },
+                  { text: declarationText, fontSize: 7, color: C.textLight, margin: [0, 1, 0, 4] },
+                ] : []),
                 { text: 'TERMS & CONDITIONS', style: 'footerSectionTitle' },
-                ...termsList.map((t: string) => ({ text: t, fontSize: 7.5, color: C.textLight })),
+                ...termsList.map((t: string) => ({ text: t, fontSize: 7, color: C.textLight })),
               ],
               margin: [8, 6, 8, 6],
             },
             {
               stack: [
-                { text: signatoryLabel, alignment: 'right', bold: true, fontSize: 8.5, color: C.textDark },
-                { text: '', margin: [0, 15, 0, 0] },
-                { text: 'Authorised Signatory', alignment: 'right', fontSize: 7.5, color: C.textLight },
+                { text: `For ${seller.name}`, alignment: 'right', bold: true, fontSize: 8.5, color: C.textDark },
+                { text: '', margin: [0, 22, 0, 0] },
+                { canvas: [{ type: 'line', x1: 50, y1: 0, x2: 180, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }], margin: [0, 0, 0, 2] },
+                { text: signatoryTitle, alignment: 'right', fontSize: 7.5, color: C.textDark, bold: true },
               ],
               margin: [8, 6, 8, 6],
             },
