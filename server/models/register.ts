@@ -4,6 +4,7 @@ import './Advance';
 import './BankAccount';
 import './Bill';
 import './BillSequence';
+import './BulkPayment';
 import './ChartOfAccounts';
 import './Contact';
 import './Firm';

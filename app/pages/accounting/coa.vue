@@ -16,6 +16,11 @@ interface COAEntry {
   phone?: string;
   hsn_sac?: string;
   gst_rate?: number;
+  bank_name?: string;
+  account_number?: string;
+  ifsc_code?: string;
+  branch_name?: string;
+  account_type_code?: string;
   is_system: boolean;
   is_active: boolean;
   opening_balance?: number;
@@ -63,6 +68,11 @@ const form = ref({
   phone: '',
   hsn_sac: '',
   gst_rate: null as number | null,
+  bank_name: '',
+  account_number: '',
+  ifsc_code: '',
+  branch_name: '',
+  account_type_code: '10',
   opening_balance: 0,
   balance_type: 'DR'
 });
@@ -140,6 +150,11 @@ const openModal = (entry?: any) => {
       phone: entry.phone || '',
       hsn_sac: entry.hsn_sac || '',
       gst_rate: entry.gst_rate ?? null,
+      bank_name: entry.bank_name || '',
+      account_number: entry.account_number || '',
+      ifsc_code: entry.ifsc_code || '',
+      branch_name: entry.branch_name || '',
+      account_type_code: entry.account_type_code || '10',
       opening_balance: entry.opening_balance || 0,
       balance_type: entry.balance_type || 'DR'
     };
@@ -154,6 +169,11 @@ const openModal = (entry?: any) => {
       phone: '',
       hsn_sac: '',
       gst_rate: null,
+      bank_name: '',
+      account_number: '',
+      ifsc_code: '',
+      branch_name: '',
+      account_type_code: '10',
       opening_balance: 0,
       balance_type: 'DR'
     };
@@ -559,6 +579,44 @@ onMounted(fetchCOA);
               ]">
                 {{ rate }}%
               </button>
+            </div>
+          </div>
+          <!-- Beneficiary Banking & Payout Details (For Bank CMS & Bulk Payment) -->
+          <div class="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="text-[10px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                <span>🏦</span> Beneficiary Bank & Payout Details (Optional)
+              </h4>
+              <span class="text-[9px] font-bold text-blue-600 dark:text-blue-400">For Bulk CMS Transfers</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Bank Name</label>
+                <UInput v-model="form.bank_name" placeholder="e.g. State Bank of India" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Branch Name / City</label>
+                <UInput v-model="form.branch_name" placeholder="e.g. RANGIYA" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Account Number</label>
+                <UInput 
+                  v-model="form.account_number" 
+                  placeholder="Beneficiary A/C No" 
+                  class="font-mono font-bold"
+                />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">IFSC Code</label>
+                <UInput 
+                  v-model="form.ifsc_code" 
+                  placeholder="e.g. SBIN0001171" 
+                  maxlength="11"
+                  class="font-mono font-bold uppercase"
+                />
+              </div>
             </div>
           </div>
 

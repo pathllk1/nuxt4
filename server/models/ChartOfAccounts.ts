@@ -11,6 +11,11 @@ export interface IChartOfAccounts extends Document {
   hsn_sac?: string | null;
   gst_rate?: number | null;
   description?: string | null;
+  bank_name?: string | null;
+  account_number?: string | null;
+  ifsc_code?: string | null;
+  branch_name?: string | null;
+  account_type_code?: string | null;
   is_system: boolean;
   is_active: boolean;
   created_by?: mongoose.Types.ObjectId | null;
@@ -70,6 +75,32 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
     description: {
       type: String,
       default: null,
+      trim: true,
+    },
+    bank_name: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    account_number: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    ifsc_code: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+    },
+    branch_name: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    account_type_code: {
+      type: String,
+      default: '10',
       trim: true,
     },
     is_system: {

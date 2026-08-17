@@ -24,6 +24,11 @@ export default defineEventHandler(async (event) => {
   if (body.phone !== undefined) update.phone = body.phone ? String(body.phone).trim() : null;
   if (body.hsn_sac !== undefined) update.hsn_sac = body.hsn_sac ? String(body.hsn_sac).trim() : null;
   if (body.gst_rate !== undefined) update.gst_rate = body.gst_rate != null ? parseFloat(body.gst_rate) || null : null;
+  if (body.bank_name !== undefined) update.bank_name = body.bank_name ? String(body.bank_name).trim() : null;
+  if (body.account_number !== undefined) update.account_number = body.account_number ? String(body.account_number).trim() : null;
+  if (body.ifsc_code !== undefined) update.ifsc_code = body.ifsc_code ? String(body.ifsc_code).trim().toUpperCase() : null;
+  if (body.branch_name !== undefined) update.branch_name = body.branch_name ? String(body.branch_name).trim() : null;
+  if (body.account_type_code !== undefined) update.account_type_code = body.account_type_code ? String(body.account_type_code).trim() : '10';
   if (body.is_active !== undefined) update.is_active = body.is_active !== false;
 
   const account = await (ChartOfAccounts as any).findOneAndUpdate(

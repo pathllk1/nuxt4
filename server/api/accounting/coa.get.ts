@@ -26,42 +26,43 @@ export default defineEventHandler(async (event) => {
   // Initialize System Accounts if not initialized
   await LedgerService.initializeChartOfAccounts(firmIdObj, new mongoose.Types.ObjectId(String(user._id)));
 
+  let pgLeaderMap: Map<string, any> = new Map();
+
   // Auto-sync Labor Leaders from PostgreSQL into ChartOfAccounts
   try {
     let sql = getSql();
     if (!sql) sql = await connectPostgres();
     if (sql) {
       const pgLeaders = await sql`
-        SELECT name, phone, pan, aadhaar_number, gst_number FROM labor_leaders WHERE firm_id = ${firmIdStr} AND status = 'Active'
+        SELECT name, phone, pan, aadhaar_number, gst_number, bank_name, account_number, ifsc_code FROM labor_leaders WHERE firm_id = ${firmIdStr} AND status = 'Active'
       `;
       if (pgLeaders && pgLeaders.length > 0) {
-        const leaderMap = new Map(pgLeaders.map((l: any) => [l.name?.trim(), l]));
-        const leaderNames = Array.from(leaderMap.keys()).filter(Boolean);
-        const existingCOALeaders = await ChartOfAccounts.find({
-          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }, { firm_id: firmIdStr }, { firmId: firmIdStr }],
-          account_name: { $in: leaderNames }
-        }).select('account_name').lean();
-
-        const existingSet = new Set(existingCOALeaders.map((c: any) => c.account_name));
-        const toInsert = leaderNames
-          .filter((n: string) => !existingSet.has(n))
-          .map((n: string) => {
-            const l = leaderMap.get(n);
-            return {
-              firm_id: firmIdObj,
-              account_name: n,
-              account_type: 'LABOR_LEADER',
-              pan: l?.pan || null,
-              aadhaar_number: l?.aadhaar_number || null,
-              gstin: l?.gst_number || null,
-              phone: l?.phone || null,
-              is_system: false,
-              is_active: true
-            };
-          });
-
-        if (toInsert.length > 0) {
-          await ChartOfAccounts.insertMany(toInsert, { ordered: false }).catch(() => {});
+        pgLeaderMap = new Map(pgLeaders.map((l: any) => [l.name?.trim(), l]));
+        
+        for (const [name, l] of pgLeaderMap.entries()) {
+          if (!name) continue;
+          await (ChartOfAccounts as any).findOneAndUpdate(
+            {
+              $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }, { firm_id: firmIdStr }, { firmId: firmIdStr }],
+              account_name: name
+            },
+            {
+              $set: {
+                firm_id: firmIdObj,
+                account_name: name,
+                account_type: 'LABOR_LEADER',
+                pan: l?.pan || null,
+                aadhaar_number: l?.aadhaar_number || null,
+                gstin: l?.gst_number || null,
+                phone: l?.phone || null,
+                bank_name: l?.bank_name || null,
+                account_number: l?.account_number || null,
+                ifsc_code: l?.ifsc_code ? String(l.ifsc_code).toUpperCase() : null,
+                is_active: true
+              }
+            },
+            { upsert: true }
+          ).catch(() => {});
         }
       }
     }
@@ -93,6 +94,21 @@ export default defineEventHandler(async (event) => {
   const accounts = await ChartOfAccounts.find(filter)
     .sort({ account_type: 1, account_name: 1 })
     .lean();
+
+  // Attach latest PostgreSQL labor leader banking info directly to returned records
+  if (pgLeaderMap && pgLeaderMap.size > 0) {
+    accounts.forEach((acc: any) => {
+      const pgL = pgLeaderMap.get(acc.account_name?.trim());
+      if (pgL) {
+        if (pgL.bank_name) acc.bank_name = pgL.bank_name;
+        if (pgL.account_number) acc.account_number = pgL.account_number;
+        if (pgL.ifsc_code) acc.ifsc_code = String(pgL.ifsc_code).toUpperCase();
+        if (pgL.phone) acc.phone = pgL.phone;
+        if (pgL.pan) acc.pan = pgL.pan;
+        if (pgL.aadhaar_number) acc.aadhaar_number = pgL.aadhaar_number;
+      }
+    });
+  }
 
   const financialYear = getCurrentFinancialYear();
 

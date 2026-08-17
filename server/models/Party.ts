@@ -26,6 +26,11 @@ export interface IParty extends Document {
   partyType: 'CUSTOMER' | 'SUPPLIER' | 'BOTH';
   openingBalance: number;
   balanceType: 'DR' | 'CR';
+  bankName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  branchName?: string;
+  accountTypeCode?: string;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -47,6 +52,11 @@ const PartySchema: Schema = new Schema(
     address: { type: String },
     pin: { type: String },
     pan: { type: String },
+    bankName: { type: String, default: null, trim: true },
+    accountNumber: { type: String, default: null, trim: true },
+    ifscCode: { type: String, default: null, trim: true, uppercase: true },
+    branchName: { type: String, default: null, trim: true },
+    accountTypeCode: { type: String, default: '10', trim: true },
     gstLocations: [
       {
         gstin: { type: String },

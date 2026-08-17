@@ -53,7 +53,7 @@
     <!-- Dropdown Menu -->
     <div
       v-if="isOpen"
-      class="absolute left-0 right-0 z-50 mt-1 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-2xl overflow-hidden animate-fadeIn"
+      class="absolute left-0 right-0 z-[100] mt-1 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-2xl overflow-hidden animate-fadeIn"
       style="min-width: 280px; max-height: 380px;"
     >
       <!-- Search Box -->
@@ -217,6 +217,33 @@
             <UInput v-model="quickForm.phone" placeholder="Contact number" />
           </div>
 
+          <!-- Optional Beneficiary Banking Section for Bulk Payment / CMS -->
+          <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 rounded-xl space-y-2">
+            <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <span>🏦</span> Bank Details (For Bulk Payout / CMS)
+            </h4>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Bank Name</label>
+                <UInput v-model="quickForm.bank_name" placeholder="e.g. State Bank of India" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Branch / City</label>
+                <UInput v-model="quickForm.branch_name" placeholder="e.g. Guwahati" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">A/C Number</label>
+                <UInput v-model="quickForm.account_number" placeholder="Account Number" class="font-mono font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">IFSC Code</label>
+                <UInput v-model="quickForm.ifsc_code" placeholder="e.g. SBIN0001171" maxlength="11" class="font-mono font-bold uppercase" />
+              </div>
+            </div>
+          </div>
+
           <div>
             <label class="block font-bold text-slate-700 dark:text-zinc-300 mb-1">Opening Balance (₹)</label>
             <div class="flex gap-2">
@@ -247,13 +274,14 @@ const api = useApi();
 
 const props = withDefaults(defineProps<{
   modelValue: string;
-  accounts: any[];
+  accounts?: any[];
   placeholder?: string;
   showBalance?: boolean;
   disabled?: boolean;
   filterTypes?: string[];
   matchById?: boolean;
 }>(), {
+  accounts: () => [],
   placeholder: '-- Select Account --',
   showBalance: true,
   disabled: false,
@@ -293,6 +321,10 @@ const quickForm = reactive({
   aadhaar_number: '',
   gstin: '',
   phone: '',
+  bank_name: '',
+  account_number: '',
+  ifsc_code: '',
+  branch_name: '',
   opening_balance: 0,
   balance_type: 'DR'
 });
@@ -323,6 +355,10 @@ function openQuickCreate() {
   quickForm.aadhaar_number = '';
   quickForm.gstin = '';
   quickForm.phone = '';
+  quickForm.bank_name = '';
+  quickForm.account_number = '';
+  quickForm.ifsc_code = '';
+  quickForm.branch_name = '';
   quickForm.opening_balance = 0;
   quickForm.balance_type = 'DR';
   
@@ -345,7 +381,11 @@ async function submitQuickAccount() {
         pan: res.data.pan,
         gstin: res.data.gstin,
         aadhaar_number: res.data.aadhaar_number,
-        phone: res.data.phone
+        phone: res.data.phone,
+        bank_name: res.data.bank_name,
+        account_number: res.data.account_number,
+        ifsc_code: res.data.ifsc_code,
+        branch_name: res.data.branch_name
       };
 
       // Add to local list and select immediately

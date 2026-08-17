@@ -1,5 +1,5 @@
 <template>
-  <div class="p-4 py-3 max-w-[1600px] mx-auto space-y-3">
+  <div class="p-4 py-3 w-full space-y-3">
     <!-- Header Section -->
     <div class="flex flex-wrap justify-between items-end gap-3 mb-1">
       <div>
@@ -50,6 +50,14 @@
         class="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer border-0"
       >
         📊 Excel & PDF Parser Cleaner
+      </button>
+      <button
+        type="button"
+        @click="activeTab = 'bulk'"
+        :class="activeTab === 'bulk' ? 'bg-white dark:bg-zinc-800 text-blue-600 dark:text-blue-400 shadow-xs border-gray-250/50 dark:border-zinc-700' : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white border-transparent'"
+        class="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer border-0"
+      >
+        ⚡ Bulk Payments & Salary Hub
       </button>
     </div>
 
@@ -408,6 +416,11 @@
       </div>
     </template>
 
+    <!-- TAB 3: BULK PAYOUTS & SALARY DISBURSEMENT -->
+    <template v-else-if="activeTab === 'bulk'">
+      <BulkPaymentManager />
+    </template>
+
     <!-- Banking Account Modal -->
     <BankingModal v-model="showModal" :edit-data="selectedAcc" @saved="fetchData" />
 
@@ -541,6 +554,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useApi } from '@/utils/api';
 import { useToast } from '#imports';
 import BankingModal from '../../components/accounting/BankingModal.vue';
+import BulkPaymentManager from '../../components/accounting/BulkPaymentManager.vue';
 
 interface BankAccount {
   _id: string;
@@ -591,7 +605,7 @@ interface VoucherForm {
 const api = useApi();
 const toast = useToast();
 
-const activeTab = ref<'accounts' | 'excel'>('accounts');
+const activeTab = ref<'accounts' | 'excel' | 'bulk'>('accounts');
 
 // Excel & PDF Sheet Previewer state
 const excelWorkbook = ref<any>(null);
