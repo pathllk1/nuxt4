@@ -170,8 +170,8 @@
       </div>
     </UCard>
 
-    <CreateStockModal v-model="showCreateModal" @saved="fetchStocks" />
-    <EditStockModal v-model="showEditModal" :stock="selectedStock" @saved="fetchStocks" />
+    <ItemStockMasterModal v-model="showCreateModal" @saved="fetchStocks" />
+    <ItemStockMasterModal v-model="showEditModal" :initial-data="selectedStock" @saved="fetchStocks" />
     <StockHistoryModal v-model="showHistoryModal" :stock="selectedStock" />
   </div>
 </template>
@@ -179,8 +179,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useInventory } from '@/composables/useInventory';
-import CreateStockModal from '@/components/inventory/CreateStockModal.vue';
-import EditStockModal from '@/components/inventory/EditStockModal.vue';
+import ItemStockMasterModal from '@/components/inventory/ItemStockMasterModal.vue';
 import StockHistoryModal from '@/components/inventory/StockHistoryModal.vue';
 
 const { stocks, fetchStocks, loading } = useInventory();

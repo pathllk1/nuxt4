@@ -161,114 +161,20 @@
       </div>
     </div>
 
-    <!-- Quick Inline Account Creation Modal -->
-    <UModal v-model:open="isQuickCreateOpen" title="Quick Create Account Head (Alt+C)">
-      <template #body>
-        <form @submit.prevent="submitQuickAccount" class="p-4 space-y-3 text-xs">
-          <div>
-            <label class="block font-bold text-slate-700 dark:text-zinc-300 mb-1">Account Name *</label>
-            <UInput v-model="quickForm.account_name" placeholder="e.g. Delhi Transporters / Stationary" required />
-          </div>
-
-          <div>
-            <label class="block font-bold text-slate-700 dark:text-zinc-300 mb-1">Account Classification Type *</label>
-            <USelect v-model="quickForm.account_type" :items="quickAccountTypes" class="w-full" />
-          </div>
-
-          <!-- Context-Sensitive Section: Party -->
-          <div v-if="isQuickPartyType" class="p-3 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl space-y-2">
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">GSTIN (Optional)</label>
-              <UInput v-model="quickForm.gstin" placeholder="15-digit GSTIN" maxlength="15" class="font-mono uppercase font-bold" @input="onQuickGstinChange" />
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN</label>
-                <UInput v-model="quickForm.pan" placeholder="10-char PAN" maxlength="10" class="font-mono uppercase font-bold" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Phone</label>
-                <UInput v-model="quickForm.phone" placeholder="Mobile number" />
-              </div>
-            </div>
-          </div>
-
-          <!-- Context-Sensitive Section: Labor -->
-          <div v-else-if="isQuickLaborType" class="p-3 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl space-y-2">
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Aadhaar</label>
-                <UInput v-model="quickForm.aadhaar_number" placeholder="12-digit Aadhaar" maxlength="12" class="font-mono font-bold" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN</label>
-                <UInput v-model="quickForm.pan" placeholder="10-char PAN" maxlength="10" class="font-mono uppercase font-bold" />
-              </div>
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Phone</label>
-              <UInput v-model="quickForm.phone" placeholder="Mobile number" />
-            </div>
-          </div>
-
-          <!-- Non-party general contact -->
-          <div v-else class="space-y-1">
-            <label class="block font-bold text-slate-700 dark:text-zinc-300 mb-1">Contact Phone (Optional)</label>
-            <UInput v-model="quickForm.phone" placeholder="Contact number" />
-          </div>
-
-          <!-- Optional Beneficiary Banking Section for Bulk Payment / CMS -->
-          <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 rounded-xl space-y-2">
-            <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
-              <span>🏦</span> Bank Details (For Bulk Payout / CMS)
-            </h4>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Bank Name</label>
-                <UInput v-model="quickForm.bank_name" placeholder="e.g. State Bank of India" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Branch / City</label>
-                <UInput v-model="quickForm.branch_name" placeholder="e.g. Guwahati" />
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">A/C Number</label>
-                <UInput v-model="quickForm.account_number" placeholder="Account Number" class="font-mono font-bold" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">IFSC Code</label>
-                <UInput v-model="quickForm.ifsc_code" placeholder="e.g. SBIN0001171" maxlength="11" class="font-mono font-bold uppercase" />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label class="block font-bold text-slate-700 dark:text-zinc-300 mb-1">Opening Balance (₹)</label>
-            <div class="flex gap-2">
-              <UInput v-model.number="quickForm.opening_balance" type="number" step="0.01" class="flex-1" />
-              <USelect
-                v-model="quickForm.balance_type"
-                :items="[{ label: 'Debit (DR)', value: 'DR' }, { label: 'Credit (CR)', value: 'CR' }]"
-                class="w-28"
-              />
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-zinc-800">
-            <UButton label="Cancel" variant="ghost" size="xs" class="cursor-pointer" @click="isQuickCreateOpen = false" />
-            <UButton type="submit" label="Save & Select" color="primary" size="xs" :loading="savingQuickAccount" class="font-bold cursor-pointer" />
-          </div>
-        </form>
-      </template>
-    </UModal>
+    <!-- Universal Canonical Master Registration Modal -->
+    <PartyAccountMasterModal
+      v-model="isQuickCreateOpen"
+      :initial-data="quickInitialData"
+      :default-type="defaultCreateType"
+      @saved="onMasterAccountCreated"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick, reactive } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useApi } from '@/utils/api';
+import PartyAccountMasterModal from './PartyAccountMasterModal.vue';
 
 const api = useApi();
 
@@ -297,107 +203,46 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 const listRef = ref<HTMLElement | null>(null);
 const highlightedIndex = ref(-1);
 
-// Quick Inline Account Creation Modal State
+// Master Creation State
 const isQuickCreateOpen = ref(false);
-const savingQuickAccount = ref(false);
+const quickInitialData = ref<any>({});
 
-const quickAccountTypes = [
-  { label: 'Expense', value: 'EXPENSE' },
-  { label: 'Sundry Creditors (Supplier)', value: 'SUNDRY_CREDITORS' },
-  { label: 'Sundry Debtors (Customer)', value: 'SUNDRY_DEBTORS' },
-  { label: 'Income', value: 'INCOME' },
-  { label: 'Labor Leader', value: 'LABOR_LEADER' },
-  { label: 'Asset', value: 'ASSET' },
-  { label: 'Liability', value: 'LIABILITY' },
-  { label: 'Bank', value: 'BANK' },
-  { label: 'Cash', value: 'CASH' },
-  { label: 'General', value: 'GENERAL' }
-];
-
-const quickForm = reactive({
-  account_name: '',
-  account_type: 'EXPENSE',
-  pan: '',
-  aadhaar_number: '',
-  gstin: '',
-  phone: '',
-  bank_name: '',
-  account_number: '',
-  ifsc_code: '',
-  branch_name: '',
-  opening_balance: 0,
-  balance_type: 'DR'
-});
-
-const isQuickPartyType = computed(() => {
-  const t = (quickForm.account_type || '').toUpperCase();
-  return t.includes('DEBTOR') || t.includes('CREDITOR') || t.includes('CUSTOMER') || t.includes('SUPPLIER');
-});
-
-const isQuickLaborType = computed(() => {
-  const t = (quickForm.account_type || '').toUpperCase();
-  return t.includes('LABOR');
-});
-
-function onQuickGstinChange() {
-  const g = (quickForm.gstin || '').trim().toUpperCase();
-  if (g.length >= 12 && /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}/.test(g)) {
-    if (!quickForm.pan) {
-      quickForm.pan = g.substring(2, 12);
-    }
+const defaultCreateType = computed(() => {
+  if (props.filterTypes && props.filterTypes.length === 1) {
+    return props.filterTypes[0];
   }
-}
+  return 'SUNDRY_DEBTORS';
+});
 
 function openQuickCreate() {
-  quickForm.account_name = searchQuery.value.trim();
-  quickForm.account_type = 'EXPENSE';
-  quickForm.pan = '';
-  quickForm.aadhaar_number = '';
-  quickForm.gstin = '';
-  quickForm.phone = '';
-  quickForm.bank_name = '';
-  quickForm.account_number = '';
-  quickForm.ifsc_code = '';
-  quickForm.branch_name = '';
-  quickForm.opening_balance = 0;
-  quickForm.balance_type = 'DR';
-  
+  quickInitialData.value = {
+    account_name: searchQuery.value.trim(),
+    account_type: defaultCreateType.value
+  };
   closeDropdown();
   isQuickCreateOpen.value = true;
 }
 
-async function submitQuickAccount() {
-  if (!quickForm.account_name.trim()) return;
-  savingQuickAccount.value = true;
-  try {
-    const res = await api.post('/accounting/coa', quickForm);
-    if (res.success && res.data) {
-      const createdAcc = {
-        _id: res.data._id,
-        account_name: res.data.account_name,
-        account_type: res.data.account_type,
-        current_balance: quickForm.opening_balance || 0,
-        current_balance_type: quickForm.balance_type,
-        pan: res.data.pan,
-        gstin: res.data.gstin,
-        aadhaar_number: res.data.aadhaar_number,
-        phone: res.data.phone,
-        bank_name: res.data.bank_name,
-        account_number: res.data.account_number,
-        ifsc_code: res.data.ifsc_code,
-        branch_name: res.data.branch_name
-      };
+function onMasterAccountCreated(savedDoc: any) {
+  const createdAcc = {
+    _id: savedDoc._id,
+    account_name: savedDoc.account_name || savedDoc.name,
+    account_type: savedDoc.account_type,
+    current_balance: savedDoc.opening_balance || 0,
+    current_balance_type: savedDoc.balance_type || 'DR',
+    pan: savedDoc.pan,
+    gstin: savedDoc.gstin,
+    aadhaar_number: savedDoc.aadhaar_number,
+    phone: savedDoc.phone || savedDoc.contact,
+    bank_name: savedDoc.bank_name || savedDoc.bankName,
+    account_number: savedDoc.account_number || savedDoc.accountNumber,
+    ifsc_code: savedDoc.ifsc_code || savedDoc.ifscCode,
+    branch_name: savedDoc.branch_name || savedDoc.branchName
+  };
 
-      // Add to local list and select immediately
-      emit('accountCreated', createdAcc);
-      selectAccount(createdAcc);
-      isQuickCreateOpen.value = false;
-    }
-  } catch (err: any) {
-    alert(err.message || 'Failed to create account');
-  } finally {
-    savingQuickAccount.value = false;
-  }
+  emit('accountCreated', createdAcc);
+  selectAccount(createdAcc);
+  isQuickCreateOpen.value = false;
 }
 
 const selectedAccount = computed(() => {

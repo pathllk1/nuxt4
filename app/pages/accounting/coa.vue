@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useApi } from '@/utils/api';
-import { suggestSAC } from '@/composables/useAccountingInvoiceState';
+import PartyAccountMasterModal from '@/components/accounting/PartyAccountMasterModal.vue';
 
 const api = useApi();
 
@@ -33,8 +33,10 @@ const coaData = ref<COAEntry[]>([]);
 const loading = ref(true);
 const search = ref('');
 const typeFilter = ref('all');
+
 const isModalOpen = ref(false);
-const saving = ref(false);
+const selectedEditId = ref<string | null>(null);
+const selectedDefaultType = ref('SUNDRY_DEBTORS');
 
 const accountTypes = [
   { label: 'Income', value: 'INCOME' },
@@ -58,69 +60,6 @@ const filterOptions = computed(() => [
   ...accountTypes
 ]);
 
-const form = ref({
-  _id: '',
-  account_name: '',
-  account_type: 'GENERAL',
-  pan: '',
-  aadhaar_number: '',
-  gstin: '',
-  phone: '',
-  hsn_sac: '',
-  gst_rate: null as number | null,
-  bank_name: '',
-  account_number: '',
-  ifsc_code: '',
-  branch_name: '',
-  account_type_code: '10',
-  opening_balance: 0,
-  balance_type: 'DR'
-});
-
-const sacSuggestion = ref<{ sac: string; gstRate: number; description: string } | null>(null);
-
-const isPartyType = computed(() => {
-  const t = (form.value.account_type || '').toUpperCase();
-  return t.includes('DEBTOR') || t.includes('CREDITOR') || t.includes('CUSTOMER') || t.includes('SUPPLIER');
-});
-
-const isLaborType = computed(() => {
-  const t = (form.value.account_type || '').toUpperCase();
-  return t.includes('LABOR');
-});
-
-const isServiceAccountType = computed(() => {
-  const t = (form.value.account_type || '').toUpperCase();
-  return ['INCOME', 'EXPENSE', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE'].includes(t);
-});
-
-function onAccountNameInput() {
-  if (!isServiceAccountType.value) return;
-  const suggestion = suggestSAC(form.value.account_name);
-  sacSuggestion.value = suggestion;
-}
-
-function applySacSuggestion() {
-  if (sacSuggestion.value) {
-    form.value.hsn_sac = sacSuggestion.value.sac;
-    form.value.gst_rate = sacSuggestion.value.gstRate;
-    sacSuggestion.value = null;
-  }
-}
-
-function setGstRate(rate: number) {
-  form.value.gst_rate = rate;
-}
-
-function onGstinChange() {
-  const g = (form.value.gstin || '').trim().toUpperCase();
-  if (g.length >= 12 && /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}/.test(g)) {
-    if (!form.value.pan) {
-      form.value.pan = g.substring(2, 12);
-    }
-  }
-}
-
 const fetchCOA = async () => {
   loading.value = true;
   try {
@@ -138,64 +77,14 @@ const fetchCOA = async () => {
 };
 
 const openModal = (entry?: any) => {
-  sacSuggestion.value = null;
-  if (entry) {
-    form.value = {
-      _id: entry._id,
-      account_name: entry.account_name,
-      account_type: entry.account_type,
-      pan: entry.pan || '',
-      aadhaar_number: entry.aadhaar_number || '',
-      gstin: entry.gstin || '',
-      phone: entry.phone || '',
-      hsn_sac: entry.hsn_sac || '',
-      gst_rate: entry.gst_rate ?? null,
-      bank_name: entry.bank_name || '',
-      account_number: entry.account_number || '',
-      ifsc_code: entry.ifsc_code || '',
-      branch_name: entry.branch_name || '',
-      account_type_code: entry.account_type_code || '10',
-      opening_balance: entry.opening_balance || 0,
-      balance_type: entry.balance_type || 'DR'
-    };
+  if (entry && entry._id) {
+    selectedEditId.value = entry._id;
+    selectedDefaultType.value = entry.account_type || 'SUNDRY_DEBTORS';
   } else {
-    form.value = {
-      _id: '',
-      account_name: '',
-      account_type: 'GENERAL',
-      pan: '',
-      aadhaar_number: '',
-      gstin: '',
-      phone: '',
-      hsn_sac: '',
-      gst_rate: null,
-      bank_name: '',
-      account_number: '',
-      ifsc_code: '',
-      branch_name: '',
-      account_type_code: '10',
-      opening_balance: 0,
-      balance_type: 'DR'
-    };
+    selectedEditId.value = null;
+    selectedDefaultType.value = 'EXPENSE';
   }
   isModalOpen.value = true;
-};
-
-const saveAccount = async () => {
-  saving.value = true;
-  try {
-    if (form.value._id) {
-      await api.put(`/accounting/coa/${form.value._id}`, form.value);
-    } else {
-      await api.post('/accounting/coa', form.value);
-    }
-    isModalOpen.value = false;
-    fetchCOA();
-  } catch (error: any) {
-    alert(error.message || 'Failed to save account');
-  } finally {
-    saving.value = false;
-  }
 };
 
 const deleteAccount = async (id: string) => {
@@ -448,197 +337,12 @@ onMounted(fetchCOA);
       </div>
     </div>
 
-    <!-- Modal -->
-    <UModal v-model:open="isModalOpen" :title="form._id ? 'Edit Account Head' : 'Create New Account Head'">
-      <template #body>
-        <form @submit.prevent="saveAccount" class="space-y-4 p-4 text-xs">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Name *</label>
-            <UInput v-model="form.account_name" placeholder="e.g. Acme Supplies / Moti Chouhan / Office Rent" required @input="onAccountNameInput" />
-            <!-- SAC Auto-Suggest Badge -->
-            <div v-if="sacSuggestion && isServiceAccountType && !form.hsn_sac" class="mt-1.5 flex items-center gap-2">
-              <button type="button" @click="applySacSuggestion" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-300 text-[10px] font-bold hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors cursor-pointer">
-                <span>💡</span>
-                <span>Suggested: SAC {{ sacSuggestion.sac }} • {{ sacSuggestion.gstRate }}% GST</span>
-                <span class="text-teal-500">— Click to apply</span>
-              </button>
-            </div>
-          </div>
-          
-          <div>
-            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Account Classification Type *</label>
-            <USelect
-              v-model="form.account_type"
-              :items="accountTypes"
-              class="w-full"
-            />
-          </div>
-
-          <!-- Context-Sensitive Section: Parties (Customers & Suppliers) -->
-          <div v-if="isPartyType" class="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl space-y-3">
-            <h4 class="text-[10px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-              <span>🏢</span> GST & Party Tax Details
-            </h4>
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">GSTIN (15 Digits)</label>
-              <UInput 
-                v-model="form.gstin" 
-                placeholder="27AAAAA0000A1Z5" 
-                maxlength="15"
-                class="font-mono font-bold uppercase"
-                @input="onGstinChange"
-              />
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN Number</label>
-                <UInput 
-                  v-model="form.pan" 
-                  placeholder="AAAAA0000A" 
-                  maxlength="10"
-                  class="font-mono font-bold uppercase"
-                />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Contact Phone</label>
-                <UInput v-model="form.phone" placeholder="Mobile / Phone" />
-              </div>
-            </div>
-          </div>
-
-          <!-- Context-Sensitive Section: Labor Leader -->
-          <div v-if="isLaborType" class="p-3.5 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl space-y-3">
-            <h4 class="text-[10px] font-black uppercase tracking-wider text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-              <span>👷</span> Labor Leader Identification Details
-            </h4>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Aadhaar Number</label>
-                <UInput 
-                  v-model="form.aadhaar_number" 
-                  placeholder="12-digit Aadhaar" 
-                  maxlength="12"
-                  class="font-mono font-bold"
-                />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN Number</label>
-                <UInput 
-                  v-model="form.pan" 
-                  placeholder="ABCDE1234F" 
-                  maxlength="10"
-                  class="font-mono font-bold uppercase"
-                />
-              </div>
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Phone Number</label>
-              <UInput v-model="form.phone" placeholder="Mobile number" />
-            </div>
-          </div>
-
-          <!-- General Account Contact Phone (When not Party or Labor) -->
-          <div v-if="!isPartyType && !isLaborType" class="space-y-1">
-            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Contact Phone / Mobile (Optional)</label>
-            <UInput v-model="form.phone" placeholder="e.g. 9876543210" />
-          </div>
-
-          <!-- Context-Sensitive Section: SAC & GST (Income / Expense accounts) -->
-          <div v-if="isServiceAccountType" class="p-3.5 bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 rounded-xl space-y-3">
-            <h4 class="text-[10px] font-black uppercase tracking-wider text-teal-900 dark:text-teal-200 flex items-center gap-1.5">
-              <span>📋</span> GST Service Tax Configuration (Optional)
-            </h4>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">SAC Code (6 Digits)</label>
-                <UInput 
-                  v-model="form.hsn_sac" 
-                  placeholder="e.g. 998311" 
-                  maxlength="6"
-                  class="font-mono font-bold"
-                />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Default GST Rate (%)</label>
-                <UInput 
-                  v-model.number="form.gst_rate" 
-                  type="number" 
-                  step="0.01"
-                  placeholder="e.g. 18"
-                  class="font-mono font-bold"
-                />
-              </div>
-            </div>
-            <div class="flex flex-wrap items-center gap-1.5">
-              <span class="text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase mr-1">Quick Set:</span>
-              <button v-for="rate in [0, 5, 12, 18, 28]" :key="rate" type="button" @click="setGstRate(rate)" :class="[
-                'px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border',
-                form.gst_rate === rate
-                  ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
-                  : 'bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border-slate-200 dark:border-zinc-700 hover:bg-teal-50 dark:hover:bg-teal-950/30 hover:border-teal-300 dark:hover:border-teal-700'
-              ]">
-                {{ rate }}%
-              </button>
-            </div>
-          </div>
-          <!-- Beneficiary Banking & Payout Details (For Bank CMS & Bulk Payment) -->
-          <div class="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl space-y-3">
-            <div class="flex items-center justify-between">
-              <h4 class="text-[10px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-                <span>🏦</span> Beneficiary Bank & Payout Details (Optional)
-              </h4>
-              <span class="text-[9px] font-bold text-blue-600 dark:text-blue-400">For Bulk CMS Transfers</span>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Bank Name</label>
-                <UInput v-model="form.bank_name" placeholder="e.g. State Bank of India" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Branch Name / City</label>
-                <UInput v-model="form.branch_name" placeholder="e.g. RANGIYA" />
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Account Number</label>
-                <UInput 
-                  v-model="form.account_number" 
-                  placeholder="Beneficiary A/C No" 
-                  class="font-mono font-bold"
-                />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">IFSC Code</label>
-                <UInput 
-                  v-model="form.ifsc_code" 
-                  placeholder="e.g. SBIN0001171" 
-                  maxlength="11"
-                  class="font-mono font-bold uppercase"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Opening Balance -->
-          <div>
-            <label class="block text-xs font-bold text-gray-700 dark:text-zinc-300 mb-1">Opening Balance (₹)</label>
-            <div class="flex gap-2">
-              <UInput v-model.number="form.opening_balance" type="number" step="0.01" class="flex-1" />
-              <USelect
-                v-model="form.balance_type"
-                :items="[{ label: 'Debit (DR)', value: 'DR' }, { label: 'Credit (CR)', value: 'CR' }]"
-                class="w-32"
-              />
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-zinc-800">
-            <UButton variant="ghost" label="Cancel" class="cursor-pointer" @click="isModalOpen = false" />
-            <UButton type="submit" color="primary" :label="form._id ? 'Update Head' : 'Create Head'" class="font-bold cursor-pointer" :loading="saving" />
-          </div>
-        </form>
-      </template>
-    </UModal>
+    <!-- Universal Canonical Master Registration & Edit Modal -->
+    <PartyAccountMasterModal
+      v-model="isModalOpen"
+      :account-id="selectedEditId"
+      :default-type="selectedDefaultType"
+      @saved="fetchCOA"
+    />
   </div>
 </template>

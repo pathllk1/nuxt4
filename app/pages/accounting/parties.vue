@@ -104,14 +104,8 @@
             size="xs" 
             color="primary" 
             label="Edit Details" 
-            class="flex-1 font-bold text-[10px] h-7"
-          />
-          <UButton 
-            size="xs" 
-            variant="outline" 
-            color="error" 
-            icon="i-heroicons-trash" 
-            class="h-7 w-7 flex items-center justify-center p-0"
+            class="flex-1 font-bold text-[10px] h-7 cursor-pointer"
+            @click="openEditParty(party)"
           />
         </template>
       </UCard>
@@ -126,7 +120,11 @@
     </div>
 
     <!-- Modals -->
-    <PartyModal v-model="showCreateModal" @saved="fetchParties" />
+    <PartyModal 
+      v-model="showCreateModal" 
+      :initial-data="selectedParty" 
+      @saved="fetchParties" 
+    />
   </div>
 </template>
 
@@ -140,6 +138,17 @@ const { parties, fetchParties, loading } = useBilling();
 const searchQuery = ref('');
 const typeFilter = ref('ALL');
 const showCreateModal = ref(false);
+const selectedParty = ref<any>(null);
+
+function openCreateParty() {
+  selectedParty.value = null;
+  showCreateModal.value = true;
+}
+
+function openEditParty(party: any) {
+  selectedParty.value = party;
+  showCreateModal.value = true;
+}
 
 const typeOptions = [
   { label: 'All Types', value: 'ALL' },

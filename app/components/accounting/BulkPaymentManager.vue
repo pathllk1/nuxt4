@@ -558,59 +558,12 @@
       </div>
     </div>
 
-    <!-- Master Party / COA Account Edit Modal -->
-    <UModal v-model:open="isMasterEditOpen" title="Edit Master Account & Banking Credentials">
-      <template #body>
-        <form @submit.prevent="saveMasterPartyDetails" class="space-y-3.5 p-4 text-xs">
-          <div>
-            <label class="block font-bold text-slate-700 dark:text-zinc-300 mb-1">Account Name *</label>
-            <UInput v-model="masterEditForm.account_name" required placeholder="Account Head / Party Name" />
-          </div>
-
-          <div class="p-3.5 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl space-y-2.5">
-            <h4 class="text-[10px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-              <span>🏦</span> Beneficiary Banking Details (For Bulk CMS & BRS)
-            </h4>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Bank Name</label>
-                <UInput v-model="masterEditForm.bank_name" placeholder="e.g. Punjab National Bank" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Branch Name / City</label>
-                <UInput v-model="masterEditForm.branch_name" placeholder="e.g. Rangiya" />
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Account Number</label>
-                <UInput v-model="masterEditForm.account_number" placeholder="Beneficiary A/C No" class="font-mono font-bold" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">IFSC Code</label>
-                <UInput v-model="masterEditForm.ifsc_code" placeholder="e.g. PUNB0099620" class="font-mono font-bold uppercase" maxlength="11" />
-              </div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">Phone Number</label>
-              <UInput v-model="masterEditForm.phone" placeholder="Mobile / Phone" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 uppercase">PAN Number</label>
-              <UInput v-model="masterEditForm.pan" placeholder="PAN Number" class="font-mono uppercase font-bold" maxlength="10" />
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-zinc-800">
-            <UButton label="Cancel" variant="ghost" size="xs" class="cursor-pointer font-bold" @click="isMasterEditOpen = false" />
-            <UButton type="submit" label="Save Master Details" color="primary" size="xs" :loading="isSavingMaster" class="font-bold cursor-pointer" />
-          </div>
-        </form>
-      </template>
-    </UModal>
+    <!-- Canonical Universal Master Registration & Edit Modal -->
+    <PartyAccountMasterModal
+      v-model="isMasterEditOpen"
+      :account-id="quickForm.partyId"
+      @saved="onMasterPartyUpdated"
+    />
   </div>
 </template>
 
@@ -618,6 +571,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useApi } from '@/utils/api';
 import AccountSelectMenu from './AccountSelectMenu.vue';
+import PartyAccountMasterModal from './PartyAccountMasterModal.vue';
 
 interface BankAccountDoc {
   _id: string;
@@ -658,73 +612,21 @@ const saveToMaster = ref(false);
 const editingRowIndex = ref<number | null>(null);
 
 const isMasterEditOpen = ref(false);
-const isSavingMaster = ref(false);
-const masterEditForm = ref({
-  _id: '',
-  account_name: '',
-  account_type: '',
-  bank_name: '',
-  branch_name: '',
-  account_number: '',
-  ifsc_code: '',
-  phone: '',
-  pan: ''
-});
 
 function openMasterEditModal() {
   if (!quickForm.value.partyId) return;
-  const match = coaAccounts.value.find(a => a._id === quickForm.value.partyId);
-  if (!match) return;
-
-  masterEditForm.value = {
-    _id: match._id,
-    account_name: match.account_name || '',
-    account_type: match.account_type || 'EXPENSE',
-    bank_name: quickForm.value.beneficiaryBankName || match.bank_name || '',
-    branch_name: quickForm.value.beneficiaryBranch || match.branch_name || '',
-    account_number: quickForm.value.beneficiaryAccountNo || match.account_number || '',
-    ifsc_code: quickForm.value.beneficiaryIfsc || match.ifsc_code || '',
-    phone: match.phone || '',
-    pan: match.pan || ''
-  };
   isMasterEditOpen.value = true;
 }
 
-async function saveMasterPartyDetails() {
-  if (!masterEditForm.value._id) return;
-  isSavingMaster.value = true;
-  try {
-    const payload = {
-      account_name: masterEditForm.value.account_name,
-      account_type: masterEditForm.value.account_type,
-      bank_name: masterEditForm.value.bank_name,
-      branch_name: masterEditForm.value.branch_name,
-      account_number: masterEditForm.value.account_number,
-      ifsc_code: masterEditForm.value.ifsc_code ? masterEditForm.value.ifsc_code.toUpperCase() : '',
-      phone: masterEditForm.value.phone,
-      pan: masterEditForm.value.pan ? masterEditForm.value.pan.toUpperCase() : ''
-    };
-
-    const res: any = await api.put(`/accounting/coa/${masterEditForm.value._id}`, payload);
-    if (res && res.success) {
-      toast.add({ title: 'Master Record Updated', description: 'Updated credentials successfully', color: 'success' });
-      await fetchCOAAccounts();
-
-      // Sync active quickForm fields
-      quickForm.value.accountHead = payload.account_name;
-      quickForm.value.beneficiaryName = payload.account_name;
-      quickForm.value.beneficiaryBankName = payload.bank_name;
-      quickForm.value.beneficiaryBranch = payload.branch_name;
-      quickForm.value.beneficiaryAccountNo = payload.account_number;
-      quickForm.value.beneficiaryIfsc = payload.ifsc_code;
-
-      isMasterEditOpen.value = false;
-    }
-  } catch (err: any) {
-    toast.add({ title: 'Failed to update master', description: err.message, color: 'error' });
-  } finally {
-    isSavingMaster.value = false;
-  }
+async function onMasterPartyUpdated(savedDoc: any) {
+  await fetchCOAAccounts();
+  const name = savedDoc.account_name || savedDoc.name;
+  quickForm.value.accountHead = name;
+  quickForm.value.beneficiaryName = name;
+  quickForm.value.beneficiaryBankName = savedDoc.bank_name || savedDoc.bankName || '';
+  quickForm.value.beneficiaryBranch = savedDoc.branch_name || savedDoc.branchName || '';
+  quickForm.value.beneficiaryAccountNo = savedDoc.account_number || savedDoc.accountNumber || '';
+  quickForm.value.beneficiaryIfsc = savedDoc.ifsc_code || savedDoc.ifscCode || '';
 }
 
 const batchConfig = ref({
@@ -790,8 +692,9 @@ async function fetchBankAccounts() {
         }
       }));
       bankAccounts.value = enriched;
-      if (!batchConfig.value.bankAccountId && bankAccounts.value.length > 0) {
-        batchConfig.value.bankAccountId = bankAccounts.value[0]._id;
+      const firstAcc = bankAccounts.value[0];
+      if (!batchConfig.value.bankAccountId && firstAcc) {
+        batchConfig.value.bankAccountId = firstAcc._id;
       }
     }
   } catch (err: any) {

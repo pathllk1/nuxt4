@@ -284,6 +284,7 @@ interface LocalVoucherEntry {
 
 const props = defineProps<{
   modelValue: boolean;
+  initialData?: any;
 }>();
 
 const emit = defineEmits(['update:modelValue', 'saved']);
@@ -304,7 +305,11 @@ const form = reactive({
 
 watch(() => props.modelValue, (isOpen) => {
   if (isOpen) {
-    resetForm();
+    if (props.initialData) {
+      Object.assign(form, props.initialData);
+    } else {
+      resetForm();
+    }
     loadDependencies();
   }
 });

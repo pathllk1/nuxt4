@@ -448,104 +448,11 @@
     </UModal>
 
     <!-- ONE-CLICK VOUCHER CREATION MODAL OVERLAY -->
-    <UModal v-model:open="showVoucherModal" :ui="{ content: 'w-full sm:max-w-4xl' }">
-      <template #content>
-        <div class="bg-white dark:bg-zinc-900 rounded-xl overflow-hidden shadow-2xl border border-slate-100 dark:border-zinc-800 flex flex-col max-h-[90vh] text-left">
-          <!-- Header -->
-          <div class="px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex justify-between items-center shrink-0">
-            <div>
-              <h2 class="text-sm font-black uppercase tracking-wider flex items-center gap-2">
-                <UIcon name="i-heroicons-document-text" class="w-4 h-4" />
-                <span>{{ vform.vtype === 'PAYMENT' ? 'Payment Voucher' : vform.vtype === 'RECEIPT' ? 'Receipt Voucher' : 'Journal Entry' }}</span>
-              </h2>
-              <p class="text-[9px] font-bold text-blue-100 uppercase tracking-widest mt-0.5">Record new financial ledger entry from bank statement row</p>
-            </div>
-            <UButton 
-              icon="i-heroicons-x-mark" 
-              size="xs" 
-              color="neutral" 
-              variant="ghost" 
-              class="text-white hover:bg-white/20 cursor-pointer"
-              @click="closeVoucherModal"
-            />
-          </div>
-
-          <!-- Body -->
-          <div class="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Transaction Date</label>
-                <UInput v-model="vform.vdate" type="date" size="sm" class="w-full font-bold cursor-pointer" />
-              </div>
-              <div>
-                <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Voucher Type</label>
-                <USelect 
-                  v-model="vform.vtype" 
-                  :items="[
-                    { label: 'Payment Out', value: 'PAYMENT' },
-                    { label: 'Receipt In', value: 'RECEIPT' },
-                    { label: 'Journal Entry', value: 'JOURNAL' }
-                  ]" 
-                  size="sm" 
-                  class="w-full font-bold cursor-pointer"
-                />
-              </div>
-            </div>
-
-            <!-- Primary Account for Payment/Receipt -->
-            <div v-if="vform.vtype !== 'JOURNAL'" class="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl space-y-1">
-              <label class="block text-[9px] font-black text-blue-900 dark:text-blue-300 uppercase tracking-wider">
-                {{ vform.vtype === 'PAYMENT' ? '💳 Paid From (Bank Account)' : '💰 Receipt To (Bank Account)' }}
-              </label>
-              <select v-model="vform.mainAccount" class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-blue-300 dark:border-blue-700 rounded-lg outline-none font-bold text-xs">
-                <option value="">-- Select Bank Account --</option>
-                <option v-for="acc in accounts" :key="acc._id" :value="acc._id">
-                  {{ acc.account_name }} ({{ acc.bank_name }})
-                </option>
-              </select>
-            </div>
-
-            <!-- Line Items Table -->
-            <div class="space-y-2">
-              <div class="flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-1">
-                <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Transaction Details</span>
-                <UButton label="+ Add Line" size="xs" color="primary" variant="subtle" class="font-bold cursor-pointer" @click="addLine" />
-              </div>
-
-              <div v-for="(entry, idx) in vform.entries" :key="idx" class="grid grid-cols-12 gap-2 items-center p-2.5 bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 rounded-xl">
-                <div class="col-span-6">
-                  <UInput v-model="entry.accountHead" placeholder="Payee / Account Head Name..." size="sm" class="w-full font-bold" />
-                </div>
-                <div class="col-span-5">
-                  <UInput v-model.number="entry.amount" type="number" step="0.01" placeholder="Amount (₹)" size="sm" class="w-full font-bold font-mono text-right" />
-                </div>
-                <div class="col-span-1 text-center">
-                  <UButton v-if="vform.entries.length > 1" icon="i-heroicons-trash" size="xs" color="error" variant="ghost" class="cursor-pointer" @click="removeLine(idx)" />
-                </div>
-              </div>
-            </div>
-
-            <!-- Narration -->
-            <div>
-              <label class="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Narration / Remarks</label>
-              <UTextarea v-model="vform.narration" :rows="2" size="sm" class="w-full font-medium" />
-            </div>
-
-            <!-- Summary Box -->
-            <div class="p-3 bg-slate-100 dark:bg-zinc-800/80 rounded-xl flex justify-between items-center">
-              <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Total Amount</span>
-              <span class="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">₹{{ mainAmount().toLocaleString() }}</span>
-            </div>
-          </div>
-
-          <!-- Footer -->
-          <div class="px-5 py-3.5 bg-slate-50 dark:bg-zinc-800/80 border-t border-slate-100 dark:border-zinc-800 flex justify-end gap-2.5 shrink-0">
-            <UButton label="Cancel" color="neutral" variant="outline" size="xs" class="font-bold cursor-pointer" @click="closeVoucherModal" />
-            <UButton label="Save Voucher" color="success" variant="solid" size="xs" :loading="savingVoucher" class="font-bold cursor-pointer" @click="submitVoucher" />
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <VoucherModal 
+      v-model="showVoucherModal" 
+      :initial-data="vform" 
+      @saved="fetchData" 
+    />
   </div>
 </template>
 
@@ -555,6 +462,7 @@ import { useApi } from '@/utils/api';
 import { useToast } from '#imports';
 import BankingModal from '../../components/accounting/BankingModal.vue';
 import BulkPaymentManager from '../../components/accounting/BulkPaymentManager.vue';
+import VoucherModal from '../../components/accounting/VoucherModal.vue';
 
 interface BankAccount {
   _id: string;
@@ -1422,39 +1330,5 @@ const openVoucherFromExcelRow = (row: any) => {
   };
 
   showVoucherModal.value = true;
-};
-
-const submitVoucher = async () => {
-  if (vform.value.vtype !== 'JOURNAL' && !vform.value.mainAccount) {
-    toast.add({ title: 'Validation Error', description: 'Please select a bank account', color: 'warning' });
-    return;
-  }
-
-  savingVoucher.value = true;
-  try {
-    const res = await api.post('/vouchers', {
-      vtype: vform.value.vtype,
-      vdate: vform.value.vdate,
-      narration: vform.value.narration,
-      mainAccount: vform.value.mainAccount,
-      entries: vform.value.entries.filter(e => e.accountHead && e.amount > 0),
-      summary: {
-        mainAmount: mainAmount(),
-        netAmount: mainAmount()
-      }
-    });
-
-    if (res.success) {
-      toast.add({ title: 'Voucher Recorded', description: 'Voucher saved successfully to ledger', color: 'success' });
-      showVoucherModal.value = false;
-      fetchData();
-    } else {
-      toast.add({ title: 'Save Failed', description: res.message || 'Error saving voucher', color: 'error' });
-    }
-  } catch (err: any) {
-    toast.add({ title: 'Error', description: err.message || 'Failed to save voucher', color: 'error' });
-  } finally {
-    savingVoucher.value = false;
-  }
 };
 </script>
