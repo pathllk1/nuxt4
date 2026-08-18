@@ -1,14 +1,14 @@
 <template>
-  <div class="p-4 py-3 w-full mx-auto">
+  <div class="p-4 py-3 w-full mx-auto space-y-3">
     <!-- Header Section -->
-    <div class="flex justify-between items-center mb-3">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
       <div class="flex items-center gap-3">
         <div class="p-2 bg-primary/10 rounded-xl">
           <UIcon name="i-heroicons-document-text" class="w-6 h-6 text-primary" />
         </div>
         <div>
           <h1 class="text-xl font-black tracking-tight uppercase text-gray-900 dark:text-white leading-none">Invoices & Notes</h1>
-          <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Manage sales, purchases, and returns</p>
+          <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Manage sales, purchases, GST breakups and returns</p>
         </div>
       </div>
       <div class="flex gap-2">
@@ -18,7 +18,7 @@
           icon="i-heroicons-plus"
           size="sm"
           label="Purchase"
-          class="font-semibold text-xs h-8"
+          class="font-semibold text-xs h-8 cursor-pointer"
           @click="$router.push('/accounting/purchases/new')"
         />
         <UButton
@@ -26,61 +26,166 @@
           icon="i-heroicons-plus"
           size="sm"
           label="Sales Invoice"
-          class="font-semibold text-xs h-8"
+          class="font-semibold text-xs h-8 cursor-pointer"
           @click="$router.push('/accounting/sales/new')"
         />
       </div>
     </div>
 
-    <!-- Filters Section -->
-    <div class="bg-white dark:bg-zinc-900 p-3 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 mb-3 flex flex-wrap gap-3 items-end">
-       <div class="flex-1 min-w-[200px] flex flex-col gap-1">
+    <!-- Filters & Toolbar Section -->
+    <div class="bg-white dark:bg-zinc-900 p-3 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 flex flex-wrap gap-3 items-end justify-between">
+      <div class="flex flex-wrap gap-3 items-end flex-1 min-w-[280px]">
+        <!-- Bill Type -->
+        <div class="w-48 flex flex-col gap-1">
           <label class="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest px-1">Type</label>
           <USelect 
-             v-model="filters.btype" 
-             :items="typeOptions" 
-             class="w-full" 
-             placeholder="Select Type"
-             size="sm"
-             @update:model-value="handleFilterChange" 
+            v-model="filters.btype" 
+            :items="typeOptions" 
+            class="w-full" 
+            placeholder="Select Type"
+            size="sm"
+            @update:model-value="handleFilterChange" 
           />
-       </div>
-       <div class="w-64 flex flex-col gap-1">
-          <label class="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest px-1">Search Party</label>
+        </div>
+
+        <!-- Search Party / Bill No -->
+        <div class="w-64 flex flex-col gap-1">
+          <label class="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest px-1">Search Party / Bill No</label>
           <UInput 
-             ref="searchInput"
-             v-model="partySearch" 
-             placeholder="Search by name..." 
-             icon="i-heroicons-magnifying-glass"
-             size="sm"
-             class="w-full" 
-             @keydown.down.prevent="moveActiveRow(1)"
-             @keydown.up.prevent="moveActiveRow(-1)"
-             @keydown.enter.prevent="selectActiveRow"
+            ref="searchInput"
+            v-model="partySearch" 
+            placeholder="Search name, GSTIN, bill no..." 
+            icon="i-heroicons-magnifying-glass"
+            size="sm"
+            class="w-full" 
+            @keydown.down.prevent="moveActiveRow(1)"
+            @keydown.up.prevent="moveActiveRow(-1)"
+            @keydown.enter.prevent="selectActiveRow"
           />
-       </div>
-       <div class="flex gap-2">
-         <UButton
-           color="neutral"
-           variant="outline"
-           icon="i-heroicons-table-cells"
-           label="Export Excel"
-           size="sm"
-           class="h-8 text-xs font-bold"
-           @click="exportExcel"
-           title="Export Filtered Bills to Excel"
-         />
-         <UButton
-           color="neutral"
-           variant="outline"
-           icon="i-heroicons-document-arrow-down"
-           label="Export PDF"
-           size="sm"
-           class="h-8 text-xs font-bold"
-           @click="exportPDF"
-           title="Export Filtered Bills to PDF Report"
-         />
-       </div>
+        </div>
+
+        <!-- 1-Click Tax Breakup Toggle -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest px-1">GST Tax View</label>
+          <UButton
+            :color="isTaxBreakupActive ? 'primary' : 'neutral'"
+            :variant="isTaxBreakupActive ? 'solid' : 'outline'"
+            :icon="isTaxBreakupActive ? 'i-heroicons-receipt-percent' : 'i-heroicons-table-cells'"
+            :label="isTaxBreakupActive ? 'Tax Split Active' : 'Show Tax Split'"
+            size="sm"
+            class="h-8 text-xs font-bold cursor-pointer"
+            @click="toggleTaxBreakup"
+            title="Toggle CGST, SGST, IGST columns"
+          />
+        </div>
+
+        <!-- Column Customizer Dropdown / Popover -->
+        <div class="flex flex-col gap-1 relative">
+          <label class="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest px-1">Columns</label>
+          <div class="relative">
+            <UButton
+              color="neutral"
+              variant="outline"
+              icon="i-heroicons-view-columns"
+              label="Columns"
+              size="sm"
+              class="h-8 text-xs font-bold cursor-pointer"
+              @click="showColumnMenu = !showColumnMenu"
+            />
+
+            <!-- Backdrop to close on click outside -->
+            <div 
+              v-if="showColumnMenu" 
+              class="fixed inset-0 z-20" 
+              @click="showColumnMenu = false"
+            />
+
+            <!-- Dropdown Menu -->
+            <div 
+              v-if="showColumnMenu" 
+              class="absolute left-0 sm:left-auto sm:right-0 mt-1 z-30 w-56 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-zinc-700 p-3 text-xs space-y-2.5"
+            >
+              <div class="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-zinc-800">
+                <span class="font-black text-[10px] uppercase tracking-wider text-gray-900 dark:text-white">Visible Columns</span>
+                <div class="flex items-center gap-2">
+                  <button @click="applyPreset('default')" class="text-[10px] text-primary hover:underline font-bold cursor-pointer">Reset</button>
+                  <button @click="showColumnMenu = false" class="text-gray-400 hover:text-gray-700 dark:hover:text-white p-0.5 rounded cursor-pointer" title="Close">
+                    <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.grossTotal" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>Taxable Amount</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.cgst" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>CGST</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.sgst" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>SGST</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.igst" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>IGST</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.totalTax" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>Total Tax</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.roundOff" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>Round Off</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.netTotal" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>Net Amount</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer py-0.5 text-gray-700 dark:text-zinc-300 select-none">
+                  <input type="checkbox" v-model="visibleCols.status" @change="saveColumnPrefs" class="rounded text-primary focus:ring-0">
+                  <span>Status</span>
+                </label>
+              </div>
+
+              <div class="pt-2 border-t border-gray-100 dark:border-zinc-800 flex gap-1.5">
+                <button @click="applyPreset('gst')" class="flex-1 py-1 px-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-black uppercase tracking-wider cursor-pointer">
+                  GST View
+                </button>
+                <button @click="applyPreset('compact')" class="flex-1 py-1 px-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-700 dark:text-zinc-300 text-[10px] font-black uppercase tracking-wider cursor-pointer">
+                  Compact
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Exports -->
+      <div class="flex gap-2 shrink-0">
+        <UButton
+          color="neutral"
+          variant="outline"
+          icon="i-heroicons-table-cells"
+          label="Export Excel"
+          size="sm"
+          class="h-8 text-xs font-bold cursor-pointer"
+          @click="exportExcel"
+          title="Export Filtered Bills with GST Breakup to Excel"
+        />
+        <UButton
+          color="neutral"
+          variant="outline"
+          icon="i-heroicons-document-arrow-down"
+          label="Export PDF"
+          size="sm"
+          class="h-8 text-xs font-bold cursor-pointer"
+          @click="exportPDF"
+          title="Export Filtered Bills with GST Breakup to PDF Report"
+        />
+      </div>
     </div>
 
     <!-- Bills Table Card -->
@@ -99,33 +204,54 @@
           :loading="loading" 
           class="w-full text-xs"
           :ui="{ 
-            td: 'py-2 px-4 text-gray-700 dark:text-zinc-300',
-            th: 'py-2.5 px-4 text-gray-500 font-bold uppercase tracking-wider bg-gray-50/80 dark:bg-zinc-800/80 border-b border-gray-100 dark:border-zinc-800',
-            tr: 'hover:bg-green-100/80 dark:hover:bg-green-900/30 transition-colors cursor-pointer'
+            td: 'py-2 px-3 text-gray-700 dark:text-zinc-300',
+            th: 'py-2.5 px-3 text-gray-500 font-bold uppercase tracking-wider bg-gray-50/80 dark:bg-zinc-800/80 border-b border-gray-100 dark:border-zinc-800 whitespace-nowrap',
+            tr: 'hover:bg-green-50/80 dark:hover:bg-green-900/20 transition-colors cursor-pointer'
           }"
         >
-          <!-- Bill Info Column -->
+          <!-- Bill Info Column Header & Cell -->
+          <template #bno-header>
+            <div class="flex items-center gap-1 cursor-pointer select-none group" @click="toggleSort('bdate')">
+              <span class="group-hover:text-primary">Bill Info</span>
+              <UIcon v-if="sortField === 'bdate'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
+          </template>
           <template #bno-cell="{ row }">
             <div>
-              <div class="font-bold text-gray-900 dark:text-white leading-tight">{{ row.original.bno }}</div>
+              <div class="font-bold text-gray-900 dark:text-white leading-tight uppercase">{{ row.original.bno }}</div>
               <div class="text-[10px] uppercase font-black tracking-widest mt-0.5" :class="getTypeColor(row.original.btype)">
                 {{ row.original.btype.replace('_', ' ') }}
               </div>
               <div class="text-[9px] text-gray-400 dark:text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
                 {{ formatDate(row.original.bdate) }}
               </div>
+              <div v-if="row.original.supplierBillNo" class="text-[9px] font-mono text-gray-500 mt-0.5">
+                Ref: {{ row.original.supplierBillNo }}
+              </div>
             </div>
           </template>
 
-          <!-- Party Name Column -->
+          <!-- Party Name Column Header & Cell -->
+          <template #partyName-header>
+            <div class="flex items-center gap-1 cursor-pointer select-none group" @click="toggleSort('partyName')">
+              <span class="group-hover:text-primary">Party Name</span>
+              <UIcon v-if="sortField === 'partyName'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
+          </template>
           <template #partyName-cell="{ row }">
             <div>
-              <div class="font-bold text-gray-800 dark:text-zinc-200 leading-tight">{{ row.original.partyName }}</div>
+              <div class="font-bold text-gray-800 dark:text-zinc-200 leading-tight uppercase">{{ row.original.partyName || 'Cash / General' }}</div>
               <div class="text-[10px] text-gray-400 dark:text-zinc-500 mt-0.5 font-mono">{{ row.original.partyGstin || 'UNREGISTERED' }}</div>
             </div>
           </template>
 
           <!-- Status Column -->
+          <template #status-header>
+            <div class="flex items-center gap-1 cursor-pointer select-none group" @click="toggleSort('status')">
+              <span class="group-hover:text-primary">Status</span>
+              <UIcon v-if="sortField === 'status'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
+          </template>
           <template #status-cell="{ row }">
             <UBadge 
               :color="row.original.status === 'ACTIVE' ? 'success' : (row.original.status === 'CONVERTED' ? 'neutral' : 'error')" 
@@ -139,31 +265,89 @@
 
           <!-- Taxable Amount Column -->
           <template #grossTotal-header>
-            <div class="text-right w-full">Taxable</div>
+            <div class="flex items-center justify-end gap-1 cursor-pointer select-none w-full group" @click="toggleSort('grossTotal')">
+              <span class="group-hover:text-primary">Taxable</span>
+              <UIcon v-if="sortField === 'grossTotal'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
           </template>
           <template #grossTotal-cell="{ row }">
-            <div class="text-right w-full text-gray-600 dark:text-zinc-400 font-medium">
-              ₹{{ (row.original.grossTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            <div class="text-right w-full text-gray-700 dark:text-zinc-300 font-medium font-mono">
+              ₹{{ (row.original.grossTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            </div>
+          </template>
+
+          <!-- CGST Column -->
+          <template #cgst-header>
+            <div class="flex items-center justify-end gap-1 cursor-pointer select-none w-full group" @click="toggleSort('cgst')">
+              <span class="group-hover:text-primary">CGST</span>
+              <UIcon v-if="sortField === 'cgst'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
+          </template>
+          <template #cgst-cell="{ row }">
+            <div class="text-right w-full font-mono" :class="(row.original.cgst || 0) > 0 ? 'text-gray-700 dark:text-zinc-300 font-medium' : 'text-gray-400 dark:text-zinc-600'">
+              {{ (row.original.cgst || 0) > 0 ? '₹' + Number(row.original.cgst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-' }}
+            </div>
+          </template>
+
+          <!-- SGST Column -->
+          <template #sgst-header>
+            <div class="flex items-center justify-end gap-1 cursor-pointer select-none w-full group" @click="toggleSort('sgst')">
+              <span class="group-hover:text-primary">SGST</span>
+              <UIcon v-if="sortField === 'sgst'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
+          </template>
+          <template #sgst-cell="{ row }">
+            <div class="text-right w-full font-mono" :class="(row.original.sgst || 0) > 0 ? 'text-gray-700 dark:text-zinc-300 font-medium' : 'text-gray-400 dark:text-zinc-600'">
+              {{ (row.original.sgst || 0) > 0 ? '₹' + Number(row.original.sgst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-' }}
+            </div>
+          </template>
+
+          <!-- IGST Column -->
+          <template #igst-header>
+            <div class="flex items-center justify-end gap-1 cursor-pointer select-none w-full group" @click="toggleSort('igst')">
+              <span class="group-hover:text-primary">IGST</span>
+              <UIcon v-if="sortField === 'igst'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
+          </template>
+          <template #igst-cell="{ row }">
+            <div class="text-right w-full font-mono" :class="(row.original.igst || 0) > 0 ? 'text-gray-700 dark:text-zinc-300 font-medium' : 'text-gray-400 dark:text-zinc-600'">
+              {{ (row.original.igst || 0) > 0 ? '₹' + Number(row.original.igst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-' }}
             </div>
           </template>
 
           <!-- Total Tax Column -->
           <template #totalTax-header>
-            <div class="text-right w-full">Total Tax</div>
+            <div class="flex items-center justify-end gap-1 cursor-pointer select-none w-full group" @click="toggleSort('totalTax')">
+              <span class="group-hover:text-primary">Total Tax</span>
+              <UIcon v-if="sortField === 'totalTax'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
           </template>
           <template #totalTax-cell="{ row }">
-            <div class="text-right w-full text-gray-600 dark:text-zinc-400 font-medium">
-              ₹{{ ((row.original.cgst || 0) + (row.original.sgst || 0) + (row.original.igst || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            <div class="text-right w-full font-mono font-medium" :class="getBillTax(row.original) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-zinc-600'">
+              ₹{{ getBillTax(row.original).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            </div>
+          </template>
+
+          <!-- Round Off Column -->
+          <template #roundOff-header>
+            <div class="text-right w-full">Round Off</div>
+          </template>
+          <template #roundOff-cell="{ row }">
+            <div class="text-right w-full text-gray-500 font-mono">
+              {{ (row.original.roundOff || 0) !== 0 ? (row.original.roundOff > 0 ? '+' : '') + Number(row.original.roundOff).toFixed(2) : '0.00' }}
             </div>
           </template>
 
           <!-- Net Amount Column -->
           <template #netTotal-header>
-            <div class="text-right w-full">Net Amount</div>
+            <div class="flex items-center justify-end gap-1 cursor-pointer select-none w-full group" @click="toggleSort('netTotal')">
+              <span class="group-hover:text-primary">Net Amount</span>
+              <UIcon v-if="sortField === 'netTotal'" :name="sortDirection === 'asc' ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-primary" />
+            </div>
           </template>
           <template #netTotal-cell="{ row }">
-            <div class="text-right w-full font-black text-gray-900 dark:text-white">
-              ₹{{ (row.original.netTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+            <div class="text-right w-full font-black text-gray-900 dark:text-white font-mono">
+              ₹{{ (row.original.netTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
             </div>
           </template>
 
@@ -179,6 +363,7 @@
                   variant="ghost" 
                   color="neutral" 
                   icon="i-heroicons-eye" 
+                  class="cursor-pointer"
                   @click="viewBillDetails(row.original._id)" 
                 />
               </UTooltip>
@@ -188,6 +373,7 @@
                   variant="ghost" 
                   color="neutral" 
                   icon="i-heroicons-arrow-down-tray" 
+                  class="cursor-pointer"
                   @click="downloadPDF(row.original)" 
                 />
               </UTooltip>
@@ -197,6 +383,7 @@
                   variant="ghost" 
                   color="primary" 
                   icon="i-heroicons-pencil-square" 
+                  class="cursor-pointer"
                   @click="handleEdit(row.original)" 
                 />
               </UTooltip>
@@ -206,6 +393,7 @@
                   variant="ghost" 
                   color="warning" 
                   icon="i-heroicons-arrow-uturn-left" 
+                  class="cursor-pointer"
                   @click="handleReturn(row.original)" 
                 />
               </UTooltip>
@@ -215,12 +403,58 @@
                   variant="ghost" 
                   color="error" 
                   icon="i-heroicons-x-circle" 
+                  class="cursor-pointer"
                   @click="handleCancel(row.original._id)" 
                 />
               </UTooltip>
             </div>
           </template>
         </UTable>
+
+        <!-- Summary Totals Bar -->
+        <div v-if="filteredBills.length > 0" class="bg-slate-50 dark:bg-zinc-800/80 border-t border-gray-200 dark:border-zinc-700 p-3 flex flex-wrap items-center justify-between gap-4 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="font-black uppercase tracking-wider text-[10px] text-gray-500 dark:text-zinc-400">Total Filtered:</span>
+            <span class="font-bold text-gray-900 dark:text-white">{{ summaryTotals.count }} Records</span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-4 sm:gap-6 font-mono">
+            <div v-if="visibleCols.grossTotal" class="flex flex-col items-end">
+              <span class="text-[9px] uppercase font-bold text-gray-400 dark:text-zinc-500">Taxable</span>
+              <span class="font-bold text-gray-800 dark:text-zinc-200">₹{{ summaryTotals.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+            </div>
+
+            <div v-if="visibleCols.cgst" class="flex flex-col items-end">
+              <span class="text-[9px] uppercase font-bold text-gray-400 dark:text-zinc-500">CGST</span>
+              <span class="font-bold text-gray-800 dark:text-zinc-200">₹{{ summaryTotals.cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+            </div>
+
+            <div v-if="visibleCols.sgst" class="flex flex-col items-end">
+              <span class="text-[9px] uppercase font-bold text-gray-400 dark:text-zinc-500">SGST</span>
+              <span class="font-bold text-gray-800 dark:text-zinc-200">₹{{ summaryTotals.sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+            </div>
+
+            <div v-if="visibleCols.igst" class="flex flex-col items-end">
+              <span class="text-[9px] uppercase font-bold text-gray-400 dark:text-zinc-500">IGST</span>
+              <span class="font-bold text-gray-800 dark:text-zinc-200">₹{{ summaryTotals.igst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+            </div>
+
+            <div v-if="visibleCols.totalTax" class="flex flex-col items-end">
+              <span class="text-[9px] uppercase font-bold text-amber-600 dark:text-amber-400">Total Tax</span>
+              <span class="font-bold text-amber-600 dark:text-amber-400">₹{{ summaryTotals.totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+            </div>
+
+            <div v-if="visibleCols.roundOff" class="flex flex-col items-end">
+              <span class="text-[9px] uppercase font-bold text-gray-400 dark:text-zinc-500">Round Off</span>
+              <span class="font-bold text-gray-800 dark:text-zinc-200">{{ summaryTotals.roundOff >= 0 ? '+' : '' }}{{ summaryTotals.roundOff.toFixed(2) }}</span>
+            </div>
+
+            <div v-if="visibleCols.netTotal" class="flex flex-col items-end pl-2 border-l border-gray-300 dark:border-zinc-600">
+              <span class="text-[9px] uppercase font-black text-primary">Net Total</span>
+              <span class="font-black text-sm text-primary">₹{{ summaryTotals.netTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </UCard>
 
@@ -234,7 +468,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, reactive, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useBilling } from '@/composables/useBilling';
 import { api } from '@/utils/api';
@@ -245,19 +479,133 @@ const { bills, fetchBills, loading } = useBilling();
 
 const selectedBillId = ref<string | null>(null);
 const showDetailsModal = ref(false);
+const showColumnMenu = ref(false);
 
 const searchInput = ref<any>(null);
 const activeRowIndex = ref(0);
 
-const columns = [
-  { accessorKey: 'bno', header: 'Bill Info' },
-  { accessorKey: 'partyName', header: 'Party Name' },
-  { accessorKey: 'status', header: 'Status' },
-  { accessorKey: 'grossTotal', header: 'Taxable' },
-  { accessorKey: 'totalTax', header: 'Total Tax' },
-  { accessorKey: 'netTotal', header: 'Net Amount' },
-  { id: 'actions', header: 'Actions' }
-];
+// Sorting state
+const sortField = ref<'bdate' | 'bno' | 'partyName' | 'status' | 'grossTotal' | 'cgst' | 'sgst' | 'igst' | 'totalTax' | 'netTotal'>('bdate');
+const sortDirection = ref<'asc' | 'desc'>('desc');
+
+function toggleSort(field: any) {
+  if (sortField.value === field) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortDirection.value = 'desc';
+  }
+}
+
+// Visible Columns State
+const visibleCols = reactive({
+  status: true,
+  grossTotal: true,
+  cgst: false,
+  sgst: false,
+  igst: false,
+  totalTax: true,
+  roundOff: false,
+  netTotal: true,
+});
+
+const isTaxBreakupActive = computed(() => visibleCols.cgst && visibleCols.sgst && visibleCols.igst);
+
+function toggleTaxBreakup() {
+  if (isTaxBreakupActive.value) {
+    visibleCols.cgst = false;
+    visibleCols.sgst = false;
+    visibleCols.igst = false;
+    visibleCols.totalTax = true;
+  } else {
+    visibleCols.cgst = true;
+    visibleCols.sgst = true;
+    visibleCols.igst = true;
+  }
+  saveColumnPrefs();
+}
+
+function applyPreset(preset: 'default' | 'gst' | 'compact') {
+  if (preset === 'gst') {
+    visibleCols.status = true;
+    visibleCols.grossTotal = true;
+    visibleCols.cgst = true;
+    visibleCols.sgst = true;
+    visibleCols.igst = true;
+    visibleCols.totalTax = true;
+    visibleCols.roundOff = true;
+    visibleCols.netTotal = true;
+  } else if (preset === 'compact') {
+    visibleCols.status = true;
+    visibleCols.grossTotal = false;
+    visibleCols.cgst = false;
+    visibleCols.sgst = false;
+    visibleCols.igst = false;
+    visibleCols.totalTax = false;
+    visibleCols.roundOff = false;
+    visibleCols.netTotal = true;
+  } else {
+    visibleCols.status = true;
+    visibleCols.grossTotal = true;
+    visibleCols.cgst = false;
+    visibleCols.sgst = false;
+    visibleCols.igst = false;
+    visibleCols.totalTax = true;
+    visibleCols.roundOff = false;
+    visibleCols.netTotal = true;
+  }
+  saveColumnPrefs();
+}
+
+function saveColumnPrefs() {
+  try {
+    localStorage.setItem('accounting_bills_columns_v2', JSON.stringify(visibleCols));
+  } catch {}
+}
+
+function loadColumnPrefs() {
+  try {
+    const saved = localStorage.getItem('accounting_bills_columns_v2');
+    if (saved) {
+      Object.assign(visibleCols, JSON.parse(saved));
+    }
+  } catch {}
+}
+
+const columns = computed(() => {
+  const cols: any[] = [
+    { accessorKey: 'bno', header: 'Bill Info' },
+    { accessorKey: 'partyName', header: 'Party Name' },
+  ];
+
+  if (visibleCols.status) {
+    cols.push({ accessorKey: 'status', header: 'Status' });
+  }
+  if (visibleCols.grossTotal) {
+    cols.push({ accessorKey: 'grossTotal', header: 'Taxable' });
+  }
+  if (visibleCols.cgst) {
+    cols.push({ accessorKey: 'cgst', header: 'CGST' });
+  }
+  if (visibleCols.sgst) {
+    cols.push({ accessorKey: 'sgst', header: 'SGST' });
+  }
+  if (visibleCols.igst) {
+    cols.push({ accessorKey: 'igst', header: 'IGST' });
+  }
+  if (visibleCols.totalTax) {
+    cols.push({ accessorKey: 'totalTax', header: 'Total Tax' });
+  }
+  if (visibleCols.roundOff) {
+    cols.push({ accessorKey: 'roundOff', header: 'Round Off' });
+  }
+  if (visibleCols.netTotal) {
+    cols.push({ accessorKey: 'netTotal', header: 'Net Amount' });
+  }
+
+  cols.push({ id: 'actions', header: 'Actions' });
+  return cols;
+});
 
 const typeOptions = [
   { label: 'All Transactions', value: 'ALL' },
@@ -280,10 +628,76 @@ const filters = reactive({
 const partySearch = ref('');
 
 const filteredBills = computed(() => {
-  if (!partySearch.value) return bills.value;
-  const q = partySearch.value.toLowerCase();
-  return bills.value.filter(b => b.partyName.toLowerCase().includes(q));
+  let list = bills.value;
+  if (partySearch.value) {
+    const q = partySearch.value.toLowerCase().trim();
+    list = list.filter(b => 
+      (b.partyName && b.partyName.toLowerCase().includes(q)) ||
+      (b.bno && b.bno.toLowerCase().includes(q)) ||
+      (b.partyGstin && b.partyGstin.toLowerCase().includes(q)) ||
+      (b.supplierBillNo && b.supplierBillNo.toLowerCase().includes(q))
+    );
+  }
+
+  return [...list].sort((a: any, b: any) => {
+    let aVal = a[sortField.value];
+    let bVal = b[sortField.value];
+
+    if (sortField.value === 'totalTax') {
+      aVal = (Number(a.cgst) || 0) + (Number(a.sgst) || 0) + (Number(a.igst) || 0);
+      bVal = (Number(b.cgst) || 0) + (Number(b.sgst) || 0) + (Number(b.igst) || 0);
+    }
+
+    if (sortField.value === 'bdate') {
+      const aTime = new Date(a.bdate || a.createdAt || 0).getTime();
+      const bTime = new Date(b.bdate || b.createdAt || 0).getTime();
+      if (aTime !== bTime) {
+        return sortDirection.value === 'asc' ? aTime - bTime : bTime - aTime;
+      }
+      return sortDirection.value === 'asc' 
+        ? String(a.bno || '').localeCompare(String(b.bno || ''))
+        : String(b.bno || '').localeCompare(String(a.bno || ''));
+    }
+
+    if (typeof aVal === 'number' || typeof bVal === 'number') {
+      const diff = (Number(aVal) || 0) - (Number(bVal) || 0);
+      return sortDirection.value === 'asc' ? diff : -diff;
+    }
+
+    const strA = String(aVal || '').toLowerCase();
+    const strB = String(bVal || '').toLowerCase();
+    return sortDirection.value === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
+  });
 });
+
+const summaryTotals = computed(() => {
+  let taxable = 0;
+  let cgst = 0;
+  let sgst = 0;
+  let igst = 0;
+  let totalTax = 0;
+  let roundOff = 0;
+  let netTotal = 0;
+
+  for (const b of filteredBills.value) {
+    const c = Number(b.cgst) || 0;
+    const s = Number(b.sgst) || 0;
+    const i = Number(b.igst) || 0;
+    taxable += Number(b.grossTotal) || 0;
+    cgst += c;
+    sgst += s;
+    igst += i;
+    totalTax += (c + s + i);
+    roundOff += Number(b.roundOff) || 0;
+    netTotal += Number(b.netTotal) || 0;
+  }
+
+  return { taxable, cgst, sgst, igst, totalTax, roundOff, netTotal, count: filteredBills.value.length };
+});
+
+function getBillTax(bill: any): number {
+  return (Number(bill.cgst) || 0) + (Number(bill.sgst) || 0) + (Number(bill.igst) || 0);
+}
 
 function handleFilterChange() {
   const params: any = {};
@@ -343,8 +757,16 @@ watch(filteredBills, () => {
   });
 });
 
+function handleKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && showColumnMenu.value) {
+    showColumnMenu.value = false;
+  }
+}
+
 onMounted(() => {
+  loadColumnPrefs();
   handleFilterChange();
+  window.addEventListener('keydown', handleKeyDown);
   setTimeout(() => {
     const inputEl = searchInput.value?.$el?.querySelector('input') || searchInput.value;
     inputEl?.focus();
@@ -352,11 +774,16 @@ onMounted(() => {
   }, 100);
 });
 
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeyDown);
+});
+
 watch(bills, () => {
   nextTick(() => highlightActiveRow());
 });
 
 function formatDate(iso: string) {
+  if (!iso) return '';
   return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -413,9 +840,12 @@ async function exportPDF() {
   try {
     const params: any = {};
     if (filters.btype && filters.btype !== 'ALL') params.btype = filters.btype;
-    if (partySearch.value) params.searchTerm = partySearch.value;
+    if (partySearch.value) params.search = partySearch.value;
+    params.sortOrder = sortDirection.value;
 
-    await (api as any).download('/accounting/bills/export/pdf', `Bills_Report.pdf`);
+    const queryStr = new URLSearchParams(params).toString();
+    const url = `/accounting/bills/export/pdf${queryStr ? '?' + queryStr : ''}`;
+    await (api as any).download(url, `Bills_Register_Report.pdf`);
   } catch (err) {
     alert('PDF export failed.');
   }
@@ -425,8 +855,12 @@ async function exportExcel() {
   try {
     const params: any = {};
     if (filters.btype && filters.btype !== 'ALL') params.btype = filters.btype;
+    if (partySearch.value) params.search = partySearch.value;
+    params.sortOrder = sortDirection.value;
 
-    await (api as any).download('/accounting/bills/export', `Bills_Export.xlsx`);
+    const queryStr = new URLSearchParams(params).toString();
+    const url = `/accounting/bills/export${queryStr ? '?' + queryStr : ''}`;
+    await (api as any).download(url, `Bills_Register.xlsx`);
   } catch (err) {
     alert('Excel export failed.');
   }

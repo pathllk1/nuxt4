@@ -782,48 +782,162 @@ export async function exportBillsToExcel(bills: any[]): Promise<Buffer> {
   }
 
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Bills');
+  const worksheet = workbook.addWorksheet('Bills Register');
 
-  worksheet.addRow(['Bill No', 'Supplier Bill No', 'Date', 'Party', 'Type', 'Taxable Amount', 'Tax Amount', 'Total Amount', 'Status']);
+  const headers = [
+    'Bill No',
+    'Supplier Ref',
+    'Date',
+    'Party Name',
+    'Party GSTIN',
+    'Type',
+    'Taxable (₹)',
+    'CGST (₹)',
+    'SGST (₹)',
+    'IGST (₹)',
+    'Total Tax (₹)',
+    'Round Off (₹)',
+    'Net Total (₹)',
+    'Status'
+  ];
+
+  worksheet.addRow(headers);
 
   const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.height = 24;
+  headerRow.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
   headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.navy } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
   headerRow.eachCell(cell => {
-    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'medium', color: { argb: COLORS.slateDark } }, right: { style: 'thin' } };
   });
 
+  let sumTaxable = 0;
+  let sumCgst = 0;
+  let sumSgst = 0;
+  let sumIgst = 0;
+  let sumTotalTax = 0;
+  let sumRoundOff = 0;
+  let sumNetTotal = 0;
+
   bills.forEach((bill, idx) => {
-    const totalTax = (bill.cgst || 0) + (bill.sgst || 0) + (bill.igst || 0);
+    const cgst = Number(bill.cgst) || 0;
+    const sgst = Number(bill.sgst) || 0;
+    const igst = Number(bill.igst) || 0;
+    const totalTax = cgst + sgst + igst;
+    const grossTotal = Number(bill.grossTotal) || 0;
+    const roundOff = Number(bill.roundOff) || 0;
+    const netTotal = Number(bill.netTotal) || 0;
+
+    sumTaxable += grossTotal;
+    sumCgst += cgst;
+    sumSgst += sgst;
+    sumIgst += igst;
+    sumTotalTax += totalTax;
+    sumRoundOff += roundOff;
+    sumNetTotal += netTotal;
+
     const isEven = idx % 2 === 0;
     const rowBg = isEven ? 'FFFFFFFF' : 'FF' + COLORS.slateLight;
     
     const row = worksheet.addRow([
       bill.bno || '',
       bill.supplierBillNo || '',
-      formatDate(bill.bdate),
+      formatDate(bill.bdate || bill.createdAt),
       bill.partyName || bill.supply || '',
+      bill.partyGstin || '',
       bill.btype || 'SALES',
-      bill.grossTotal || 0,
+      grossTotal,
+      cgst,
+      sgst,
+      igst,
       totalTax,
-      bill.netTotal || 0,
+      roundOff,
+      netTotal,
       bill.status || 'ACTIVE',
     ]);
+
+    row.height = 20;
     row.eachCell((cell, colIndex) => {
-      cell.border = { top: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } }, left: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } }, bottom: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } }, right: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+        left: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+        bottom: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+        right: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } }
+      };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
       cell.font = { name: 'Segoe UI', size: 9.5, color: { argb: 'FF' + COLORS.slateDark } };
+      cell.alignment = { vertical: 'middle' };
       
-      if (colIndex === 3) {
-        cell.alignment = { horizontal: 'center' };
-      } else if (colIndex === 6 || colIndex === 7 || colIndex === 8) {
-        cell.alignment = { horizontal: 'right' };
+      if (colIndex === 3 || colIndex === 6 || colIndex === 14) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else if (colIndex >= 7 && colIndex <= 13) {
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
         formatCurrencyCell(cell);
+        if (colIndex === 13) {
+          cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF' + COLORS.slateDark } };
+        }
       }
     });
   });
 
-  worksheet.columns.forEach(col => { col.width = 16; });
+  // Grand Total Summary Row
+  const totalRow = worksheet.addRow([
+    'TOTAL',
+    '',
+    '',
+    `${bills.length} Bills`,
+    '',
+    '',
+    sumTaxable,
+    sumCgst,
+    sumSgst,
+    sumIgst,
+    sumTotalTax,
+    sumRoundOff,
+    sumNetTotal,
+    ''
+  ]);
+
+  totalRow.height = 22;
+  totalRow.eachCell((cell, colIndex) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.grayBg } };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF' + COLORS.slateDark } };
+    cell.border = {
+      top: { style: 'medium', color: { argb: 'FF' + COLORS.navy } },
+      left: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
+      bottom: { style: 'double', color: { argb: 'FF' + COLORS.navy } },
+      right: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } }
+    };
+    cell.alignment = { vertical: 'middle' };
+
+    if (colIndex === 1) {
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    } else if (colIndex >= 7 && colIndex <= 13) {
+      cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      formatCurrencyCell(cell);
+    }
+  });
+
+  // Explicit column widths
+  worksheet.columns = [
+    { width: 14 }, // Bill No
+    { width: 14 }, // Supplier Ref
+    { width: 12 }, // Date
+    { width: 28 }, // Party Name
+    { width: 18 }, // Party GSTIN
+    { width: 14 }, // Type
+    { width: 14 }, // Taxable
+    { width: 12 }, // CGST
+    { width: 12 }, // SGST
+    { width: 12 }, // IGST
+    { width: 13 }, // Total Tax
+    { width: 12 }, // Round Off
+    { width: 16 }, // Net Total
+    { width: 12 }, // Status
+  ];
+
+  worksheet.views = [{ state: 'frozen', ySplit: 1, showGridLines: true }];
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }

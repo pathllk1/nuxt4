@@ -60,7 +60,7 @@ export default defineEventHandler(async (event) => {
 
   const total = await Bill.countDocuments(filter);
   const bills = await Bill.find(filter)
-    .sort({ bdate: -1, createdAt: -1 })
+    .sort({ bdate: -1, bno: -1, createdAt: -1 })
     .skip(offsetNum)
     .limit(limitNum)
     .populate('partyId', 'name gstin contact state')

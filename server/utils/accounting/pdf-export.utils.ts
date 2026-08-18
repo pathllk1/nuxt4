@@ -767,70 +767,125 @@ export async function exportBillsToPdfBuffer(bills: any[], firm: any): Promise<B
     return await exportSingleBillToPdfBuffer(bills[0], firm);
   }
 
+  let totalTaxable = 0;
+  let totalCgst = 0;
+  let totalSgst = 0;
+  let totalIgst = 0;
+  let totalTaxSum = 0;
+  let totalNet = 0;
+
+  const rows = bills.map((b) => {
+    const cgst = Number(b.cgst) || 0;
+    const sgst = Number(b.sgst) || 0;
+    const igst = Number(b.igst) || 0;
+    const tax = cgst + sgst + igst;
+    const taxable = Number(b.grossTotal) || 0;
+    const net = Number(b.netTotal) || 0;
+
+    totalTaxable += taxable;
+    totalCgst += cgst;
+    totalSgst += sgst;
+    totalIgst += igst;
+    totalTaxSum += tax;
+    totalNet += net;
+
+    return [
+      { text: b.bno || '', fontSize: 7.5, bold: true },
+      { text: formatDate(b.bdate || b.createdAt), alignment: 'center', fontSize: 7.5 },
+      { text: b.partyName || b.supply || '', fontSize: 7.5 },
+      { text: b.partyGstin || '-', fontSize: 7, color: C.textMid },
+      { text: b.btype || 'SALES', alignment: 'center', fontSize: 7 },
+      { text: formatCurrency(taxable), alignment: 'right', fontSize: 7.5 },
+      { text: cgst > 0 ? formatCurrency(cgst) : '-', alignment: 'right', fontSize: 7.5, color: cgst > 0 ? C.textDark : C.textLight },
+      { text: sgst > 0 ? formatCurrency(sgst) : '-', alignment: 'right', fontSize: 7.5, color: sgst > 0 ? C.textDark : C.textLight },
+      { text: igst > 0 ? formatCurrency(igst) : '-', alignment: 'right', fontSize: 7.5, color: igst > 0 ? C.textDark : C.textLight },
+      { text: formatCurrency(tax), alignment: 'right', fontSize: 7.5 },
+      { text: formatCurrency(net), alignment: 'right', bold: true, fontSize: 7.5 },
+      { text: b.status || 'ACTIVE', alignment: 'center', fontSize: 7 },
+    ];
+  });
+
+  // Grand Total Summary Row
+  const totalRow = [
+    { text: 'TOTAL', bold: true, alignment: 'center', fontSize: 8, fillColor: C.tableHdrBg },
+    { text: '', fillColor: C.tableHdrBg },
+    { text: `${bills.length} Bills`, bold: true, fontSize: 8, fillColor: C.tableHdrBg },
+    { text: '', fillColor: C.tableHdrBg },
+    { text: '', fillColor: C.tableHdrBg },
+    { text: formatCurrency(totalTaxable), alignment: 'right', bold: true, fontSize: 8, fillColor: C.tableHdrBg },
+    { text: formatCurrency(totalCgst), alignment: 'right', bold: true, fontSize: 8, fillColor: C.tableHdrBg },
+    { text: formatCurrency(totalSgst), alignment: 'right', bold: true, fontSize: 8, fillColor: C.tableHdrBg },
+    { text: formatCurrency(totalIgst), alignment: 'right', bold: true, fontSize: 8, fillColor: C.tableHdrBg },
+    { text: formatCurrency(totalTaxSum), alignment: 'right', bold: true, fontSize: 8, fillColor: C.tableHdrBg },
+    { text: formatCurrency(totalNet), alignment: 'right', bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.primary },
+    { text: '', fillColor: C.tableHdrBg },
+  ];
+
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [30, 36, 30, 30],
-    defaultStyle: { fontSize: 8.5, color: C.textDark },
+    pageMargins: [24, 30, 24, 26],
+    defaultStyle: { fontSize: 8, color: C.textDark },
     header: (currentPage: number, pageCount: number) => {
       if (currentPage === 1) return null;
       return {
-        margin: [30, 10, 30, 0],
+        margin: [24, 10, 24, 0],
         columns: [
-          { text: `${(firm?.name || 'Company Name').toUpperCase()} — BILLS & INVOICES REGISTER`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `${(firm?.name || 'Company Name').toUpperCase()} — BILLS & GST REGISTER`, bold: true, fontSize: 8, color: C.textDark },
           { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
         ]
       };
     },
     footer: (currentPage: number, pageCount: number) => {
       return {
-        margin: [30, 8, 30, 0],
+        margin: [24, 6, 24, 0],
         columns: [
-          { text: 'Bills Register  •  BusinessPro Suite', fontSize: 7.5, color: C.textLight },
+          { text: 'Bills & GST Register  •  BusinessPro Suite', fontSize: 7.5, color: C.textLight },
           { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
         ]
       };
     },
     content: [
-      { text: (firm?.name || 'Company Name').toUpperCase(), fontSize: 14, bold: true, color: C.primary, alignment: 'center' },
-      { text: 'BILLS & INVOICES REGISTER', fontSize: 12, bold: true, alignment: 'center', margin: [0, 2, 0, 15] },
+      { text: (firm?.name || 'Company Name').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
+      { text: 'BILLS & GST REGISTER', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 10] },
       {
         table: {
           headerRows: 1,
           dontBreakRows: true,
-          widths: [60, 60, 55, '*', 65, 60, 60, 65, 45],
+          widths: [55, 48, '*', 72, 42, 58, 48, 48, 48, 54, 62, 40],
           body: [
             [
               { text: 'Bill No', style: 'tblHdr' },
-              { text: 'Supp Bill No', style: 'tblHdr' },
               { text: 'Date', style: 'tblHdr', alignment: 'center' },
               { text: 'Party Name', style: 'tblHdr' },
+              { text: 'GSTIN', style: 'tblHdr' },
               { text: 'Type', style: 'tblHdr', alignment: 'center' },
               { text: 'Taxable (₹)', style: 'tblHdr', alignment: 'right' },
-              { text: 'Tax (₹)', style: 'tblHdr', alignment: 'right' },
-              { text: 'Total (₹)', style: 'tblHdr', alignment: 'right' },
+              { text: 'CGST (₹)', style: 'tblHdr', alignment: 'right' },
+              { text: 'SGST (₹)', style: 'tblHdr', alignment: 'right' },
+              { text: 'IGST (₹)', style: 'tblHdr', alignment: 'right' },
+              { text: 'Total Tax', style: 'tblHdr', alignment: 'right' },
+              { text: 'Net (₹)', style: 'tblHdr', alignment: 'right' },
               { text: 'Status', style: 'tblHdr', alignment: 'center' },
             ],
-            ...bills.map((b) => {
-              const tax = (b.cgst || 0) + (b.sgst || 0) + (b.igst || 0);
-              return [
-                { text: b.bno || '', fontSize: 8 },
-                { text: b.supplierBillNo || '', fontSize: 8 },
-                { text: formatDate(b.bdate), alignment: 'center', fontSize: 8 },
-                { text: b.partyName || b.supply || '', fontSize: 8 },
-                { text: b.btype || 'SALES', alignment: 'center', fontSize: 8 },
-                { text: formatCurrency(b.grossTotal), alignment: 'right', fontSize: 8 },
-                { text: formatCurrency(tax), alignment: 'right', fontSize: 8 },
-                { text: formatCurrency(b.netTotal), alignment: 'right', bold: true, fontSize: 8 },
-                { text: b.status || 'ACTIVE', alignment: 'center', fontSize: 8 },
-              ];
-            }),
+            ...rows,
+            totalRow
           ]
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length) ? 1 : 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length) ? C.primary : C.border,
+          vLineColor: () => C.border,
+          paddingLeft: () => 3,
+          paddingRight: () => 3,
+          paddingTop: () => 2.5,
+          paddingBottom: () => 2.5,
         }
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
+      tblHdr: { bold: true, fontSize: 8, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [1, 2, 1, 2] }
     }
   };
   return createPdfBufferFromDocDef(docDefinition);
