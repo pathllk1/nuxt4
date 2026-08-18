@@ -151,7 +151,7 @@
     </UModal>
 
     <div v-if="showPartyModal" class="drawer-backdrop" @click.self="showPartyModal = false">
-      <div class="party-drawer" role="dialog" aria-modal="true" aria-label="Select supplier">
+      <div class="party-drawer" role="dialog" aria-modal="true" aria-label="Select supplier" @keydown="handlePartyDrawerKeydown">
         <header class="drawer-head">
           <div>
             <p class="eyebrow">Records</p>
@@ -171,7 +171,6 @@
             type="text" 
             placeholder="Search party... (↑↓ Navigate • Enter Select • Ctrl+E Edit • Insert New • ESC Close)" 
             class="search-input" 
-            @keydown="handlePartyDrawerKeydown"
           />
         </div>
         <div class="party-list">
@@ -441,7 +440,7 @@ watch(showEditPartyModal, (isOpen) => {
 
 function openEditPartyModal(party: any) {
   if (!party) return;
-  saveFocus();
+  showPartyModal.value = false;
   selectedPartyToEdit.value = party;
   showEditPartyModal.value = true;
 }

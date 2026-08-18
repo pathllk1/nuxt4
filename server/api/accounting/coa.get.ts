@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
           if (!name) continue;
           await (ChartOfAccounts as any).findOneAndUpdate(
             {
-              $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }, { firm_id: firmIdStr }, { firmId: firmIdStr }],
+              firm_id: firmIdObj,
               account_name: name
             },
             {

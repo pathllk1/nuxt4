@@ -425,10 +425,12 @@
                 v-model.number="form.opening_balance"
                 placeholder="0.00"
                 class="w-32 px-2.5 py-1 text-right bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg font-mono font-bold text-xs text-slate-900 dark:text-white outline-none"
+                @keydown.enter.prevent="onInputEnter($event)"
               />
               <select
                 v-model="form.balance_type"
                 class="px-2 py-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg font-bold text-xs text-slate-900 dark:text-white outline-none"
+                @keydown.enter.prevent="onInputEnter($event)"
               >
                 <option value="DR">Debit (DR)</option>
                 <option value="CR">Credit (CR)</option>
@@ -464,7 +466,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useApi } from '@/utils/api';
 
 const props = defineProps<{
@@ -612,6 +614,7 @@ function resetForm() {
 
 watch(() => props.modelValue, async (isOpen) => {
   if (isOpen) {
+    window.addEventListener('keydown', handleGlobalModalKeydown);
     if (props.initialData) {
       hydrateInitialData(props.initialData);
     } else if (props.accountId) {
@@ -622,7 +625,13 @@ watch(() => props.modelValue, async (isOpen) => {
     nextTick(() => {
       focusFirstInput();
     });
+  } else {
+    window.removeEventListener('keydown', handleGlobalModalKeydown);
   }
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalModalKeydown);
 });
 
 function hydrateInitialData(data: any) {
@@ -894,7 +903,7 @@ function onInputEnter(e: KeyboardEvent) {
   const formEl = target.closest('form');
   if (!formEl) return;
   const focusable = Array.from(
-    formEl.querySelectorAll('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])')
+    formEl.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
   ) as HTMLElement[];
   const idx = focusable.indexOf(target);
   const nextEl = idx > -1 ? focusable[idx + 1] : undefined;

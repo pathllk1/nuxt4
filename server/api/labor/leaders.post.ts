@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
       const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
       await ChartOfAccounts.findOneAndUpdate(
         { 
-          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+          firm_id: firmIdObj,
           account_name: name.trim() 
         },
         {

@@ -266,7 +266,7 @@
 
     <!-- Party Drawer -->
     <div v-if="showPartyDrawer" class="drawer-backdrop" @click.self="closePartyDrawer">
-      <div class="party-drawer" role="dialog" aria-modal="true">
+      <div class="party-drawer" role="dialog" aria-modal="true" @keydown="onPartySearchKeydown">
         <header class="drawer-head">
           <div>
             <p class="eyebrow">Suppliers</p>
@@ -284,7 +284,6 @@
             type="text"
             placeholder="Search supplier... (↑↓ Navigate • Enter Select • Ctrl+E Edit • Insert New • ESC Close)"
             class="search-input"
-            @keydown="onPartySearchKeydown"
           />
         </div>
         <div class="party-list" ref="partyListRef">
@@ -427,6 +426,7 @@ function openCreatePartyModal() {
 
 function openEditPartyModal(party: any) {
   if (!party) return;
+  showPartyDrawer.value = false;
   selectedPartyToEdit.value = party;
   showEditPartyModal.value = true;
 }

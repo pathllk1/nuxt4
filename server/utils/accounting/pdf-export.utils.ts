@@ -1,29 +1,32 @@
-// @ts-ignore - pdfmake server-side entry point (uses filesystem fonts, not VFS)
+// @ts-ignore - pdfmake server-side entry point
 import pdfMake from 'pdfmake';
-import path from 'path';
-import fs from 'fs';
 import mongoose from 'mongoose';
 import StockReg from '../../models/StockReg';
 import Bill from '../../models/Bill';
 import BankAccount from '../../models/BankAccount';
 import FirmSettings from '../../models/FirmSettings';
+import { dejavuVfs } from './vfs-dejavu-fonts';
 
-const getFontPath = (fileName: string): string =>
-  path.join(process.cwd(), 'fonts', fileName);
-
-// Pre-flight check – warn at startup if fonts are missing
-['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf', 'DejaVuSans-Oblique.ttf', 'DejaVuSans-BoldOblique.ttf'].forEach(f => {
-  const p = getFontPath(f);
-  if (!fs.existsSync(p)) console.warn(`[PDF] Warning: Font file missing: ${p}`);
-});
+// Register in-memory VFS fonts for serverless (Vercel) & local environments
+if ((pdfMake as any).virtualfs) {
+  for (const [fontFile, base64Data] of Object.entries(dejavuVfs)) {
+    (pdfMake as any).virtualfs.writeFileSync(fontFile, base64Data, 'base64');
+  }
+}
 
 const fonts = {
   DejaVuSans: {
-    normal: getFontPath('DejaVuSans.ttf'),
-    bold: getFontPath('DejaVuSans-Bold.ttf'),
-    italics: getFontPath('DejaVuSans-Oblique.ttf'),
-    bolditalics: getFontPath('DejaVuSans-BoldOblique.ttf'),
+    normal: 'DejaVuSans.ttf',
+    bold: 'DejaVuSans-Bold.ttf',
+    italics: 'DejaVuSans-Oblique.ttf',
+    bolditalics: 'DejaVuSans-BoldOblique.ttf',
   },
+  Helvetica: {
+    normal: 'Helvetica',
+    bold: 'Helvetica-Bold',
+    italics: 'Helvetica-Oblique',
+    bolditalics: 'Helvetica-BoldOblique',
+  }
 };
 
 (pdfMake as any).setFonts(fonts);
@@ -177,6 +180,15 @@ const buildHsnSummary = (bill: any, items: any[], otherCharges: any[], gstEnable
 export async function createPdfBufferFromDocDef(docDefinition: any): Promise<Buffer> {
   if (!docDefinition.defaultStyle) docDefinition.defaultStyle = {};
   if (!docDefinition.defaultStyle.font) docDefinition.defaultStyle.font = 'DejaVuSans';
+
+  // Ensure VFS is populated on every invocation (fail-safe for serverless warmup / cold starts)
+  if ((pdfMake as any).virtualfs) {
+    for (const [fontFile, base64Data] of Object.entries(dejavuVfs)) {
+      if (!(pdfMake as any).virtualfs.existsSync(fontFile)) {
+        (pdfMake as any).virtualfs.writeFileSync(fontFile, base64Data, 'base64');
+      }
+    }
+  }
 
   const doc = (pdfMake as any).createPdf(docDefinition);
   const stream = await doc.getStream();

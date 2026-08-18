@@ -93,7 +93,7 @@ export default defineEventHandler(async (event) => {
     // 3. Upsert into ChartOfAccounts
     const account = await (ChartOfAccounts as any).findOneAndUpdate(
       {
-        $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+        firm_id: firmIdObj,
         account_name: name
       },
       {
