@@ -71,7 +71,7 @@
         </UCard>
         <UCard class="border-l-4 border-l-emerald-500 shadow-2xs rounded-xl" :ui="{ body: 'p-3 py-2.5' }">
           <p class="text-[9px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-0.5">Active Liquidity</p>
-          <div class="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono leading-tight">₹{{ totalLiquidity.toLocaleString() }}</div>
+          <div class="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono leading-tight">{{ formatCurrency(totalLiquidity) }}</div>
         </UCard>
         <UCard class="border-l-4 border-l-violet-500 shadow-2xs rounded-xl" :ui="{ body: 'p-3 py-2.5' }">
           <p class="text-[9px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-0.5">Default Channel</p>
@@ -125,7 +125,7 @@
                         <div class="md:text-right">
                            <p class="text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-0.5">Current Balance</p>
                            <div class="text-lg font-black font-mono leading-none" :class="acc.balanceType === 'DR' ? 'text-emerald-600' : 'text-rose-600'">
-                              ₹{{ acc.balance?.toLocaleString() || '0' }}
+                              {{ formatCurrency(acc.balance || 0) }}
                               <span class="text-[9px] ml-0.5 font-bold uppercase">{{ acc.balanceType || 'DR' }}</span>
                            </div>
                         </div>
@@ -195,7 +195,7 @@
                         <p class="text-xs font-bold text-slate-900 dark:text-zinc-300 line-clamp-1 leading-snug">{{ h.narration }}</p>
                      </div>
                      <p class="text-xs font-black font-mono whitespace-nowrap leading-none mt-1" :class="h.debitAmount > 0 ? 'text-emerald-600' : 'text-rose-600'">
-                        {{ h.debitAmount > 0 ? '+' : '-' }} ₹{{ (h.debitAmount || h.creditAmount).toLocaleString() }}
+                        {{ h.debitAmount > 0 ? '+' : '-' }} {{ formatCurrency(h.debitAmount || h.creditAmount) }}
                      </p>
                   </div>
                </div>
@@ -460,6 +460,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useApi } from '@/utils/api';
 import { useToast } from '#imports';
+import { formatCurrency } from '@/utils/formatters';
 import BankingModal from '../../components/accounting/BankingModal.vue';
 import BulkPaymentManager from '../../components/accounting/BulkPaymentManager.vue';
 import VoucherModal from '../../components/accounting/VoucherModal.vue';

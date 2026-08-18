@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useApi } from '@/utils/api';
+import { formatCurrency } from '@/utils/formatters';
 import PartyAccountMasterModal from '@/components/accounting/PartyAccountMasterModal.vue';
 
 const api = useApi();
@@ -300,13 +301,13 @@ onMounted(fetchCOA);
               </td>
               <td class="px-6 py-4 text-right">
                 <div class="flex flex-col items-end">
-                  <span class="text-xs font-bold text-slate-700 dark:text-zinc-300 font-mono">₹ {{ acc.opening_balance?.toLocaleString() || '0' }}</span>
+                  <span class="text-xs font-bold text-slate-700 dark:text-zinc-300 font-mono">{{ formatCurrency(acc.opening_balance || 0) }}</span>
                   <span class="text-[8px] font-black" :class="[acc.balance_type === 'DR' ? 'text-blue-600' : 'text-red-600']">{{ acc.balance_type }}</span>
                 </div>
               </td>
               <td class="px-6 py-4 text-right">
                 <div class="flex flex-col items-end">
-                  <span class="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">₹ {{ acc.current_balance?.toLocaleString() || '0' }}</span>
+                  <span class="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">{{ formatCurrency(acc.current_balance || 0) }}</span>
                   <span class="text-[8px] font-black" :class="[acc.current_balance_type === 'DR' ? 'text-blue-600' : 'text-red-600']">{{ acc.current_balance_type }}</span>
                 </div>
               </td>

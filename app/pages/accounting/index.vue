@@ -15,12 +15,12 @@
         <div class="hidden lg:flex items-center gap-3 mr-2">
           <div class="text-right">
             <p class="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest">Total Debit</p>
-            <p class="text-xs font-black text-emerald-600 font-mono leading-none mt-0.5">₹{{ totalDebit.toLocaleString() }}</p>
+            <p class="text-xs font-black text-emerald-600 font-mono leading-none mt-0.5">{{ formatCurrency(totalDebit) }}</p>
           </div>
           <div class="w-px h-6 bg-gray-200 dark:bg-zinc-800"></div>
           <div class="text-right">
             <p class="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest">Total Credit</p>
-            <p class="text-xs font-black text-rose-600 font-mono leading-none mt-0.5">₹{{ totalCredit.toLocaleString() }}</p>
+            <p class="text-xs font-black text-rose-600 font-mono leading-none mt-0.5">{{ formatCurrency(totalCredit) }}</p>
           </div>
         </div>
         <UButton
@@ -107,28 +107,28 @@
                </div>
                <div class="px-2.5 py-0.5 bg-gray-100 dark:bg-zinc-800 rounded-lg text-right leading-none">
                   <p class="text-[8px] font-black text-gray-400 dark:text-zinc-500 uppercase leading-none">Net</p>
-                  <p class="text-xs font-black font-mono mt-0.5 leading-tight text-gray-950 dark:text-white">₹{{ (vouchersSummary.net_position || 0).toLocaleString() }}</p>
+                  <p class="text-xs font-black font-mono mt-0.5 leading-tight text-gray-950 dark:text-white">{{ formatCurrency(vouchersSummary.net_position || 0) }}</p>
                </div>
             </div>
             <div class="grid grid-cols-2 gap-2">
                <div class="p-2.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100/55 dark:border-emerald-900/30">
                   <p class="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1 leading-none">Receipts</p>
-                  <p class="text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono leading-none">₹{{ (vouchersSummary.total_receipts || 0).toLocaleString() }}</p>
+                  <p class="text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono leading-none">{{ formatCurrency(vouchersSummary.total_receipts || 0) }}</p>
                   <p class="text-[8px] font-bold text-emerald-500 mt-1 uppercase leading-none">Total In</p>
                </div>
                <div class="p-2.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100/55 dark:border-rose-900/30">
                   <p class="text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-1 leading-none">Payments</p>
-                  <p class="text-xs font-black text-rose-700 dark:text-rose-300 font-mono leading-none">₹{{ (vouchersSummary.total_payments || 0).toLocaleString() }}</p>
+                  <p class="text-xs font-black text-rose-700 dark:text-rose-300 font-mono leading-none">{{ formatCurrency(vouchersSummary.total_payments || 0) }}</p>
                   <p class="text-[8px] font-bold text-rose-500 mt-1 uppercase leading-none">Total Out</p>
                </div>
                <div class="p-2.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/55 dark:border-blue-900/30">
                   <p class="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1 leading-none">Vouchers</p>
-                  <p class="text-xs font-black text-blue-700 dark:text-blue-300 font-mono leading-none">{{ vouchersSummary.recent_transactions_count || 0 }}</p>
+                  <p class="text-xs font-black text-blue-700 dark:text-blue-300 font-mono leading-none">{{ formatIndianNumber(vouchersSummary.recent_transactions_count || 0, 0) }}</p>
                   <p class="text-[8px] font-bold text-blue-500 mt-1 uppercase leading-none">Last 30 Days</p>
                </div>
                <div class="p-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100/55 dark:border-amber-900/30">
                   <p class="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1 leading-none">Journals</p>
-                  <p class="text-xs font-black text-amber-700 dark:text-amber-300 font-mono leading-none">{{ journalSummary.recent_journal_entries_count || 0 }}</p>
+                  <p class="text-xs font-black text-amber-700 dark:text-amber-300 font-mono leading-none">{{ formatIndianNumber(journalSummary.recent_journal_entries_count || 0, 0) }}</p>
                   <p class="text-[8px] font-bold text-amber-500 mt-1 uppercase leading-none">Last 30 Days</p>
                </div>
             </div>
@@ -233,12 +233,12 @@
                                  {{ row.accountType?.replace(/_/g, ' ') || 'GENERAL' }}
                               </UBadge>
                            </td>
-                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">₹{{ row.totalDebit.toLocaleString() }}</td>
-                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">₹{{ row.totalCredit.toLocaleString() }}</td>
+                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">{{ formatCurrency(row.totalDebit) }}</td>
+                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">{{ formatCurrency(row.totalCredit) }}</td>
                            <td class="py-2 px-4 text-right">
                               <div class="flex items-center justify-end gap-1.5">
                                  <span :class="row.balanceType === 'DR' ? 'text-emerald-600' : 'text-rose-600'" class="font-bold font-mono">
-                                    ₹{{ row.balance.toLocaleString() }}
+                                    {{ formatCurrency(row.balance) }}
                                  </span>
                                  <UBadge size="sm" variant="subtle" :color="row.balanceType === 'DR' ? 'success' : 'error'" class="text-[8px] px-1.5 py-0 font-bold rounded-md">
                                     {{ row.balanceType }}
@@ -268,12 +268,12 @@
                               <div class="font-bold text-gray-900 dark:text-white group-hover:text-violet-600 transition-colors uppercase tracking-tight">{{ type.account_type?.replace(/_/g, ' ') }}</div>
                            </td>
                            <td class="py-2 px-4 text-right font-medium text-gray-500 dark:text-zinc-500 font-mono">{{ type.account_count }}</td>
-                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">₹{{ type.total_debit.toLocaleString() }}</td>
-                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">₹{{ type.total_credit.toLocaleString() }}</td>
+                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">{{ formatCurrency(type.total_debit) }}</td>
+                           <td class="py-2 px-4 text-right font-medium text-gray-600 dark:text-zinc-400 font-mono">{{ formatCurrency(type.total_credit) }}</td>
                            <td class="py-2 px-4 text-right">
                               <div class="flex items-center justify-end gap-1.5">
                                  <span :class="type.total_balance >= 0 ? 'text-emerald-600' : 'text-rose-600'" class="font-bold font-mono">
-                                    ₹{{ Math.abs(type.total_balance).toLocaleString() }}
+                                    {{ formatCurrency(Math.abs(type.total_balance)) }}
                                  </span>
                                  <UBadge size="sm" variant="subtle" :color="type.total_balance >= 0 ? 'success' : 'error'" class="text-[8px] px-1.5 py-0 font-bold rounded-md">
                                     {{ type.total_balance >= 0 ? 'DR' : 'CR' }}
@@ -304,6 +304,7 @@
 import { ref, computed, onMounted, nextTick, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
+import { formatCurrency, formatIndianNumber, formatIndianCompact } from '@/utils/formatters';
 import VoucherModal from '@/components/accounting/VoucherModal.vue';
 import DrillDownModal from '@/components/accounting/DrillDownModal.vue';
 import Chart from 'chart.js/auto';
@@ -360,9 +361,23 @@ const renderCharts = async () => {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx: any) => ` ${ctx.dataset.label}: ${formatCurrency(ctx.raw)}`
+            }
+          }
+        },
         scales: {
-          y: { beginAtZero: true, grid: { color: 'rgba(226, 232, 240, 0.3)' }, ticks: { font: { family: 'monospace', size: 10 } } },
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(226, 232, 240, 0.3)' },
+            ticks: {
+              font: { family: 'monospace', size: 10 },
+              callback: (val: any) => formatIndianCompact(val)
+            }
+          },
           x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 9 } } }
         }
       }
@@ -388,9 +403,23 @@ const renderCharts = async () => {
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx: any) => ` Balance: ${formatCurrency(ctx.raw)}`
+            }
+          }
+        },
         scales: {
-          x: { beginAtZero: true, grid: { color: 'rgba(226, 232, 240, 0.3)' }, ticks: { font: { family: 'monospace', size: 10 } } },
+          x: {
+            beginAtZero: true,
+            grid: { color: 'rgba(226, 232, 240, 0.3)' },
+            ticks: {
+              font: { family: 'monospace', size: 10 },
+              callback: (val: any) => formatIndianCompact(val)
+            }
+          },
           y: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 10 } } }
         }
       }
@@ -428,35 +457,35 @@ const compactStats = computed(() => [
   },
   { 
     label: 'Total Debit', 
-    value: `₹${totalDebit.value.toLocaleString()}`, 
+    value: formatCurrency(totalDebit.value), 
     meta: 'Total ledger exposure', 
     borderColor: 'border-emerald-500',
     textColor: 'text-emerald-600 dark:text-emerald-400'
   },
   { 
     label: 'Total Credit', 
-    value: `₹${totalCredit.value.toLocaleString()}`, 
+    value: formatCurrency(totalCredit.value), 
     meta: 'Total liability pool', 
     borderColor: 'border-rose-500',
     textColor: 'text-rose-600 dark:text-rose-400'
   },
   { 
     label: 'Net Position', 
-    value: `₹${Math.abs(totalDebit.value - totalCredit.value).toLocaleString()} ${totalDebit.value >= totalCredit.value ? 'DR' : 'CR'}`, 
+    value: `${formatCurrency(Math.abs(totalDebit.value - totalCredit.value))} ${totalDebit.value >= totalCredit.value ? 'DR' : 'CR'}`, 
     meta: 'Ledger-wide exposure', 
     borderColor: 'border-violet-500',
     textColor: 'text-violet-600 dark:text-violet-400'
   },
   { 
     label: 'Receipts', 
-    value: `₹${(vouchersSummary.value.total_receipts || 0).toLocaleString()}`, 
+    value: formatCurrency(vouchersSummary.value.total_receipts || 0), 
     meta: `${vouchersSummary.value.recent_transactions_count || 0} recent transactions`, 
     borderColor: 'border-teal-500',
     textColor: 'text-teal-600 dark:text-teal-400'
   },
   { 
     label: 'Journal Entries', 
-    value: (journalSummary.value.total_journal_entries || 0).toLocaleString(), 
+    value: formatIndianNumber(journalSummary.value.total_journal_entries || 0, 0), 
     meta: `${journalSummary.value.recent_journal_entries_count || 0} in last 30 days`, 
     borderColor: 'border-amber-500',
     textColor: 'text-amber-600 dark:text-amber-400'

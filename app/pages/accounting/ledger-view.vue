@@ -24,14 +24,14 @@
                 @update:model-value="updateHead" 
              />
              <UBadge 
-               v-if="accountHead"
-               size="sm" 
-               variant="subtle" 
-               :color="currentBalance.balanceType === 'DR' ? 'success' : 'error'"
-               class="font-black text-[9px] rounded-md h-8 flex items-center px-2 py-0"
-             >
-               {{ currentBalance.balanceType }} BAL: ₹{{ currentBalance.balance.toLocaleString() }}
-             </UBadge>
+                v-if="accountHead"
+                size="sm" 
+                variant="subtle" 
+                :color="currentBalance.balanceType === 'DR' ? 'success' : 'error'"
+                class="font-black text-[9px] rounded-md h-8 flex items-center px-2 py-0"
+              >
+                {{ currentBalance.balanceType }} BAL: {{ formatCurrency(currentBalance.balance) }}
+              </UBadge>
           </div>
         </div>
       </div>
@@ -58,9 +58,9 @@
               @click="onExportPDF"
             />
             <UButton 
-              color="success"
+              color="neutral"
               variant="outline"
-              icon="i-heroicons-arrow-down-tray"
+              icon="i-heroicons-table-cells"
               label="Excel"
               size="sm"
               class="font-bold text-xs h-8"
@@ -72,12 +72,11 @@
       </div>
     </div>
 
-    <!-- Ledger Entries Table -->
+    <!-- Main Ledger Card -->
     <UCard class="w-full shadow-sm rounded-2xl border border-gray-100 dark:border-zinc-800" :ui="{ body: 'p-0 overflow-hidden' }">
-      <!-- Loader -->
-      <div v-if="loading" class="flex flex-col items-center justify-center py-20 gap-4 bg-white dark:bg-zinc-900">
-        <UIcon name="i-heroicons-arrow-path" class="w-10 h-10 animate-spin text-primary" />
-        <p class="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">Loading ledger entries...</p>
+      <div v-if="loading" class="p-12 text-center text-gray-400">
+        <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 animate-spin mx-auto text-primary" />
+        <p class="text-xs uppercase tracking-widest font-black mt-2">Loading ledger journal...</p>
       </div>
 
       <div v-else class="overflow-x-auto">
@@ -85,11 +84,11 @@
           <thead>
             <tr class="text-[10px] font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wider bg-gray-50/80 dark:bg-zinc-800/80">
               <th class="py-2.5 px-4">Date</th>
-              <th class="py-2.5 px-4">Voucher / Ref</th>
+              <th class="py-2.5 px-4">Voucher</th>
               <th class="py-2.5 px-4">Narration</th>
-              <th class="py-2.5 px-4 text-right">Debit (Dr)</th>
-              <th class="py-2.5 px-4 text-right">Credit (Cr)</th>
-              <th class="py-2.5 px-4 text-right">Running Bal</th>
+              <th class="py-2.5 px-4 text-right">Debit</th>
+              <th class="py-2.5 px-4 text-right">Credit</th>
+              <th class="py-2.5 px-4 text-right">Balance</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-zinc-800">
@@ -103,13 +102,13 @@
                 <div class="max-w-xs text-gray-700 dark:text-zinc-300 leading-normal">{{ entry.narration }}</div>
               </td>
               <td class="py-2 px-4 text-right font-medium text-rose-600 dark:text-rose-400 font-mono">
-                {{ entry.debitAmount > 0 ? '₹' + entry.debitAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '' }}
+                {{ entry.debitAmount > 0 ? formatCurrency(entry.debitAmount) : '' }}
               </td>
               <td class="py-2 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400 font-mono">
-                {{ entry.creditAmount > 0 ? '₹' + entry.creditAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '' }}
+                {{ entry.creditAmount > 0 ? formatCurrency(entry.creditAmount) : '' }}
               </td>
               <td class="py-2 px-4 text-right font-bold bg-gray-50/30 dark:bg-zinc-850/20 font-mono">
-                ₹{{ Math.abs(entry.runningBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }} {{ entry.runningBalance >= 0 ? 'Dr' : 'Cr' }}
+                {{ formatCurrency(Math.abs(entry.runningBalance)) }} {{ entry.runningBalance >= 0 ? 'Dr' : 'Cr' }}
               </td>
             </tr>
             <tr v-if="ledgerEntries.length === 0">
@@ -126,6 +125,7 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
+import { formatCurrency } from '@/utils/formatters';
 
 const route = useRoute();
 const { ledgerEntries, accountBalance, fetchLedger, fetchAccountBalance, fetchCOA, chartOfAccounts, exportLedgerPdf, exportLedgerExcel, loading } = useAccounting();
