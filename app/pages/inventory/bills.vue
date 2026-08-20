@@ -285,7 +285,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/60 font-medium">
-            <tr v-for="bill in filteredBills" :key="bill._id" class="hover:bg-slate-50/50 dark:hover:bg-zinc-800/50 transition-colors">
+            <tr v-for="bill in paginatedBills" :key="bill._id" class="hover:bg-slate-50/50 dark:hover:bg-zinc-800/50 transition-colors">
               <!-- Bill Info -->
               <td class="px-4 py-3">
                 <div class="font-black text-slate-900 dark:text-white uppercase tracking-tight">{{ bill.bno || 'N/A' }}</div>
@@ -439,6 +439,28 @@
               <span class="text-[9px] uppercase font-black text-indigo-600 dark:text-indigo-400">Net Total</span>
               <span class="font-black text-sm text-indigo-600 dark:text-indigo-400">₹{{ summaryTotals.netTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Pagination Footer -->
+        <div v-if="filteredBills.length > 0" class="bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 p-3.5 px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+          <div class="text-slate-500 dark:text-zinc-400 font-medium">
+            Showing <span class="font-bold text-slate-900 dark:text-white">{{ filteredBills.length === 0 ? 0 : (currentPage - 1) * pageSize + 1 }}</span>
+            to <span class="font-bold text-slate-900 dark:text-white">{{ Math.min(currentPage * pageSize, filteredBills.length) }}</span>
+            of <span class="font-bold text-slate-900 dark:text-white">{{ filteredBills.length }}</span> bills
+          </div>
+
+          <div class="flex items-center gap-3">
+            <div class="w-32">
+              <USelect v-model="pageSize" :items="pageSizeOptions" size="xs" class="w-full" />
+            </div>
+            <UPagination
+              v-model:page="currentPage"
+              :total="filteredBills.length"
+              :items-per-page="pageSize"
+              size="xs"
+              :show-edges="true"
+            />
           </div>
         </div>
       </div>
@@ -615,6 +637,27 @@ const filteredBills = computed(() => {
     const strB = String(bVal || '').toLowerCase();
     return sortDirection.value === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
   });
+});
+
+// Client-Side Pagination State
+const currentPage = ref(1);
+const pageSize = ref(15);
+const pageSizeOptions = [
+  { label: '10 / page', value: 10 },
+  { label: '15 / page', value: 15 },
+  { label: '25 / page', value: 25 },
+  { label: '50 / page', value: 50 },
+  { label: '100 / page', value: 100 }
+];
+
+const paginatedBills = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return filteredBills.value.slice(start, start + pageSize.value);
+});
+
+// Reset page on filter, search or pageSize change
+watch([() => filters.btype, partySearch, pageSize], () => {
+  currentPage.value = 1;
 });
 
 const summaryTotals = computed(() => {

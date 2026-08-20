@@ -881,3 +881,132 @@ export async function generateDrillDownExcel(data: {
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+// ── Day Book Excel Generator ──────────────────────────────────────────────────
+export async function generateDayBookExcel(data: {
+  firmName: string;
+  periodText: string;
+  vouchers: any[];
+  summary: any;
+}): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Fastify Accounting System';
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet('Day Book', {
+    pageSetup: { orientation: 'landscape', paperSize: 9 }
+  });
+
+  // Title Block
+  styleTitleBlock(ws, 'DAY BOOK (TRANSACTION JOURNAL)', data.periodText, data.firmName);
+
+  // Summary Highlights Row
+  const summaryRow = ws.addRow([
+    `Total Vouchers: ${data.summary.totalVouchers || 0}`,
+    `Total Inflows (Receipts): ₹${(data.summary.totalReceipts || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+    `Total Outflows (Payments): ₹${(data.summary.totalPayments || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+    `Total Debits: ₹${(data.summary.totalDebits || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+    `Total Credits: ₹${(data.summary.totalCredits || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+    `Status: ${data.summary.isBooksBalanced ? 'BALANCED' : 'IMBALANCED'}`
+  ]);
+  summaryRow.height = 20;
+  summaryRow.eachCell((cell) => {
+    cell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FF1E3A8A' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } };
+  });
+
+  ws.addRow([]); // Blank line
+
+  // Column Headers
+  const headers = ['Date', 'Voucher No', 'Voucher Type', 'Particulars (Account Heads)', 'Narration', 'Debit (₹)', 'Credit (₹)', 'Created By'];
+  const headerRow = ws.addRow(headers);
+  headerRow.height = 24;
+  headerRow.eachCell((cell) => {
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  // Data Rows
+  let alt = false;
+  (data.vouchers || []).forEach((v: any) => {
+    // If multi-leg entries present, print each entry row or condensed row
+    if (Array.isArray(v.entries) && v.entries.length > 0) {
+      v.entries.forEach((en: any, entryIdx: number) => {
+        const row = ws.addRow([
+          entryIdx === 0 ? v.transactionDate : '',
+          entryIdx === 0 ? v.voucherNo : '',
+          entryIdx === 0 ? v.voucherType : '',
+          `${en.debitAmount > 0 ? 'Dr. ' : '   To '} ${en.accountHead}`,
+          entryIdx === 0 ? (v.narration || '') : '',
+          en.debitAmount > 0 ? en.debitAmount : '',
+          en.creditAmount > 0 ? en.creditAmount : '',
+          entryIdx === 0 ? (v.createdBy || '') : ''
+        ]);
+        row.height = 19;
+        row.eachCell((cell, colIdx) => {
+          cell.font = { name: 'Segoe UI', size: 9, color: { argb: 'FF334155' } };
+          if (alt) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+          }
+          if (colIdx === 6 || colIdx === 7) {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            if (typeof cell.value === 'number') {
+              cell.numFmt = '₹ #,##0.00;[Red]-₹ #,##0.00;""';
+            }
+          }
+        });
+      });
+    } else {
+      const row = ws.addRow([
+        v.transactionDate,
+        v.voucherNo,
+        v.voucherType,
+        v.primaryAccount,
+        v.narration || '',
+        v.totalDebit > 0 ? v.totalDebit : '',
+        v.totalCredit > 0 ? v.totalCredit : '',
+        v.createdBy || ''
+      ]);
+      row.height = 20;
+    }
+    alt = !alt;
+  });
+
+  // Grand Total Row
+  const grandTotalRow = ws.addRow([
+    '',
+    '',
+    '',
+    'TOTALS',
+    `Total ${data.summary.totalVouchers || 0} Vouchers`,
+    data.summary.totalDebits || 0,
+    data.summary.totalCredits || 0,
+    ''
+  ]);
+  grandTotalRow.height = 24;
+  grandTotalRow.eachCell((cell, colIdx) => {
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      bottom: { style: 'double', color: { argb: 'FF0F172A' } }
+    };
+    if (colIdx === 6 || colIdx === 7) {
+      cell.numFmt = '₹ #,##0.00;[Red]-₹ #,##0.00;₹ 0.00';
+      cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    }
+  });
+
+  ws.getColumn(1).width = 12; // Date
+  ws.getColumn(2).width = 18; // Voucher No
+  ws.getColumn(3).width = 14; // Type
+  ws.getColumn(4).width = 36; // Particulars
+  ws.getColumn(5).width = 30; // Narration
+  ws.getColumn(6).width = 16; // Debit
+  ws.getColumn(7).width = 16; // Credit
+  ws.getColumn(8).width = 14; // User
+
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}

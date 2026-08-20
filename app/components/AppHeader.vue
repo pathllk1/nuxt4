@@ -173,13 +173,39 @@ const stopTimer = () => {
   }
 };
 
+// Auto-refresh when tab becomes visible or gains focus after being idle
+const handleVisibilityOrFocus = async () => {
+  if (document.visibilityState === 'visible' && isAuthenticated.value) {
+    const token = accessToken.value;
+    if (token) {
+      const payload = decodeTokenPayload(token);
+      const now = Math.floor(Date.now() / 1000);
+      if (!payload || !payload.exp || payload.exp - now < 60) {
+        const { rotateToken } = useAuth();
+        await rotateToken({ redirectIfFailed: false }).catch(() => null);
+      }
+    }
+  }
+};
+
 // Watch token changes (login, logout, proactive/reactive refreshes)
 watch(() => accessToken.value, () => {
   startTimer();
 }, { immediate: true });
 
+onMounted(() => {
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+  }
+});
+
 onUnmounted(() => {
   stopTimer();
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.removeEventListener('focus', handleVisibilityOrFocus);
+  }
 });
 
 const toggleMobileMenu = () => {

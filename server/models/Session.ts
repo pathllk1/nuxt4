@@ -3,6 +3,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface ISession extends Document {
   userId: mongoose.Types.ObjectId;
   refreshToken: string;
+  previousRefreshToken?: string;
+  previousRotatedAt?: Date;
   deviceFingerprint: string;
   ipAddress: string;
   userAgent: string;
@@ -27,6 +29,8 @@ export interface ISession extends Document {
 const SessionSchema: Schema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   refreshToken: { type: String, required: true, unique: true, index: true },
+  previousRefreshToken: { type: String, index: true },
+  previousRotatedAt: { type: Date },
   deviceFingerprint: { type: String, required: true, index: true },
   ipAddress: { type: String, required: true },
   userAgent: { type: String, required: true },

@@ -166,7 +166,13 @@ const fetchData = async () => {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  // Guard: only fetch if auth state is ready (user + firm populated by middleware initAuth)
+  // The watch on selectedFirmId below acts as safety net if state arrives after mount
+  if (user.value && selectedFirmId.value) {
+    fetchData()
+  }
+})
 
 watch([selectedFirmId, isOwnerOrAdmin], () => {
   if (selectedFirmId.value) {

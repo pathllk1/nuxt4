@@ -1,21 +1,39 @@
 import { defineEventHandler, createError } from 'h3';
 import mongoose from 'mongoose';
 import StockReg from '../../../../models/StockReg';
+import { requireAuthSession } from '../../../../utils/auth';
+import { connectDB } from '../../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
+  await connectDB();
+  const user = await requireAuthSession(event);
   const stockId = event.context.params?.stockId;
   if (!stockId) {
     throw createError({ statusCode: 400, statusMessage: 'Stock ID required' });
   }
 
+  const firmIdStr = String(user.firm_id);
+  const firmIdObj = mongoose.Types.ObjectId.isValid(firmIdStr) ? new mongoose.Types.ObjectId(firmIdStr) : null;
+
   const stockIdStr = String(stockId);
   const stockIdObj = mongoose.Types.ObjectId.isValid(stockIdStr) ? new mongoose.Types.ObjectId(stockIdStr) : null;
 
-  const filter = {
-    $or: [
-      { stock_id: stockIdStr },
-      { stockId: stockIdStr },
-      ...(stockIdObj ? [{ stock_id: stockIdObj }, { stockId: stockIdObj }] : [])
+  const filter: any = {
+    $and: [
+      {
+        $or: [
+          { firm_id: firmIdStr },
+          { firmId: firmIdStr },
+          ...(firmIdObj ? [{ firm_id: firmIdObj }, { firmId: firmIdObj }] : [])
+        ]
+      },
+      {
+        $or: [
+          { stock_id: stockIdStr },
+          { stockId: stockIdStr },
+          ...(stockIdObj ? [{ stock_id: stockIdObj }, { stockId: stockIdObj }] : [])
+        ]
+      }
     ]
   };
 

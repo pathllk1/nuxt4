@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { useGst } from '@/composables/useGst';
 import { useApi } from '@/utils/api';
+import Gstr2aImport from '@/components/accounting/Gstr2aImport.vue';
 
 const router = useRouter();
+const route = useRoute();
 const api = useApi();
 const {
   loading,
@@ -24,9 +26,15 @@ const {
 const reportMonth = ref('');
 const firmGstin = ref('');
 const firmGstins = ref<any[]>([]);
-const activeMainTab = ref('gstr1');
+const activeMainTab = ref(route.query.tab === 'gstr2a' ? 'gstr2a' : 'gstr1');
 const activeGSTR1Tab = ref('b2b');
 const showValidationModal = ref(false);
+
+watch(() => route.query.tab, (newTab) => {
+  if (newTab === 'gstr2a' || newTab === 'gstr1' || newTab === 'gstr3b') {
+    activeMainTab.value = newTab as string;
+  }
+});
 
 const setDefaultDates = () => {
   const today = new Date();
@@ -323,10 +331,23 @@ const gstr1TabConfig = computed(() => {
       >
         GSTR-3B (Summary Return)
       </button>
+      <button 
+        class="px-6 py-3 font-bold text-sm border-b-2 transition flex items-center gap-2"
+        :class="activeMainTab === 'gstr2a' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700'"
+        @click="switchMainTab('gstr2a')"
+      >
+        <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4" />
+        <span>GSTR-2A (Inward Import)</span>
+      </button>
     </div>
 
-    <!-- Shared Filters -->
-    <div class="bg-white dark:bg-zinc-900 shadow-sm rounded-2xl p-4 border border-gray-100 dark:border-zinc-800">
+    <!-- GSTR-2A Inward Import View -->
+    <div v-if="activeMainTab === 'gstr2a'">
+      <Gstr2aImport :initial-firm-gstin="firmGstin" />
+    </div>
+
+    <!-- Shared Filters (For GSTR-1 and GSTR-3B) -->
+    <div v-if="activeMainTab !== 'gstr2a'" class="bg-white dark:bg-zinc-900 shadow-sm rounded-2xl p-4 border border-gray-100 dark:border-zinc-800">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
         <div>
           <label class="block text-[10px] font-black text-gray-500 dark:text-zinc-400 uppercase tracking-wider mb-2">Select Month & Year</label>
@@ -356,7 +377,7 @@ const gstr1TabConfig = computed(() => {
     </div>
 
     <!-- Error State -->
-    <div v-if="error" class="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300 rounded-xl flex items-center justify-between">
+    <div v-if="error && activeMainTab !== 'gstr2a'" class="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300 rounded-xl flex items-center justify-between">
       <div class="flex items-center gap-2">
         <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 text-rose-500" />
         <p class="text-xs font-bold">{{ error }}</p>

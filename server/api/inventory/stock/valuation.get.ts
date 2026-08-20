@@ -2,27 +2,23 @@ import { defineEventHandler } from 'h3';
 import mongoose from 'mongoose';
 import { requireAuthSession } from '../../../utils/auth';
 import Stock from '../../../models/Stock';
+import { connectDB } from '../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
-  let firmIdStr = '';
-  try {
-    const user = await requireAuthSession(event);
-    firmIdStr = String(user.firm_id);
-  } catch {}
+  await connectDB();
+  const user = await requireAuthSession(event);
+  const firmIdStr = String(user.firm_id);
+  const firmIdObj = mongoose.Types.ObjectId.isValid(firmIdStr) ? new mongoose.Types.ObjectId(firmIdStr) : null;
 
-  const firmIdObj = firmIdStr && mongoose.Types.ObjectId.isValid(firmIdStr) ? new mongoose.Types.ObjectId(firmIdStr) : null;
-  const filter: any = firmIdStr ? {
+  const filter: any = {
     $or: [
       { firm_id: firmIdStr },
       { firmId: firmIdStr },
       ...(firmIdObj ? [{ firm_id: firmIdObj }, { firmId: firmIdObj }] : [])
     ]
-  } : {};
+  };
 
-  let stocks = await Stock.find(filter).sort({ item: 1 }).lean();
-  if (stocks.length === 0) {
-    stocks = await Stock.find({}).sort({ item: 1 }).lean();
-  }
+  const stocks = await Stock.find(filter).sort({ item: 1 }).lean();
 
   const valuation = stocks.map((s: any) => ({
     item: s.item || s.name || 'Item',

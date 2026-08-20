@@ -1,6 +1,8 @@
 import { defineEventHandler } from 'h3';
 import mongoose from 'mongoose';
 import StockReg from '../../../models/StockReg';
+import { requireAuthSession } from '../../../utils/auth';
+import { connectDB } from '../../../plugins/mongodb';
 
 const DEFAULT_SERVICES = [
   { item: 'Freight & Transportation', hsn: '9965', rate: 0, grate: 18 },
@@ -11,7 +13,19 @@ const DEFAULT_SERVICES = [
 
 export default defineEventHandler(async (event) => {
   try {
-    const services = await StockReg.find({ item_type: 'SERVICES' })
+    await connectDB();
+    const user = await requireAuthSession(event);
+    const firmIdStr = String(user.firm_id);
+    const firmIdObj = mongoose.Types.ObjectId.isValid(firmIdStr) ? new mongoose.Types.ObjectId(firmIdStr) : null;
+
+    const services = await StockReg.find({
+      $or: [
+        { firm_id: firmIdStr },
+        { firmId: firmIdStr },
+        ...(firmIdObj ? [{ firm_id: firmIdObj }, { firmId: firmIdObj }] : [])
+      ],
+      item_type: 'SERVICES'
+    })
       .select('item hsn rate grate')
       .limit(50)
       .lean();

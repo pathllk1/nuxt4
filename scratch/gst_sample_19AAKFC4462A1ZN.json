@@ -1,0 +1,64 @@
+{
+  "data": {
+    "place_of_business_additional": [
+      {
+        "address": {
+          "building_name": "Opp Wonders Club",
+          "street": "Wonders Club Road",
+          "location": "Siliguri",
+          "door_num": "Ward No 40",
+          "state": "West Bengal",
+          "floor_num": "",
+          "lattitude": "26.73731",
+          "longitude": "88.443652",
+          "district": "Darjeeling",
+          "city": "",
+          "pin_code": "734001"
+        },
+        "nature": [
+          "Office / Sale Office",
+          "Wholesale Business",
+          "Retail Business",
+          "Recipient of Goods or Services"
+        ]
+      }
+    ],
+    "gstin": "19AAKFC4462A1ZN",
+    "legal_name": "CHANDAN KRIPA",
+    "state_jurisdiction": "SILIGURI",
+    "centre_jurisdiction": "II RANGE",
+    "registration_date": "01/07/2017",
+    "business_constitution": "Partnership",
+    "type": "Regular",
+    "business_activity_nature": [
+      "Retail Business",
+      "Wholesale Business",
+      "Office / Sale Office",
+      "Recipient of Goods or Services"
+    ],
+    "status": "Active",
+    "cancellation_date": "",
+    "trade_name": "CHANDAN KRIPA",
+    "state_jurisdiction_code": "WB089",
+    "centre_jurisdiction_code": "WE0102",
+    "place_of_business_principal": {
+      "address": {
+        "building_name": "SPECTRUM HOUSE",
+        "street": "SEVOKE ROAD",
+        "location": "SILIGURI",
+        "door_num": "00",
+        "state": "West Bengal",
+        "floor_num": "",
+        "lattitude": "",
+        "longitude": "",
+        "district": "Darjeeling",
+        "city": "",
+        "pin_code": "734001"
+      },
+      "nature": [
+        "Retail Business",
+        "Wholesale Business"
+      ]
+    }
+  }
+}

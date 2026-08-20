@@ -39,6 +39,14 @@
                   <span v-else-if="item.batch" class="data-pill">Batch {{ item.batch }}</span>
                   <span v-if="item.itemType === 'SERVICE'" class="data-pill service">Service</span>
                   <span v-if="item.mrp" class="data-pill">MRP {{ item.mrp }}</span>
+                  <button
+                    type="button"
+                    class="data-pill history-pill cursor-pointer transition-colors"
+                    title="View Party-Item Price & Purchase History (Alt+H or F7)"
+                    @click.stop="openHistoryModal(index)"
+                  >
+                    🕒 History (Alt+H)
+                  </button>
                 </div>
               </td>
               <td v-if="state.gstEnabled">
@@ -174,19 +182,33 @@
           <kbd>F5</kbd> Add Service
         </button>
         <span class="divider"></span>
+        <span class="info-text"><kbd>Alt+H</kbd> Party History</span>
         <span class="info-text"><kbd>Del</kbd> Remove Row</span>
         <span class="info-text"><kbd>Enter</kbd> Next Cell</span>
         <span class="info-text"><kbd>F4</kbd> Charges</span>
         <span class="info-text"><kbd>F8</kbd> Save Bill</span>
       </div>
     </footer>
+
+    <!-- Party Item Price & Purchase History Modal (Alt+H) -->
+    <PartyItemHistoryModal
+      v-model="showHistoryModal"
+      :party-id="state.selectedParty?._id ? String(state.selectedParty._id) : undefined"
+      :party-name="state.selectedParty?.name || state.selectedParty?.account_head"
+      :party-gstin="state.selectedParty?.gstin"
+      :stock-id="activeHistoryItem?.stockId ? String(activeHistoryItem.stockId) : undefined"
+      :item-name="activeHistoryItem?.item"
+      :mode="mode"
+      @apply-rate="handleApplyRate"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import type { BillingState } from '@/composables/useBillingState';
 import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
+import PartyItemHistoryModal from '@/components/inventory/PartyItemHistoryModal.vue';
 
 const props = withDefaults(defineProps<{
   state: BillingState;
@@ -198,7 +220,35 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits(['remove-item', 'add-item', 'add-service', 'service-input']);
 const { handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
 
+const showHistoryModal = ref(false);
+const activeHistoryItem = ref<any>(null);
+const activeHistoryRowIndex = ref<number | null>(null);
+
+function openHistoryModal(index: number) {
+  const item = props.state.cart[index];
+  if (!item) return;
+  activeHistoryItem.value = item;
+  activeHistoryRowIndex.value = index;
+  showHistoryModal.value = true;
+}
+
+function handleApplyRate(payload: { rate: number; disc: number }) {
+  if (activeHistoryRowIndex.value !== null && props.state.cart[activeHistoryRowIndex.value]) {
+    const row = props.state.cart[activeHistoryRowIndex.value];
+    row.rate = payload.rate;
+    if (payload.disc !== undefined) {
+      row.disc = payload.disc;
+    }
+  }
+}
+
 function onRowKeydown(e: KeyboardEvent, index: number) {
+  if ((e.altKey && (e.key.toLowerCase() === 'h' || e.code === 'KeyH')) || e.key === 'F7') {
+    e.preventDefault();
+    e.stopPropagation();
+    openHistoryModal(index);
+    return;
+  }
   if (e.key === 'Delete' || (e.ctrlKey && e.key.toLowerCase() === 'd')) {
     const target = e.target as HTMLElement;
     // Only delete row if input is empty or if explicitly Ctrl+D
@@ -373,6 +423,19 @@ tbody tr:focus-within td {
 .data-pill.service {
   background: #e0e7ff;
   color: #4338ca;
+}
+.data-pill.history-pill {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+.data-pill.history-pill:hover {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
 }
 .line-input {
   width: 100%;

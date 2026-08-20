@@ -144,7 +144,7 @@ export default defineEventHandler(async (event) => {
     balanceMap.set(b._id, { totalDebit: b.totalDebit || 0, totalCredit: b.totalCredit || 0 });
   });
 
-  // Fetch Party records to enrich existing parties with GSTIN, PAN, and Contact
+  // Fetch Party records to enrich existing parties with GSTIN, PAN, Address, State, Pin, and Locations
   const Party = (await import('../../models/Party')).default;
   const parties = await Party.find({
     $or: [
@@ -153,7 +153,7 @@ export default defineEventHandler(async (event) => {
       { firmId: firmIdStr },
       { firm_id: firmIdStr }
     ]
-  }).select('name gstin pan contact').lean();
+  }).select('name gstin pan contact phone address state stateCode pin pincode gstLocations email').lean();
 
   const partyMap = new Map();
   parties.forEach((p: any) => {
@@ -181,13 +181,24 @@ export default defineEventHandler(async (event) => {
 
     const resolvedGstin = acc.gstin || (party?.gstin && party.gstin !== 'UNREGISTERED' ? party.gstin : null);
     const resolvedPan = acc.pan || party?.pan || null;
-    const resolvedPhone = acc.phone || party?.contact || null;
+    const resolvedPhone = acc.phone || party?.contact || party?.phone || null;
+    const resolvedAddress = acc.address || party?.address || null;
+    const resolvedState = acc.state || party?.state || null;
+    const resolvedStateCode = acc.stateCode || party?.stateCode || null;
+    const resolvedPin = acc.pin || acc.pincode || party?.pin || party?.pincode || null;
+    const resolvedGstLocations = (acc.gstLocations && acc.gstLocations.length > 0) ? acc.gstLocations : (party?.gstLocations || []);
 
     return {
       ...acc,
       pan: resolvedPan,
       gstin: resolvedGstin,
       phone: resolvedPhone,
+      address: resolvedAddress,
+      state: resolvedState,
+      stateCode: resolvedStateCode,
+      pin: resolvedPin,
+      pincode: resolvedPin,
+      gstLocations: resolvedGstLocations,
       opening_balance: openingVal,
       balance_type: openingType,
       current_balance: Math.abs(netBalance),

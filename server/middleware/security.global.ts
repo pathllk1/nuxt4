@@ -101,26 +101,26 @@ export default defineEventHandler(async (event) => {
     let limitCheck = { allowed: true, retryAfter: 0 };
 
     if (path.includes('/login')) {
-      // Login limit: 5 attempts per 15 minutes, ban after 15 failed logins
-      limitCheck = checkRateLimit(ip, 'login', 5, 15 * 60 * 1000, 15, 15 * 60 * 1000);
+      // Login limit: 10 attempts per 15 minutes, ban after 20 failed logins
+      limitCheck = checkRateLimit(ip, 'login', 10, 15 * 60 * 1000, 20, 15 * 60 * 1000);
     } else if (path.includes('/signup')) {
-      // Signup limit: 3 attempts per hour
-      limitCheck = checkRateLimit(ip, 'signup', 3, 60 * 60 * 1000);
+      // Signup limit: 5 attempts per hour
+      limitCheck = checkRateLimit(ip, 'signup', 5, 60 * 60 * 1000);
     } else if (path.includes('/refresh')) {
-      // Refresh limit: 20 per 15 minutes
-      limitCheck = checkRateLimit(ip, 'refresh', 20, 15 * 60 * 1000);
+      // Refresh limit: 300 per 15 minutes to support multi-tab apps & silent auto-refreshes
+      limitCheck = checkRateLimit(ip, 'refresh', 300, 15 * 60 * 1000);
     }
 
     if (!limitCheck.allowed) {
       setHeader(event, 'Retry-After', String(limitCheck.retryAfter) as any);
-      event.node.res.statusCode = 429;
-      return {
-        success: false,
+      throw createError({
         statusCode: 429,
-        error: 'Too Many Requests',
-        message: `Too many requests. Please try again after ${limitCheck.retryAfter} seconds.`,
-        retryAfter: limitCheck.retryAfter
-      };
+        statusMessage: 'Too Many Requests',
+        data: {
+          retryAfter: limitCheck.retryAfter,
+          message: `Too many requests. Please try again after ${limitCheck.retryAfter} seconds.`
+        }
+      });
     }
   }
 

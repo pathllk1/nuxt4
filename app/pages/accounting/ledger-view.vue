@@ -15,20 +15,22 @@
         <div class="flex items-center gap-3">
           <h1 class="text-xl font-black tracking-tight uppercase text-gray-900 dark:text-white leading-none">Account Ledger</h1>
           <div class="flex items-center gap-2 mt-0.5">
-             <USelect 
-                v-model="accountHead" 
-                :items="accountHeadOptions" 
-                placeholder="Select Account Head"
-                size="sm" 
-                class="w-64"
-                @update:model-value="updateHead" 
-             />
+             <div class="w-80">
+               <AccountSelectMenu 
+                  v-model="accountHead" 
+                  :accounts="chartOfAccounts" 
+                  placeholder="Search or select Account Head..."
+                  :show-balance="false"
+                  @change="updateHead"
+                  @account-created="onAccountCreated" 
+               />
+             </div>
              <UBadge 
                 v-if="accountHead"
                 size="sm" 
                 variant="subtle" 
                 :color="currentBalance.balanceType === 'DR' ? 'success' : 'error'"
-                class="font-black text-[9px] rounded-md h-8 flex items-center px-2 py-0"
+                class="font-black text-[9px] rounded-md h-8 flex items-center px-2 py-0 shrink-0"
               >
                 {{ currentBalance.balanceType }} BAL: {{ formatCurrency(currentBalance.balance) }}
               </UBadge>
@@ -82,7 +84,7 @@
       <div v-else class="overflow-x-auto">
         <table class="w-full text-left text-xs divide-y divide-gray-100 dark:divide-zinc-800">
           <thead>
-            <tr class="text-[10px] font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wider bg-gray-50/80 dark:bg-zinc-800/80">
+            <tr class="text-[10px] font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wider bg-gray-50/80 dark:bg-zinc-850/80">
               <th class="py-2.5 px-4">Date</th>
               <th class="py-2.5 px-4">Voucher</th>
               <th class="py-2.5 px-4">Narration</th>
@@ -111,8 +113,10 @@
                 {{ formatCurrency(Math.abs(entry.runningBalance)) }} {{ entry.runningBalance >= 0 ? 'Dr' : 'Cr' }}
               </td>
             </tr>
-            <tr v-if="ledgerEntries.length === 0">
-              <td colspan="6" class="py-16 text-center text-gray-400 dark:text-zinc-500 italic">No transactions found for this account in the selected range.</td>
+            <tr v-if="!runningLedger || runningLedger.length === 0">
+              <td colspan="6" class="py-16 text-center text-gray-400 dark:text-zinc-500 italic">
+                {{ accountHead ? 'No transactions found for this account in the selected range.' : 'Please select an account head above to view the ledger statement.' }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -126,18 +130,12 @@ import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
 import { formatCurrency } from '@/utils/formatters';
+import AccountSelectMenu from '~/components/accounting/AccountSelectMenu.vue';
 
 const route = useRoute();
 const { ledgerEntries, accountBalance, fetchLedger, fetchAccountBalance, fetchCOA, chartOfAccounts, exportLedgerPdf, exportLedgerExcel, loading } = useAccounting();
 
 const exportLoading = ref(false);
-
-const accountHeadOptions = computed(() => {
-  return chartOfAccounts.value.map(head => ({
-    label: head.account_name,
-    value: head.account_name
-  }));
-});
 
 const onExportPDF = async () => {
   if (!accountHead.value) return;
@@ -189,6 +187,14 @@ async function updateHead() {
    loadLedger();
 }
 
+const onAccountCreated = (newAcc: any) => {
+  if (newAcc) {
+    chartOfAccounts.value.push(newAcc);
+    accountHead.value = newAcc.account_name;
+    loadLedger();
+  }
+};
+
 watch(() => route.query.head, (newHead) => {
   if (newHead) {
     accountHead.value = newHead as string;
@@ -197,6 +203,7 @@ watch(() => route.query.head, (newHead) => {
 });
 
 async function loadLedger() {
+  if (!accountHead.value) return;
   await Promise.all([
     fetchLedger({ accountHead: accountHead.value, ...filters }),
     fetchAccountBalance(accountHead.value, filters.toDate)
@@ -206,6 +213,7 @@ async function loadLedger() {
 const currentBalance = computed(() => accountBalance.value);
 
 const runningLedger = computed(() => {
+  if (!Array.isArray(ledgerEntries.value)) return [];
   let bal = 0;
   return ledgerEntries.value.map(entry => {
     bal += (entry.debitAmount || 0) - (entry.creditAmount || 0);

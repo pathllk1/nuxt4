@@ -150,9 +150,9 @@ export default defineEventHandler(async (event) => {
     const accessToken = generateAccessToken(user, deviceFingerprint);
     const refreshToken = generateRefreshToken(user, deviceFingerprint);
 
-    // Save active Session
+    // Save active Session (30 days TTL)
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
     const userAgent = getHeader(event, 'user-agent') || 'unknown';
     const clientIP = getRequestIP(event, { xForwardedFor: true }) || 'unknown';

@@ -73,6 +73,40 @@
           </svg>
         </div>
       </div>
+
+      <!-- GSTR-1 Outward & Stock Analysis -->
+      <div class="bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 hover:shadow-md transition-shadow cursor-pointer group" @click="$router.push('/inventory/gstr1-analysis')">
+        <div class="w-12 h-12 bg-indigo-50 dark:bg-indigo-950 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <h3 class="font-bold text-gray-900 dark:text-white text-lg">GSTR-1 Outward & Stock Analysis</h3>
+        <p class="text-sm text-gray-500 dark:text-zinc-400 mt-2">Upload and analyze GSTR-1 JSON for stock movements, HSN consumption, B2B invoices & consumer sales.</p>
+        <div class="mt-4 flex items-center text-indigo-600 dark:text-indigo-400 text-sm font-bold">
+          Open GSTR-1 Analyzer
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+
+      <!-- DayBook Excel Sales & Stock Analyzer -->
+      <div class="bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 hover:shadow-md transition-shadow cursor-pointer group" @click="$router.push('/inventory/daybook-analysis')">
+        <div class="w-12 h-12 bg-emerald-50 dark:bg-emerald-950 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <h3 class="font-bold text-gray-900 dark:text-white text-lg">DayBook Excel Sales & Stock</h3>
+        <p class="text-sm text-gray-500 dark:text-zinc-400 mt-2">Upload and analyze DayBook / Sales Register Excel for stock consumption, gross margins, vouchers & party-wise breakdown.</p>
+        <div class="mt-4 flex items-center text-emerald-600 dark:text-emerald-400 text-sm font-bold">
+          Open DayBook Analyzer
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
     </div>
 
     <StockValuationModal v-if="showValuation" v-model="showValuation" />

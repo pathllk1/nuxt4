@@ -134,11 +134,32 @@ const sortedCOAData = computed(() => {
   });
 });
 
+// Client-Side Pagination State
+const currentPage = ref(1);
+const pageSize = ref(15);
+const pageSizeOptions = [
+  { label: '10 / page', value: 10 },
+  { label: '15 / page', value: 15 },
+  { label: '25 / page', value: 25 },
+  { label: '50 / page', value: 50 },
+  { label: '100 / page', value: 100 }
+];
+
+const paginatedCOAData = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return sortedCOAData.value.slice(start, start + pageSize.value);
+});
+
+// Reset page on search or filter change
+watch([search, typeFilter, pageSize], () => {
+  currentPage.value = 1;
+});
+
 onMounted(fetchCOA);
 </script>
 
 <template>
-  <div class="p-4 space-y-6">
+  <div class="p-4 space-y-4">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p class="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">Accounting Master</p>
@@ -157,12 +178,13 @@ onMounted(fetchCOA);
     </div>
 
     <!-- Filters -->
-    <div class="flex flex-wrap items-center gap-4 bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm">
+    <div class="flex flex-wrap items-center gap-4 bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm">
       <div class="flex-1 min-w-[280px]">
         <UInput
           v-model="search"
           icon="i-heroicons-magnifying-glass"
           placeholder="Search account name, PAN, GSTIN, type..."
+          size="sm"
           @input="fetchCOA"
         />
       </div>
@@ -170,25 +192,26 @@ onMounted(fetchCOA);
         v-model="typeFilter"
         :items="filterOptions"
         class="min-w-[170px]"
+        size="sm"
         @change="fetchCOA"
       />
     </div>
 
-    <!-- Table -->
-    <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden min-h-[400px]">
-      <div v-if="loading" class="flex items-center justify-center py-20">
+    <!-- Fixed Height Table Card -->
+    <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-270px)] min-h-[420px]">
+      <div v-if="loading" class="flex-1 flex items-center justify-center py-20">
         <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600"></div>
       </div>
-      <div v-else-if="coaData.length === 0" class="p-20 text-center space-y-4">
+      <div v-else-if="coaData.length === 0" class="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-4">
         <UIcon name="i-heroicons-document-text" class="w-12 h-12 text-slate-200 dark:text-zinc-700 mx-auto" />
         <p class="text-sm font-bold text-slate-500 dark:text-zinc-400">No account heads found.</p>
       </div>
-      <div v-else class="overflow-auto max-h-[600px] relative custom-scrollbar">
+      <div v-else class="flex-1 overflow-auto relative custom-scrollbar">
         <table class="w-full text-left border-collapse sticky-table text-xs">
           <thead class="sticky top-0 z-10 shadow-sm">
             <tr class="bg-slate-50 dark:bg-zinc-800 border-b border-slate-200 dark:border-zinc-700">
               <th 
-                class="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer select-none group"
+                class="px-6 py-3 text-[10px] font-black uppercase tracking-widest cursor-pointer select-none group"
                 @click="toggleSort('account_name')"
               >
                 <div class="flex items-center gap-1.5">
@@ -259,12 +282,12 @@ onMounted(fetchCOA);
                   />
                 </div>
               </th>
-              <th class="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Actions</th>
+              <th class="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-center">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-            <tr v-for="acc in sortedCOAData" :key="acc._id" class="hover:bg-slate-50/80 dark:hover:bg-zinc-800/40 transition-colors group">
-              <td class="px-6 py-4">
+            <tr v-for="acc in paginatedCOAData" :key="acc._id" class="hover:bg-slate-50/80 dark:hover:bg-zinc-800/40 transition-colors group">
+              <td class="px-6 py-3">
                 <div class="flex items-start gap-3">
                   <div :class="['w-2 h-10 rounded-full shrink-0', acc.is_system ? 'bg-indigo-500' : 'bg-emerald-500']"></div>
                   <div class="space-y-1">
@@ -296,22 +319,22 @@ onMounted(fetchCOA);
                   </div>
                 </div>
               </td>
-              <td class="px-6 py-4">
+              <td class="px-6 py-3">
                 <span class="text-[10px] font-black uppercase text-slate-500 dark:text-zinc-400 tracking-tight">{{ acc.account_type }}</span>
               </td>
-              <td class="px-6 py-4 text-right">
+              <td class="px-6 py-3 text-right">
                 <div class="flex flex-col items-end">
                   <span class="text-xs font-bold text-slate-700 dark:text-zinc-300 font-mono">{{ formatCurrency(acc.opening_balance || 0) }}</span>
                   <span class="text-[8px] font-black" :class="[acc.balance_type === 'DR' ? 'text-blue-600' : 'text-red-600']">{{ acc.balance_type }}</span>
                 </div>
               </td>
-              <td class="px-6 py-4 text-right">
+              <td class="px-6 py-3 text-right">
                 <div class="flex flex-col items-end">
                   <span class="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">{{ formatCurrency(acc.current_balance || 0) }}</span>
                   <span class="text-[8px] font-black" :class="[acc.current_balance_type === 'DR' ? 'text-blue-600' : 'text-red-600']">{{ acc.current_balance_type }}</span>
                 </div>
               </td>
-              <td class="px-6 py-4">
+              <td class="px-6 py-3">
                 <div class="flex justify-center gap-2">
                   <UButton
                     variant="ghost"
@@ -335,6 +358,28 @@ onMounted(fetchCOA);
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Pagination Footer -->
+      <div v-if="sortedCOAData.length > 0" class="bg-slate-50/90 dark:bg-zinc-800/90 border-t border-slate-200 dark:border-zinc-700 p-3 px-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shrink-0">
+        <div class="text-slate-500 dark:text-zinc-400 font-medium">
+          Showing <span class="font-bold text-slate-900 dark:text-white">{{ sortedCOAData.length === 0 ? 0 : (currentPage - 1) * pageSize + 1 }}</span>
+          to <span class="font-bold text-slate-900 dark:text-white">{{ Math.min(currentPage * pageSize, sortedCOAData.length) }}</span>
+          of <span class="font-bold text-slate-900 dark:text-white">{{ sortedCOAData.length }}</span> accounts
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="w-32">
+            <USelect v-model="pageSize" :items="pageSizeOptions" size="xs" class="w-full" />
+          </div>
+          <UPagination
+            v-model:page="currentPage"
+            :total="sortedCOAData.length"
+            :items-per-page="pageSize"
+            size="xs"
+            :show-edges="true"
+          />
+        </div>
       </div>
     </div>
 

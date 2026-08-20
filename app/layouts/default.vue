@@ -40,21 +40,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { useAuth } from '../composables/useAuth';
 import { useAppLayout } from '../composables/useAppLayout';
 
 const route = useRoute();
-const { initAuth } = useAuth();
 const { isSidebarCollapsed } = useAppLayout();
 
 // Check if current route is an Auth page (Login / Signup)
 const isAuthPage = computed(() => {
   return ['/login', '/signup'].includes(route.path);
 });
-
-if (import.meta.client) {
-  initAuth();
-}
 </script>
 
 <style scoped>

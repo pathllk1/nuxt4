@@ -715,26 +715,45 @@ function hydrateInitialData(data: any) {
 
 async function loadAccount(id: string) {
   try {
-    const res: any = await api.get('/accounting/coa');
-    if (res && res.data) {
-      let match = res.data.find((a: any) => a._id === id);
-      if (!match && (props.initialData?.name || props.initialData?.account_name)) {
-        const targetName = (props.initialData.name || props.initialData.account_name).trim().toLowerCase();
-        match = res.data.find((a: any) => (a.account_name || '').trim().toLowerCase() === targetName);
-      }
-      if (match) {
-        hydrateInitialData(match);
-        return;
-      }
+    const [coaRes, partyRes]: any = await Promise.all([
+      api.get('/accounting/coa').catch(() => null),
+      api.get('/accounting/parties').catch(() => null)
+    ]);
+
+    let match = coaRes?.data?.find((a: any) => a._id === id);
+    if (!match && (props.initialData?.name || props.initialData?.account_name)) {
+      const targetName = (props.initialData.name || props.initialData.account_name).trim().toLowerCase();
+      match = coaRes?.data?.find((a: any) => (a.account_name || '').trim().toLowerCase() === targetName);
     }
 
-    // Also check parties if not matched in COA
-    const partyRes: any = await api.get('/accounting/parties');
-    if (partyRes && partyRes.data) {
-      const partyMatch = partyRes.data.find((p: any) => p._id === id || p.name === props.initialData?.name);
-      if (partyMatch) {
-        hydrateInitialData(partyMatch);
-      }
+    const partyNameTarget = (match?.account_name || props.initialData?.name || props.initialData?.account_name || '').trim().toLowerCase();
+    const partyMatch = partyRes?.data?.find((p: any) => 
+      p._id === id || 
+      (p.name && p.name.trim().toLowerCase() === partyNameTarget) ||
+      (match?.gstin && p.gstin && p.gstin === match.gstin)
+    );
+
+    if (match || partyMatch) {
+      const merged = {
+        ...(match || {}),
+        ...(partyMatch || {}),
+        account_name: match?.account_name || partyMatch?.name || '',
+        account_type: match?.account_type || partyMatch?.partyType || partyMatch?.type || 'SUNDRY_DEBTORS',
+        address: partyMatch?.address || match?.address || '',
+        state: partyMatch?.state || match?.state || '',
+        stateCode: partyMatch?.stateCode || match?.stateCode || '',
+        pin: partyMatch?.pin || partyMatch?.pincode || match?.pin || match?.pincode || '',
+        pincode: partyMatch?.pincode || partyMatch?.pin || match?.pincode || match?.pin || '',
+        pan: match?.pan || partyMatch?.pan || '',
+        phone: match?.phone || partyMatch?.contact || partyMatch?.phone || '',
+        opening_balance: match?.opening_balance ?? partyMatch?.openingBalance ?? 0,
+        balance_type: match?.balance_type || partyMatch?.balanceType || 'DR',
+        gstLocations: (partyMatch?.gstLocations && partyMatch.gstLocations.length > 0)
+          ? partyMatch.gstLocations
+          : (match?.gstLocations || [])
+      };
+      hydrateInitialData(merged);
+      return;
     }
   } catch (err: any) {
     console.error('Failed to load account for editing:', err);
@@ -789,34 +808,23 @@ async function fetchGstForLocation(index: number) {
   try {
     const res: any = await api.get(`/accounting/gst/lookup?gstin=${loc.gstin}`);
     if (res && res.success && res.data) {
-      const data = res.data;
+      const details = extractGstDetails(res.data, loc.gstin);
+
       if (!form.value.account_name) {
-        form.value.account_name = data.trade_name || data.legal_name || data.tradeName || '';
+        form.value.account_name = details.displayName;
       }
 
-      let stateName = data.place_of_business_principal?.address?.state || data.state_jurisdiction || '';
-      stateName = String(stateName).trim();
-      if (stateName.includes(' - ')) stateName = stateName.split(' - ')[0].trim();
-      loc.state = stateName;
+      loc.state = details.state;
+      loc.stateCode = details.stateCode;
+      loc.address = details.address;
+      loc.pincode = details.pincode;
 
-      const addrObj = data.place_of_business_principal?.address || data.address;
-      if (addrObj) {
-        loc.address = [
-          addrObj.door_num || addrObj.building_name,
-          addrObj.floor_num,
-          addrObj.street || addrObj.location,
-          addrObj.city || addrObj.district
-        ].filter(Boolean).join(', ');
-
-        const pin = addrObj.pin_code || addrObj.pin;
-        if (/^\d{6}$/.test(String(pin).trim())) loc.pincode = String(pin).trim();
+      if (details.pan && !form.value.pan) {
+        form.value.pan = details.pan;
       }
-
-      if (loc.gstin.length >= 2) loc.stateCode = loc.gstin.substring(0, 2);
-      if (loc.gstin.length >= 12 && !form.value.pan) form.value.pan = loc.gstin.substring(2, 12);
 
       loc.fetchStatus = 'success';
-      toast.add({ title: 'GSTIN Verified', description: `${data.legal_name || 'Verified'}`, color: 'success' });
+      toast.add({ title: 'GSTIN Verified', description: `${details.legalName || details.tradeName || 'Verified'}`, color: 'success' });
     } else {
       loc.fetchStatus = 'failed';
     }

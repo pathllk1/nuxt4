@@ -6,6 +6,10 @@ import StockReg from '../../models/StockReg';
 const StockModel = Stock as any;
 const StockRegModel = StockReg as any;
 
+function escapeRegex(value: string): string {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class StockService {
   /**
    * Round inventory rates to 6 decimal places for precision
@@ -37,26 +41,55 @@ export class StockService {
     session?: mongoose.ClientSession
   }): Promise<IStock> {
     const { firmId, itemData, billData, user, session } = params;
+    const itemTrimmed = (itemData.item || '').trim();
+    const escapedItem = escapeRegex(itemTrimmed);
 
     let stock = await StockModel.findOne({
-      $or: [{ firm_id: firmId }, { firmId: firmId }],
-      item: itemData.item
+      $and: [
+        { $or: [{ firm_id: firmId }, { firmId: firmId }] },
+        {
+          $or: [
+            { item: itemTrimmed },
+            { item: { $regex: `^${escapedItem}$`, $options: 'i' } }
+          ]
+        }
+      ]
     }).session(session || null);
 
     if (!stock) {
-      stock = new Stock({
-        firm_id: firmId,
-        item: itemData.item,
-        pno: itemData.pno,
-        oem: itemData.oem,
-        hsn: itemData.hsn,
-        uom: itemData.uom || 'PCS',
-        qty: 0,
-        rate: 0,
-        total: 0,
-        createdBy: user,
-      });
-      await stock.save({ session });
+      try {
+        stock = new Stock({
+          firm_id: firmId,
+          firmId: firmId,
+          item: itemTrimmed || 'Generic Item',
+          pno: itemData.pno,
+          oem: itemData.oem,
+          hsn: itemData.hsn,
+          uom: itemData.uom || 'PCS',
+          qty: 0,
+          rate: 0,
+          total: 0,
+          createdBy: user,
+        });
+        await stock.save({ session });
+      } catch (saveErr: any) {
+        if (saveErr.code === 11000 || saveErr.message?.includes('E11000')) {
+          stock = await StockModel.findOne({
+            $and: [
+              { $or: [{ firm_id: firmId }, { firmId: firmId }] },
+              {
+                $or: [
+                  { item: itemTrimmed },
+                  { item: { $regex: `^${escapedItem}$`, $options: 'i' } }
+                ]
+              }
+            ]
+          }).session(session || null);
+          if (!stock) throw saveErr;
+        } else {
+          throw saveErr;
+        }
+      }
     } else {
       if (itemData.hsn && !stock.hsn) stock.hsn = itemData.hsn;
       if (itemData.pno && !stock.pno) stock.pno = itemData.pno;
@@ -99,17 +132,6 @@ export class StockService {
       arrayFilters = [{ 'elem.batch': targetBatch }];
     } else {
       updateQuery = {
-        $push: {
-          batches: {
-            batch: itemData.batch || undefined,
-            qty: itemData.qty,
-            uom: itemData.uom || 'PCS',
-            rate: itemData.rate,
-            grate: itemData.grate,
-            expiry: (itemData as any).expiry || null,
-            mrp: (itemData as any).mrp || 0
-          }
-        },
         $inc: {
           'qty': itemData.qty,
           'total': lineValue
@@ -120,12 +142,30 @@ export class StockService {
           user: user
         }
       };
+
+      if (targetBatch) {
+        updateQuery.$push = {
+          batches: {
+            batch: targetBatch,
+            qty: itemData.qty,
+            rate: itemData.rate,
+            grate: itemData.grate,
+            uom: itemData.uom || 'PCS',
+            expiry: (itemData as any).expiry ? new Date((itemData as any).expiry) : undefined,
+            mrp: (itemData as any).mrp ? Number((itemData as any).mrp) : undefined
+          }
+        };
+      }
     }
 
     const updatedStock = await StockModel.findOneAndUpdate(
-      { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
+      { _id: stock._id },
       updateQuery,
-      { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
+      {
+        new: true,
+        session: session || null,
+        arrayFilters: arrayFilters.length > 0 ? arrayFilters : undefined
+      }
     );
 
     if (!updatedStock) throw new Error(`Failed to update stock for item ${itemData.item}`);
@@ -184,6 +224,8 @@ export class StockService {
     session?: mongoose.ClientSession
   }): Promise<{ stock: IStock, cogsValue: number }> {
     const { firmId, itemData, billData, user, session } = params;
+    const itemTrimmed = (itemData.item || '').trim();
+    const escapedItem = escapeRegex(itemTrimmed);
 
     let stock = null;
     if (itemData.stockId && mongoose.Types.ObjectId.isValid(String(itemData.stockId))) {
@@ -193,30 +235,57 @@ export class StockService {
       }).session(session || null);
     }
 
-    if (!stock && itemData.item) {
+    if (!stock && itemTrimmed) {
       stock = await StockModel.findOne({
-        item: { $regex: new RegExp(`^${itemData.item.trim()}$`, 'i') },
-        $or: [{ firm_id: firmId }, { firmId: firmId }]
+        $and: [
+          { $or: [{ firm_id: firmId }, { firmId: firmId }] },
+          {
+            $or: [
+              { item: itemTrimmed },
+              { item: { $regex: `^${escapedItem}$`, $options: 'i' } }
+            ]
+          }
+        ]
       }).session(session || null);
     }
 
     if (!stock) {
-      // Auto-create stock entry with 0 opening stock if sold before initial inward
-      stock = new StockModel({
-        firm_id: firmId,
-        item: itemData.item || 'Generic Item',
-        pno: itemData.pno || '',
-        oem: itemData.oem || '',
-        hsn: itemData.hsn || '9999',
-        uom: itemData.uom || 'PCS',
-        qty: 0,
-        rate: itemData.rate || 0,
-        grate: itemData.grate || 18,
-        total: 0,
-        batches: itemData.batch ? [{ batch: itemData.batch, qty: 0, uom: itemData.uom || 'PCS', rate: itemData.rate || 0, grate: itemData.grate || 18 }] : [],
-        user: user
-      });
-      await stock.save({ session });
+      try {
+        // Auto-create stock entry with 0 opening stock if sold before initial inward
+        stock = new StockModel({
+          firm_id: firmId,
+          firmId: firmId,
+          item: itemTrimmed || 'Generic Item',
+          pno: itemData.pno || '',
+          oem: itemData.oem || '',
+          hsn: itemData.hsn || '9999',
+          uom: itemData.uom || 'PCS',
+          qty: 0,
+          rate: itemData.rate || 0,
+          grate: itemData.grate || 18,
+          total: 0,
+          batches: itemData.batch ? [{ batch: itemData.batch, qty: 0, uom: itemData.uom || 'PCS', rate: itemData.rate || 0, grate: itemData.grate || 18 }] : [],
+          user: user
+        });
+        await stock.save({ session });
+      } catch (saveErr: any) {
+        if (saveErr.code === 11000 || saveErr.message?.includes('E11000')) {
+          stock = await StockModel.findOne({
+            $and: [
+              { $or: [{ firm_id: firmId }, { firmId: firmId }] },
+              {
+                $or: [
+                  { item: itemTrimmed },
+                  { item: { $regex: `^${escapedItem}$`, $options: 'i' } }
+                ]
+              }
+            ]
+          }).session(session || null);
+          if (!stock) throw saveErr;
+        } else {
+          throw saveErr;
+        }
+      }
     }
 
     const wacCostRate = stock.rate || itemData.rate || 0;
@@ -236,33 +305,32 @@ export class StockService {
     }
 
     const updatedStock = await StockModel.findOneAndUpdate(
-      { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
+      { _id: stock._id },
       {
         $inc: incQuery,
-        $set: { user }
+        $set: {
+          user: user,
+          hsn: stock.hsn || itemData.hsn || '9999',
+          uom: stock.uom || itemData.uom || 'PCS'
+        }
       },
-      { 
-        session, 
-        ...(arrayFilters.length ? { arrayFilters } : {}),
-        returnDocument: 'after' 
+      {
+        new: true,
+        session: session || null,
+        arrayFilters: arrayFilters.length > 0 ? arrayFilters : undefined
       }
     );
 
-    if (!updatedStock) throw new Error(`Failed to update stock for item ${stock.item}.`);
+    if (!updatedStock) throw new Error(`Failed to deduct stock for item ${itemData.item}`);
 
-    if (updatedStock.qty <= 0) {
-      updatedStock.total = 0;
-      await updatedStock.save({ session });
-    }
-
-    // Register movement
+    // Register movement in StockReg
     await StockRegModel.create([{
       firm_id: firmId,
       type: billData.btype as any,
       bno: billData.bno,
       bdate: billData.bdate,
       supply: billData.supply,
-      item: stock.item,
+      item: itemTrimmed || itemData.item,
       item_narration: itemData.narration,
       batch: itemData.batch || undefined,
       qty: -itemData.qty,
@@ -270,121 +338,96 @@ export class StockService {
       grate: itemData.grate,
       total: itemData.qty * itemData.rate,
       cost_rate: wacCostRate,
-      stock_id: stock._id,
+      stock_id: updatedStock._id,
       bill_id: billData.billId,
+      user,
+      qtyh: updatedStock.qty,
+      hsn: itemData.hsn || updatedStock.hsn,
+      uom: itemData.uom || updatedStock.uom || 'PCS'
+    }], { session });
+
+    return {
+      stock: updatedStock,
+      cogsValue
+    };
+  }
+
+  /**
+   * Adjust stock manually
+   */
+  static async adjustStock(params: {
+    firmId: mongoose.Types.ObjectId,
+    stockId: mongoose.Types.ObjectId,
+    type: 'ADD' | 'SUBTRACT' | 'SET',
+    qty: number,
+    rate?: number,
+    narration?: string,
+    user: string,
+    session?: mongoose.ClientSession
+  }): Promise<IStock> {
+    const { firmId, stockId, type, qty, rate, narration, user, session } = params;
+
+    const stock = await StockModel.findOne({
+      _id: stockId,
+      $or: [{ firm_id: firmId }, { firmId: firmId }]
+    }).session(session || null);
+
+    if (!stock) throw new Error('Stock item not found');
+
+    let newQty = stock.qty;
+    let newRate = stock.rate;
+
+    if (type === 'ADD') {
+      newQty += qty;
+      if (rate !== undefined && newQty > 0) {
+        const addedValue = qty * rate;
+        newRate = this.roundRate((stock.total + addedValue) / newQty);
+      }
+    } else if (type === 'SUBTRACT') {
+      newQty -= qty;
+    } else if (type === 'SET') {
+      newQty = qty;
+      if (rate !== undefined) newRate = rate;
+    }
+
+    const newTotal = newQty * newRate;
+
+    const updatedStock = await StockModel.findOneAndUpdate(
+      { _id: stock._id },
+      {
+        $set: {
+          qty: newQty,
+          rate: newRate,
+          total: newTotal,
+          user: user
+        }
+      },
+      { new: true, session: session || null }
+    );
+
+    if (!updatedStock) throw new Error('Failed to update stock');
+
+    const diffQty = newQty - stock.qty;
+    await StockRegModel.create([{
+      firm_id: firmId,
+      type: 'ADJUSTMENT',
+      bno: 'ADJ',
+      bdate: new Date().toISOString().split('T')[0],
+      supply: 'Stock Adjustment',
+      item: stock.item,
+      item_narration: narration,
+      qty: diffQty,
+      rate: newRate,
+      grate: stock.grate,
+      total: Math.abs(diffQty) * newRate,
+      cost_rate: newRate,
+      stock_id: updatedStock._id,
       user,
       qtyh: updatedStock.qty,
       hsn: stock.hsn,
       uom: stock.uom
     }], { session });
 
-    return { stock: updatedStock, cogsValue };
-  }
-
-  /**
-   * Reverse a stock movement (Bill Cancellation / Bill Edit)
-   */
-  static async reverseMovement(stockRegId: mongoose.Types.ObjectId, user: string, session?: mongoose.ClientSession) {
-    const reg = await StockRegModel.findById(stockRegId).session(session || null);
-    if (!reg) return;
-
-    const stock = await StockModel.findById(reg.stock_id).session(session || null);
-    const targetBatch = reg.batch || null;
-    const batchExists = stock && Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
-
-    if (['PURCHASE', 'CREDIT_NOTE'].includes(reg.type)) {
-      // Was an increase, now decrease
-      const costValue = reg.qty * (reg.cost_rate || 0);
-      const incQuery: any = { 'qty': -reg.qty, 'total': -costValue };
-      let arrayFilters: any[] = [];
-      if (batchExists) {
-        incQuery['batches.$[elem].qty'] = -reg.qty;
-        arrayFilters = [{ 'elem.batch': targetBatch }];
-      }
-
-      const updated = await StockModel.findOneAndUpdate(
-        { _id: reg.stock_id, $or: [{ firm_id: reg.firm_id }, { firmId: reg.firm_id }] },
-        { $inc: incQuery, $set: { user } },
-        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
-      );
-      if (updated && updated.qty <= 0) {
-        updated.total = 0;
-        await updated.save({ session });
-      }
-    } else if (['SALE', 'DEBIT_NOTE', 'DELIVERY_NOTE'].includes(reg.type)) {
-      // Was a decrease, now increase
-      const cogsValue = Math.abs(reg.qty) * (reg.cost_rate || 0);
-      const incQuery: any = { 'qty': Math.abs(reg.qty), 'total': cogsValue };
-      let arrayFilters: any[] = [];
-      if (batchExists) {
-        incQuery['batches.$[elem].qty'] = Math.abs(reg.qty);
-        arrayFilters = [{ 'elem.batch': targetBatch }];
-      }
-
-      await StockModel.findOneAndUpdate(
-        { _id: reg.stock_id, $or: [{ firm_id: reg.firm_id }, { firmId: reg.firm_id }] },
-        { $inc: incQuery, $set: { user } },
-        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
-      );
-    }
-
-    await StockRegModel.findByIdAndDelete(stockRegId).session(session || null);
-  }
-
-  /**
-   * Helper to rollback a specific stock movement by parameters
-   */
-  static async rollbackStockMovement(params: {
-    firmId: mongoose.Types.ObjectId;
-    movementType: 'SALE' | 'PURCHASE';
-    itemData: {
-      stockId: mongoose.Types.ObjectId;
-      qty: number;
-      rate: number;
-      batch?: string;
-    };
-    session?: mongoose.ClientSession;
-  }) {
-    const { firmId, movementType, itemData, session } = params;
-    const stock = await StockModel.findOne({ _id: itemData.stockId, $or: [{ firm_id: firmId }, { firmId: firmId }] }).session(session || null);
-    if (!stock) return;
-
-    const targetBatch = itemData.batch || null;
-    const batchExists = Array.isArray(stock.batches) && stock.batches.some((b: any) => (b.batch || null) === targetBatch);
-
-    if (movementType === 'SALE') {
-      const cogsValue = itemData.qty * (stock.rate || itemData.rate || 0);
-      const incQuery: any = { 'qty': itemData.qty, 'total': cogsValue };
-      let arrayFilters: any[] = [];
-      if (batchExists) {
-        incQuery['batches.$[elem].qty'] = itemData.qty;
-        arrayFilters = [{ 'elem.batch': targetBatch }];
-      }
-
-      await StockModel.findOneAndUpdate(
-        { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
-        { $inc: incQuery },
-        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
-      );
-    } else if (movementType === 'PURCHASE') {
-      const lineValue = itemData.qty * itemData.rate;
-      const incQuery: any = { 'qty': -itemData.qty, 'total': -lineValue };
-      let arrayFilters: any[] = [];
-      if (batchExists) {
-        incQuery['batches.$[elem].qty'] = -itemData.qty;
-        arrayFilters = [{ 'elem.batch': targetBatch }];
-      }
-
-      const updated = await StockModel.findOneAndUpdate(
-        { _id: stock._id, $or: [{ firm_id: firmId }, { firmId: firmId }] },
-        { $inc: incQuery },
-        { session, ...(arrayFilters.length ? { arrayFilters } : {}), returnDocument: 'after' }
-      );
-
-      if (updated && updated.qty <= 0) {
-        updated.total = 0;
-        await updated.save({ session });
-      }
-    }
+    return updatedStock;
   }
 }

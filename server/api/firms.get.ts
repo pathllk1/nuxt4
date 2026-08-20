@@ -1,9 +1,14 @@
 import { defineEventHandler, createError } from 'h3';
 import Firm from '../models/Firm';
+import { connectDB } from '../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   try {
-    const firms = await Firm.find({ status: 'approved' }).select('name code _id');
+    await connectDB();
+    const firms = await Firm.find({ status: { $ne: 'rejected' } })
+      .select('name code _id status')
+      .lean();
+
     return {
       success: true,
       statusCode: 200,

@@ -51,6 +51,7 @@ export class LedgerService {
       { account_name: 'Advance to Employees', account_type: 'ASSET', is_system: true },
       { account_name: 'Cash in Hand', account_type: 'CASH', is_system: true },
       { account_name: 'Sales', account_type: 'INCOME', is_system: true },
+      { account_name: 'Purchases', account_type: 'EXPENSE', is_system: true },
       { account_name: 'Inventory', account_type: 'ASSET', is_system: true },
       { account_name: 'COGS', account_type: 'EXPENSE', is_system: true },
       { account_name: 'Round Off', account_type: 'GENERAL', is_system: true },
@@ -59,9 +60,11 @@ export class LedgerService {
       { account_name: 'CGST Input Credit', account_type: 'ASSET', is_system: true },
       { account_name: 'SGST Input Credit', account_type: 'ASSET', is_system: true },
       { account_name: 'IGST Input Credit', account_type: 'ASSET', is_system: true },
+      { account_name: 'Cess Input Credit', account_type: 'ASSET', is_system: true },
       { account_name: 'CGST Payable', account_type: 'LIABILITY', is_system: true },
       { account_name: 'SGST Payable', account_type: 'LIABILITY', is_system: true },
       { account_name: 'IGST Payable', account_type: 'LIABILITY', is_system: true },
+      { account_name: 'Cess Payable', account_type: 'LIABILITY', is_system: true },
     ];
 
     const createdBy = typeof userId === 'string' && mongoose.Types.ObjectId.isValid(userId)
@@ -89,15 +92,21 @@ export class LedgerService {
   }
 
   static async postPurchaseLedger(params: any) {
-    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, purchasedItems, reverseCharge, createdBy, session } = params;
+    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, cess, roundOff, otherCharges, purchasedItems, reverseCharge, createdBy, session } = params;
     const base = { firmId, transactionDate: billDate, voucherGroupId: voucherId, voucherType: 'PURCHASE', voucherNo: billNo, refType: 'BILL', refId: billId, createdBy };
     const docs: LedgerEntryParams[] = [];
 
+    const cessVal = parseFloat(cess) || 0;
+    const taxTotal = (cgst || 0) + (sgst || 0) + (igst || 0) + cessVal;
+
+    // Under RCM: Supplier does NOT collect GST. Vendor is only owed Base + Roundoff + Charges (netTotal - taxTotal)
+    const partyCredit = reverseCharge ? Number((netTotal - taxTotal).toFixed(2)) : netTotal;
+
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_CREDITORS', partyId: party._id, session });
-    docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: netTotal, narration: `Purchase Bill No: ${billNo}` });
+    docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: partyCredit, narration: `Purchase Bill No: ${billNo}` });
 
     if (reverseCharge) {
-      // Under RCM: Firm claims ITC and also owes equal Tax Liability to Govt
+      // Under RCM: Firm claims ITC and also owes equal Tax Liability directly to Govt
       if (cgst > 0) {
         docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0, narration: `RCM CGST Input: ${billNo}` });
         docs.push({ ...base, accountHead: 'CGST Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cgst, narration: `RCM CGST Liability: ${billNo}` });
@@ -110,10 +119,15 @@ export class LedgerService {
         docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `RCM IGST Input: ${billNo}` });
         docs.push({ ...base, accountHead: 'IGST Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `RCM IGST Liability: ${billNo}` });
       }
+      if (cessVal > 0) {
+        docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: cessVal, creditAmount: 0, narration: `RCM Cess Input: ${billNo}` });
+        docs.push({ ...base, accountHead: 'Cess Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cessVal, narration: `RCM Cess Liability: ${billNo}` });
+      }
     } else {
       if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0, narration: `CGST Input on Purchase: ${billNo}` });
       if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: sgst, creditAmount: 0, narration: `SGST Input on Purchase: ${billNo}` });
       if (igst > 0) docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `IGST Input on Purchase: ${billNo}` });
+      if (cessVal > 0) docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: cessVal, creditAmount: 0, narration: `Cess Input on Purchase: ${billNo}` });
     }
 
     if (Math.abs(roundOff) > 0) {
@@ -227,13 +241,19 @@ export class LedgerService {
   }
 
   static async postAccountingPurchaseLedger(params: any) {
-    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, roundOff, otherCharges, serviceItems, reverseCharge, createdBy, session } = params;
+    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, cess, roundOff, otherCharges, serviceItems, reverseCharge, createdBy, session } = params;
     const base = { firmId, transactionDate: billDate, voucherGroupId: voucherId, voucherType: 'PURCHASE', voucherNo: billNo, refType: 'BILL', refId: billId, createdBy };
     const docs: LedgerEntryParams[] = [];
 
-    // Cr Party (Sundry Creditors) = netTotal
+    const cessVal = parseFloat(cess) || 0;
+    const taxTotal = (cgst || 0) + (sgst || 0) + (igst || 0) + cessVal;
+
+    // Under RCM: Supplier does NOT collect GST. Vendor is only credited Base + Roundoff + Charges (netTotal - taxTotal)
+    const partyCredit = reverseCharge ? Number((netTotal - taxTotal).toFixed(2)) : netTotal;
+
+    // Cr Party (Sundry Creditors)
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_CREDITORS', partyId: party._id, session });
-    docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: netTotal, narration: `Service Purchase Bill: ${billNo}` });
+    docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: partyCredit, narration: `Service Purchase Bill: ${billNo}` });
 
     // Dr each line item's specific Expense/Asset ledger head
     for (const item of (serviceItems || [])) {
@@ -258,10 +278,15 @@ export class LedgerService {
         docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `RCM IGST Input on Service: ${billNo}` });
         docs.push({ ...base, accountHead: 'IGST Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `RCM IGST Liability on Service: ${billNo}` });
       }
+      if (cessVal > 0) {
+        docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: cessVal, creditAmount: 0, narration: `RCM Cess Input on Service: ${billNo}` });
+        docs.push({ ...base, accountHead: 'Cess Payable (RCM)', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cessVal, narration: `RCM Cess Liability on Service: ${billNo}` });
+      }
     } else {
       if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0, narration: `CGST Input on Service Purchase: ${billNo}` });
       if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: sgst, creditAmount: 0, narration: `SGST Input on Service Purchase: ${billNo}` });
       if (igst > 0) docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0, narration: `IGST Input on Service Purchase: ${billNo}` });
+      if (cessVal > 0) docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: cessVal, creditAmount: 0, narration: `Cess Input on Service Purchase: ${billNo}` });
     }
 
     // Round Off
@@ -276,6 +301,51 @@ export class LedgerService {
       if (amt > 0) {
         const cL = await resolveLedgerPostingAccount({ firmId, accountHead: normalizeLedgerAccountHead(charge.name), fallbackType: 'INDIRECT_EXPENSE', session });
         docs.push({ ...base, accountHead: cL.accountHead, accountType: cL.accountType, debitAmount: amt, creditAmount: 0, narration: `${cL.accountHead} on Service Purchase: ${billNo}` });
+      }
+    }
+
+    this.assertBalanced(docs, 'ACCOUNTING_PURCHASE', billNo);
+    await (Ledger as any).insertMany(docs, session ? { session } : {});
+  }
+
+  static async postAccountingDebitNoteLedger(params: any) {
+    const { firmId, billId, voucherId, billNo, billDate, party, netTotal, cgst, sgst, igst, cess, roundOff, otherCharges, serviceItems, createdBy, session } = params;
+    const base = { firmId, transactionDate: billDate, voucherGroupId: voucherId, voucherType: 'DEBIT_NOTE', voucherNo: billNo, refType: 'BILL', refId: billId, createdBy };
+    const docs: LedgerEntryParams[] = [];
+
+    const cessVal = parseFloat(cess) || 0;
+
+    // Dr Party (Sundry Creditors) = netTotal (reduces supplier liability)
+    const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_CREDITORS', partyId: party._id, session });
+    docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: netTotal, creditAmount: 0, narration: `Purchase Return / Debit Note: ${billNo}` });
+
+    // Cr each line item's specific Expense ledger head (reduces expense)
+    for (const item of (serviceItems || [])) {
+      const lineAmount = parseFloat(item.amount) || 0;
+      if (lineAmount > 0) {
+        const itemL = await resolveLedgerPostingAccount({ firmId, accountHead: item.ledgerAccountHead, fallbackType: 'EXPENSE', session });
+        docs.push({ ...base, accountHead: itemL.accountHead, accountType: itemL.accountType, debitAmount: 0, creditAmount: lineAmount, narration: `Reversal of ${itemL.accountHead}: ${item.description || ''} - Note: ${billNo}` });
+      }
+    }
+
+    // Cr GST Input Credit accounts (reverses claimed input tax credit)
+    if (cgst > 0) docs.push({ ...base, accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: cgst, narration: `CGST Reversal on Debit Note: ${billNo}` });
+    if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: sgst, narration: `SGST Reversal on Debit Note: ${billNo}` });
+    if (igst > 0) docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: igst, narration: `IGST Reversal on Debit Note: ${billNo}` });
+    if (cessVal > 0) docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: cessVal, narration: `Cess Reversal on Debit Note: ${billNo}` });
+
+    // Round Off
+    if (Math.abs(roundOff) > 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
+      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff < 0 ? Math.abs(roundOff) : 0, creditAmount: roundOff > 0 ? roundOff : 0, narration: `Round Off on Debit Note: ${billNo}` });
+    }
+
+    // Other Charges (Cr)
+    for (const charge of (otherCharges || [])) {
+      const amt = parseFloat(charge.amount) || 0;
+      if (amt > 0) {
+        const cL = await resolveLedgerPostingAccount({ firmId, accountHead: normalizeLedgerAccountHead(charge.name), fallbackType: 'INDIRECT_EXPENSE', session });
+        docs.push({ ...base, accountHead: cL.accountHead, accountType: cL.accountType, debitAmount: 0, creditAmount: amt, narration: `Reversal of ${cL.accountHead} on Debit Note: ${billNo}` });
       }
     }
 
@@ -630,6 +700,168 @@ export class LedgerService {
       totalCashBankCreditBalances: Math.abs(Math.min(0, totalCashBank)),
       totalLiabSide,
       netProfit: plModel.netProfit
+    };
+  }
+
+  static async getDayBook(
+    firmId: mongoose.Types.ObjectId,
+    options: {
+      date?: string;
+      fromDate?: string;
+      toDate?: string;
+      voucherType?: string;
+      accountHead?: string;
+      partyId?: string | mongoose.Types.ObjectId;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) {
+    const { date, fromDate, toDate, voucherType, accountHead, partyId, search, limit = 500, offset = 0 } = options;
+
+    const fDate = fromDate || date;
+    const tDate = toDate || date;
+
+    const baseFilter: any = { firmId };
+
+    if (fDate || tDate) {
+      baseFilter.transactionDate = {};
+      if (fDate) baseFilter.transactionDate.$gte = fDate;
+      if (tDate) baseFilter.transactionDate.$lte = tDate;
+    }
+
+    if (voucherType && voucherType !== 'ALL') {
+      baseFilter.voucherType = voucherType.toUpperCase();
+    }
+
+    if (accountHead) {
+      baseFilter.accountHead = accountHead;
+    }
+
+    if (partyId && mongoose.Types.ObjectId.isValid(String(partyId))) {
+      baseFilter.partyId = new mongoose.Types.ObjectId(String(partyId));
+    }
+
+    if (search) {
+      const q = search.trim();
+      baseFilter.$or = [
+        { voucherNo: { $regex: q, $options: 'i' } },
+        { narration: { $regex: q, $options: 'i' } },
+        { accountHead: { $regex: q, $options: 'i' } },
+        { createdBy: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    // Fetch matching ledger rows
+    const entries = await Ledger.find(baseFilter)
+      .sort({ transactionDate: -1, createdAt: -1, voucherNo: 1 })
+      .lean();
+
+    // Group entries by Voucher Group / Voucher No
+    const voucherMap = new Map<string, any>();
+
+    entries.forEach((e: any) => {
+      const groupKey = e.voucherGroupId || `${e.voucherType || 'VOUCHER'}_${e.voucherNo || ''}_${e.transactionDate}`;
+      if (!voucherMap.has(groupKey)) {
+        voucherMap.set(groupKey, {
+          voucherGroupId: e.voucherGroupId || groupKey,
+          voucherNo: e.voucherNo || '-',
+          voucherType: e.voucherType || 'JOURNAL',
+          transactionDate: e.transactionDate,
+          narration: e.narration || '',
+          refType: e.refType || '',
+          refId: e.refId ? String(e.refId) : undefined,
+          partyId: e.partyId ? String(e.partyId) : undefined,
+          paymentMode: e.paymentMode || '',
+          createdBy: e.createdBy || '',
+          createdAt: e.createdAt,
+          entries: [],
+          totalDebit: 0,
+          totalCredit: 0,
+          primaryAccount: '',
+          contraAccount: '',
+        });
+      }
+
+      const v = voucherMap.get(groupKey);
+      v.entries.push({
+        _id: e._id ? String(e._id) : undefined,
+        accountHead: e.accountHead,
+        accountType: e.accountType,
+        debitAmount: Number(e.debitAmount || 0),
+        creditAmount: Number(e.creditAmount || 0),
+        narration: e.narration || '',
+        paymentMode: e.paymentMode || ''
+      });
+
+      v.totalDebit += Number(e.debitAmount || 0);
+      v.totalCredit += Number(e.creditAmount || 0);
+    });
+
+    const allVouchers = Array.from(voucherMap.values()).map(v => {
+      v.totalDebit = Number(v.totalDebit.toFixed(2));
+      v.totalCredit = Number(v.totalCredit.toFixed(2));
+      
+      const drHeads = v.entries.filter((en: any) => en.debitAmount > 0).map((en: any) => en.accountHead);
+      const crHeads = v.entries.filter((en: any) => en.creditAmount > 0).map((en: any) => en.accountHead);
+      v.drParticulars = drHeads.join(', ');
+      v.crParticulars = crHeads.join(', ');
+      v.primaryAccount = drHeads[0] || crHeads[0] || v.entries[0]?.accountHead || 'General';
+      v.contraAccount = crHeads[0] || drHeads[0] || '';
+      v.isBalanced = Math.abs(v.totalDebit - v.totalCredit) < 0.01;
+      return v;
+    });
+
+    let totalDebits = 0;
+    let totalCredits = 0;
+    let totalReceipts = 0;
+    let totalPayments = 0;
+    let totalSales = 0;
+    let totalPurchases = 0;
+    let totalJournals = 0;
+    let totalContras = 0;
+
+    const voucherTypeCounts: Record<string, number> = {};
+
+    allVouchers.forEach(v => {
+      const vtype = (v.voucherType || 'JOURNAL').toUpperCase();
+      voucherTypeCounts[vtype] = (voucherTypeCounts[vtype] || 0) + 1;
+
+      totalDebits += v.totalDebit;
+      totalCredits += v.totalCredit;
+
+      if (vtype.includes('RECEIPT')) totalReceipts += v.totalDebit;
+      else if (vtype.includes('PAYMENT')) totalPayments += v.totalCredit;
+      else if (vtype.includes('SALES')) totalSales += v.totalDebit;
+      else if (vtype.includes('PURCHASE')) totalPurchases += v.totalCredit;
+      else if (vtype.includes('CONTRA')) totalContras += v.totalDebit;
+      else totalJournals += v.totalDebit;
+    });
+
+    const totalVouchers = allVouchers.length;
+    const paginatedVouchers = allVouchers.slice(offset, offset + limit);
+
+    return {
+      vouchers: paginatedVouchers,
+      totalCount: totalVouchers,
+      summary: {
+        totalVouchers,
+        totalDebits: Number(totalDebits.toFixed(2)),
+        totalCredits: Number(totalCredits.toFixed(2)),
+        totalReceipts: Number(totalReceipts.toFixed(2)),
+        totalPayments: Number(totalPayments.toFixed(2)),
+        totalSales: Number(totalSales.toFixed(2)),
+        totalPurchases: Number(totalPurchases.toFixed(2)),
+        totalJournals: Number(totalJournals.toFixed(2)),
+        totalContras: Number(totalContras.toFixed(2)),
+        netFlow: Number((totalReceipts - totalPayments).toFixed(2)),
+        isBooksBalanced: Math.abs(totalDebits - totalCredits) < 0.01,
+        voucherTypeCounts,
+        period: {
+          fromDate: fDate || 'Beginning',
+          toDate: tDate || 'Today'
+        }
+      }
     };
   }
 }

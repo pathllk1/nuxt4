@@ -1,0 +1,406 @@
+{
+  "19AJCPP2578B1Z7": {
+    "data": {
+      "place_of_business_additional": [],
+      "gstin": "19AJCPP2578B1Z7",
+      "legal_name": "KARTICK  PAUL",
+      "state_jurisdiction": "SILIGURI",
+      "centre_jurisdiction": "III RANGE",
+      "registration_date": "01/07/2017",
+      "business_constitution": "Proprietorship",
+      "type": "Regular",
+      "business_activity_nature": [
+        "Wholesale Business"
+      ],
+      "status": "Active",
+      "cancellation_date": "",
+      "trade_name": "SILIGURI SUPPLIERS",
+      "state_jurisdiction_code": "WB089",
+      "centre_jurisdiction_code": "WE0103",
+      "place_of_business_principal": {
+        "address": {
+          "building_name": "",
+          "street": "EAST VIVEKANANDA PALLY",
+          "location": "SILIGURI",
+          "door_num": "18",
+          "state": "West Bengal",
+          "floor_num": "",
+          "lattitude": "",
+          "longitude": "",
+          "district": "Darjeeling",
+          "city": "",
+          "pin_code": "734006"
+        },
+        "nature": [
+          "Wholesale Business"
+        ]
+      }
+    }
+  },
+  "07AMLPS2241N1ZL": {
+    "data": {
+      "place_of_business_additional": [
+        {
+          "address": {
+            "building_name": "",
+            "street": "Village Khera Kalan",
+            "location": "New Delhi",
+            "door_num": "Plot no 325",
+            "state": "Delhi",
+            "floor_num": "Khasra No 108",
+            "lattitude": "",
+            "longitude": "",
+            "district": "North West Delhi",
+            "city": "",
+            "pin_code": "110082"
+          },
+          "nature": [
+            "Warehouse / Depot",
+            "Wholesale Business",
+            "Retail Business"
+          ]
+        }
+      ],
+      "gstin": "07AMLPS2241N1ZL",
+      "legal_name": "LAXMI  SEKHANI",
+      "state_jurisdiction": "Ward 12",
+      "centre_jurisdiction": "RANGE - 6",
+      "registration_date": "01/07/2017",
+      "business_constitution": "Proprietorship",
+      "type": "Regular",
+      "business_activity_nature": [
+        "Wholesale Business",
+        "Retail Business",
+        "Warehouse / Depot"
+      ],
+      "status": "Active",
+      "cancellation_date": "",
+      "trade_name": "RANJIT PAPER",
+      "state_jurisdiction_code": "DL012",
+      "centre_jurisdiction_code": "ZI0201",
+      "place_of_business_principal": {
+        "address": {
+          "building_name": "",
+          "street": "CHHOTA CHIPPIWARA",
+          "location": "CHAWRI BAZAR",
+          "door_num": "950/5",
+          "state": "Delhi",
+          "floor_num": "",
+          "lattitude": "",
+          "longitude": "",
+          "district": "Central Delhi",
+          "city": "",
+          "pin_code": "110006"
+        },
+        "nature": [
+          "Wholesale Business",
+          "Retail Business"
+        ]
+      }
+    }
+  },
+  "24AAEFF7243A1ZY": {
+    "data": {
+      "place_of_business_additional": [],
+      "gstin": "24AAEFF7243A1ZY",
+      "legal_name": "FOMEX GROUP INC.",
+      "state_jurisdiction": "Ghatak 93 (Rajkot)",
+      "centre_jurisdiction": "WANKANER-I RANGE",
+      "registration_date": "01/07/2017",
+      "business_constitution": "Partnership",
+      "type": "Regular",
+      "business_activity_nature": [
+        "Warehouse / Depot",
+        "Retail Business",
+        "Wholesale Business"
+      ],
+      "status": "Active",
+      "cancellation_date": "",
+      "trade_name": "FOMEX GROUP INC.",
+      "state_jurisdiction_code": "GJ093",
+      "centre_jurisdiction_code": "WV0404",
+      "place_of_business_principal": {
+        "address": {
+          "building_name": "FOMEX ROAD",
+          "street": "FOMEX ROAD",
+          "location": "VILLAGE JALIDA",
+          "door_num": "1 SURVEY NO. 249,",
+          "state": "Gujarat",
+          "floor_num": "8-A NATIONAL HIGHWAY",
+          "lattitude": "",
+          "longitude": "",
+          "district": "Rajkot",
+          "city": "",
+          "pin_code": "363621"
+        },
+        "nature": [
+          "Warehouse / Depot",
+          "Retail Business",
+          "Wholesale Business"
+        ]
+      }
+    }
+  },
+  "18AAZFR2487F1ZG": {
+    "data": {
+      "place_of_business_additional": [],
+      "gstin": "18AAZFR2487F1ZG",
+      "legal_name": "REALPACK MARKETING",
+      "state_jurisdiction": "GUWAHATI-D - 7",
+      "centre_jurisdiction": "I-A RANGE",
+      "registration_date": "05/04/2019",
+      "business_constitution": "Partnership",
+      "type": "Regular",
+      "business_activity_nature": [
+        "Wholesale Business",
+        "Retail Business"
+      ],
+      "status": "Active",
+      "cancellation_date": "",
+      "trade_name": "REALPACK MARKETING",
+      "state_jurisdiction_code": "AS075",
+      "centre_jurisdiction_code": "UQ0101",
+      "place_of_business_principal": {
+        "address": {
+          "building_name": "",
+          "street": "B.K.KAKOTI ROAD",
+          "location": "GUWAHATI",
+          "door_num": "18",
+          "state": "Assam",
+          "floor_num": "",
+          "lattitude": "",
+          "longitude": "",
+          "district": "Kamrup Metropolitan",
+          "city": "",
+          "pin_code": "781007"
+        },
+        "nature": [
+          "Wholesale Business",
+          "Retail Business"
+        ]
+      }
+    }
+  },
+  "29AACCF1132H2ZX": {
+    "data": {
+      "place_of_business_additional": [
+        {
+          "address": {
+            "building_name": "KADUBEESANHALLI",
+            "street": "CESSNA BUSINESS PARK KADUBEESANHALLI",
+            "location": "MARTHALLI",
+            "door_num": "464",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Urban",
+            "city": "",
+            "pin_code": "560103"
+          },
+          "nature": [
+            "Retail Business",
+            "Supplier of Services",
+            "Recipient of Goods or Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "Embassy Tech Village",
+            "street": "Embassy Tech Village Outer Ring Road",
+            "location": "Devarabeesanahalli Village Varthur Hobli",
+            "door_num": "Alyssa, Begonia, Clover",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Urban",
+            "city": "",
+            "pin_code": "560103"
+          },
+          "nature": [
+            "Office / Sale Office",
+            "Supplier of Services",
+            "Recipient of Goods or Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "",
+            "street": "MG Road",
+            "location": "Mangalore",
+            "door_num": "Empire Building 4th Floor",
+            "state": "Karnataka",
+            "floor_num": "4th Floor",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Dakshina Kannada",
+            "city": "",
+            "pin_code": "575003"
+          },
+          "nature": [
+            "Recipient of Goods or Services",
+            "Supplier of Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "",
+            "street": "Anagondanahalli",
+            "location": "Hoskate Taluk, Bangalore.",
+            "door_num": "SY No.37,38, 39, 5, 4 Hobla Pura",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Urban",
+            "city": "",
+            "pin_code": "560067"
+          },
+          "nature": [
+            "Recipient of Goods or Services",
+            "Supplier of Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "",
+            "street": "Main Road, Vasanth Nagar",
+            "location": "Bengaluru",
+            "door_num": "39 8th",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Rural",
+            "city": "",
+            "pin_code": "560052"
+          },
+          "nature": [
+            "Leasing Business",
+            "Service Provision"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "GOTETI",
+            "street": "Outer Ring Road",
+            "location": "Deverabisanahalli Bellandur",
+            "door_num": "Aurbis Business Park No-58,7",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Urban",
+            "city": "",
+            "pin_code": "560103"
+          },
+          "nature": [
+            "Recipient of Goods or Services",
+            "Supplier of Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "",
+            "street": "Hosakote Taluk, Bangalore Rural District",
+            "location": "bangalore",
+            "door_num": "Sy. No 42/1,Hemandanhalli village, Anugondanahalli Hobli",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Rural",
+            "city": "",
+            "pin_code": "560067"
+          },
+          "nature": [
+            "Supplier of Services",
+            "Recipient of Goods or Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "",
+            "street": "Mahimapura Village, Sompura Hobli, Nelamangala Taluk",
+            "location": "Bangalore",
+            "door_num": "Sy. No. 32/2B",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "",
+            "longitude": "",
+            "district": "Bengaluru Rural",
+            "city": "",
+            "pin_code": "562123"
+          },
+          "nature": [
+            "Recipient of Goods or Services",
+            "Warehouse / Depot",
+            "Supplier of Services"
+          ]
+        },
+        {
+          "address": {
+            "building_name": "vasistha paradise",
+            "street": "1st temple road",
+            "location": "Bengaluru",
+            "door_num": "32/1",
+            "state": "Karnataka",
+            "floor_num": "",
+            "lattitude": "13.0054640000001",
+            "longitude": "77.56861",
+            "district": "Bengaluru Urban",
+            "city": "",
+            "pin_code": "560003"
+          },
+          "nature": [
+            "Supplier of Services"
+          ]
+        }
+      ],
+      "gstin": "29AACCF1132H2ZX",
+      "legal_name": "PHONEPE PRIVATE LIMITED",
+      "state_jurisdiction": "LGSTO 015 - Bengaluru",
+      "centre_jurisdiction": "RANGE-CED5",
+      "registration_date": "06/07/2017",
+      "business_constitution": "Private Limited Company",
+      "type": "Regular",
+      "business_activity_nature": [
+        "Supplier of Services",
+        "Import",
+        "Office / Sale Office",
+        "Recipient of Goods or Services",
+        "Retail Business",
+        "Leasing Business",
+        "Service Provision",
+        "Warehouse / Depot"
+      ],
+      "status": "Active",
+      "cancellation_date": "",
+      "trade_name": "PHONEPE PRIVATE LIMITED",
+      "state_jurisdiction_code": "KA003",
+      "centre_jurisdiction_code": "YT0503",
+      "place_of_business_principal": {
+        "address": {
+          "building_name": "Salarpuria Softzone Tech Park",
+          "street": "Bellandur",
+          "location": "Bengaluru",
+          "door_num": "Building 1 Wing A",
+          "state": "Karnataka",
+          "floor_num": "4 5 6 7",
+          "lattitude": "12.92373",
+          "longitude": "77.67037",
+          "district": "Bengaluru Urban",
+          "city": "",
+          "pin_code": "560103"
+        },
+        "nature": [
+          "Supplier of Services",
+          "Import",
+          "Office / Sale Office",
+          "Recipient of Goods or Services"
+        ]
+      }
+    }
+  }
+}

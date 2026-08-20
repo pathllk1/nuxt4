@@ -1,5 +1,8 @@
 import { defineEventHandler } from 'h3';
+import mongoose from 'mongoose';
 import Bill from '../../../models/Bill';
+import { requireAuthSession } from '../../../utils/auth';
+import { connectDB } from '../../../plugins/mongodb';
 
 const DEFAULT_CHARGES = [
   { name: 'Freight Charges', type: 'freight', hsnSac: '9965', grate: 18 },
@@ -10,9 +13,21 @@ const DEFAULT_CHARGES = [
 
 export default defineEventHandler(async (event) => {
   try {
+    await connectDB();
+    const user = await requireAuthSession(event);
+    const firmIdStr = String(user.firm_id);
+    const firmIdObj = mongoose.Types.ObjectId.isValid(firmIdStr) ? new mongoose.Types.ObjectId(firmIdStr) : null;
+
     let bills: any[] = [];
     try {
-      bills = await Bill.find({ otherCharges: { $exists: true, $ne: null } })
+      bills = await Bill.find({
+        $or: [
+          { firmId: firmIdStr },
+          { firm_id: firmIdStr },
+          ...(firmIdObj ? [{ firmId: firmIdObj }, { firm_id: firmIdObj }] : [])
+        ],
+        otherCharges: { $exists: true, $ne: null }
+      })
         .select('otherCharges')
         .sort({ createdAt: -1 })
         .limit(100)
@@ -47,7 +62,7 @@ export default defineEventHandler(async (event) => {
       success: true,
       data: Array.from(chargesMap.values())
     };
-  } catch (error: any) {
+  } catch {
     return {
       success: true,
       data: DEFAULT_CHARGES

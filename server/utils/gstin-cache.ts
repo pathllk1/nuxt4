@@ -1,4 +1,5 @@
 import GstinCache, { CACHE_TTL_DAYS } from '../models/GstinCache';
+import { extractGstDetails } from './accounting/gst-address-helper';
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[0-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
@@ -13,12 +14,12 @@ interface GstinLookupResult {
  * Extract denormalized fields from raw RapidAPI response for quick reference.
  */
 function extractDenormalized(rawData: any) {
-  const d = rawData?.data || rawData?.result || rawData || {};
+  const details = extractGstDetails(rawData);
   return {
-    tradeName: d.trade_name || d.bnm || d.tradeName || '',
-    legalName: d.legal_name || d.lgnm || d.legalName || '',
-    status: d.status || d.sts || '',
-    state: d.state_jurisdiction || d.stj || d.pradr?.addr?.stcd || '',
+    tradeName: details.tradeName,
+    legalName: details.legalName,
+    status: details.status,
+    state: details.state,
   };
 }
 
@@ -108,33 +109,44 @@ export async function lookupGstinWithCache(
 }
 
 /**
- * Fetch GSTIN details from RapidAPI.
+ * Fetch GSTIN details from RapidAPI with automatic retry on 429 rate limit.
  */
-async function fetchFromRapidApi(gstin: string): Promise<any> {
+async function fetchFromRapidApi(gstin: string, retries: number = 2): Promise<any> {
   const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
   if (!RAPIDAPI_KEY) {
     throw new Error('GST lookup service is not configured (RAPIDAPI_KEY missing).');
   }
 
-  const apiResponse = await fetch(
-    `https://powerful-gstin-tool.p.rapidapi.com/v1/gstin/${gstin}/details`,
-    {
-      method: 'GET',
-      headers: {
-        'x-rapidapi-key': RAPIDAPI_KEY,
-        'x-rapidapi-host': 'powerful-gstin-tool.p.rapidapi.com',
-      },
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const apiResponse = await fetch(
+      `https://powerful-gstin-tool.p.rapidapi.com/v1/gstin/${gstin}/details`,
+      {
+        method: 'GET',
+        headers: {
+          'x-rapidapi-key': RAPIDAPI_KEY,
+          'x-rapidapi-host': 'powerful-gstin-tool.p.rapidapi.com',
+        },
+      }
+    );
+
+    if (apiResponse.status === 429) {
+      if (attempt < retries) {
+        const delayMs = 1200 * (attempt + 1);
+        console.warn(`[GST_CACHE] Rate limited (429) on ${gstin}. Backing off for ${delayMs}ms (attempt ${attempt + 1}/${retries})...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
     }
-  );
 
-  if (!apiResponse.ok) {
-    const errBody = await apiResponse.text();
-    console.error(`[GST_CACHE] RapidAPI returned ${apiResponse.status}:`, errBody);
-    throw new Error(`GST lookup service returned an error (${apiResponse.status}).`);
+    if (!apiResponse.ok) {
+      const errBody = await apiResponse.text();
+      console.error(`[GST_CACHE] RapidAPI returned ${apiResponse.status}:`, errBody);
+      throw new Error(`GST lookup service returned an error (${apiResponse.status}).`);
+    }
+
+    const raw = await apiResponse.json();
+    return raw;
   }
-
-  const raw = await apiResponse.json();
-  return raw;
 }
 
 /**

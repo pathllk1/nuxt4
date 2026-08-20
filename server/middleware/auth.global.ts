@@ -1,4 +1,4 @@
-import { defineEventHandler, getHeader, getCookie, getRequestIP, setResponseHeader, sendError, createError } from 'h3';
+import { defineEventHandler, getHeader, getCookie, getRequestIP, setResponseHeader, setCookie, sendError, createError } from 'h3';
 import User from '../models/User';
 import Session from '../models/Session';
 import { connectDB } from '../plugins/mongodb';
@@ -28,6 +28,7 @@ export default defineEventHandler(async (event) => {
                               !path.startsWith('/api/auth/signup') && 
                               !path.startsWith('/api/auth/refresh') && 
                               !path.startsWith('/api/_nuxt_icon/') && 
+                              !(path === '/api/firms' && event.method === 'GET') &&
                               path !== '/api/health' && 
                               path !== '/api/info';
 
@@ -146,9 +147,9 @@ export default defineEventHandler(async (event) => {
     // Attach user payload to Nitro context
     event.context.user = decoded;
   } catch (error: any) {
-    // If token is expired, attempt silent refresh if refresh token is provided in headers
+    // If token is expired, attempt silent refresh if refresh token is provided in headers or cookies
     if (error.message === 'TOKEN_EXPIRED') {
-      const refreshTokenValue = getHeader(event, 'x-refresh-token');
+      const refreshTokenValue = getHeader(event, 'x-refresh-token') || getCookie(event, 'refresh_token');
       
       if (refreshTokenValue) {
         try {
@@ -235,10 +236,12 @@ export default defineEventHandler(async (event) => {
               const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
               if (shouldRotate) {
                 newRefreshToken = generateRefreshToken(user, deviceFingerprint);
-                const oldExp = getTokenExpiration(refreshTokenValue) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-                await blacklistToken(refreshTokenValue, 'refresh', user._id.toString(), 'Token rotated (silent)', oldExp);
+                session.previousRefreshToken = refreshTokenValue;
+                session.previousRotatedAt = new Date();
                 session.refreshToken = newRefreshToken;
-                session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                session.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+              } else {
+                session.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
               }
 
               // RT-B3: Update session metadata (IP, user agent, device info, location, last activity)
@@ -260,6 +263,24 @@ export default defineEventHandler(async (event) => {
                 severity: 'low'
               });
               
+              const isProduction = process.env.NODE_ENV === 'production';
+              setCookie(event, 'access_token', newAccessToken, {
+                httpOnly: true,
+                secure: isProduction,
+                sameSite: 'lax',
+                path: '/',
+                maxAge: 15 * 60
+              });
+              if (shouldRotate) {
+                setCookie(event, 'refresh_token', newRefreshToken, {
+                  httpOnly: true,
+                  secure: isProduction,
+                  sameSite: 'lax',
+                  path: '/',
+                  maxAge: 60 * 60 * 24 * 30
+                });
+              }
+
               // RT-B5 & Auto-Refresh: Expose headers via CORS so client script can read new tokens
               setResponseHeader(event, 'x-new-access-token', newAccessToken);
               if (shouldRotate) {

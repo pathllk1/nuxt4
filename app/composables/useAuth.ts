@@ -19,8 +19,13 @@ export function extractFirmId(firm: any): string | null {
   return firm.id || firm._id || null;
 }
 
+// Client-side singleton promise lock for token rotation
+let clientRefreshPromise: Promise<any> | null = null;
+
 export const useAuth = () => {
   const router = useRouter();
+  // Capture requestFetch synchronously within the Nuxt composable context
+  const requestFetch = import.meta.server ? useRequestFetch() : $fetch;
 
   // Nuxt useState for SSR state hydration (prevents cross-request pollution and works across F5 reloads)
   const user = useState<User | null>('auth_user', () => null);
@@ -29,13 +34,15 @@ export const useAuth = () => {
   const selectedFirmId = useState<string | null>('auth_firm_id', () => null);
   const isInitialized = useState<boolean>('auth_initialized', () => false);
 
-  // Singleton promise lock for token rotation
-  const refreshPromise = useState<Promise<any> | null>('auth_refresh_promise', () => null);
-
   const cookieFirm = useCookie<string | null>('active_firm_id', { maxAge: 60 * 60 * 24 * 30, path: '/' });
   const cookieAccess = useCookie<string | null>('access_token', { maxAge: 15 * 60, path: '/' });
+  const cookieRefresh = useCookie<string | null>('refresh_token', { maxAge: 60 * 60 * 24 * 30, path: '/' });
 
   const initAuth = async () => {
+    // Idempotency guard: skip if SSR already successfully authenticated
+    // If SSR failed (user is null), allow client-side to retry (browser can send HttpOnly cookies)
+    if (isInitialized.value && user.value) return;
+
     try {
       if (cookieFirm.value && cookieFirm.value !== 'undefined' && cookieFirm.value !== 'null') {
         selectedFirmId.value = cookieFirm.value;
@@ -43,6 +50,10 @@ export const useAuth = () => {
 
       if (cookieAccess.value) {
         accessToken.value = cookieAccess.value;
+      }
+
+      if (cookieRefresh.value) {
+        refreshToken.value = cookieRefresh.value;
       }
 
       if (import.meta.client) {
@@ -55,9 +66,8 @@ export const useAuth = () => {
 
       // If user state is empty, recover user profile securely via HttpOnly cookie (works on both SSR and Client)
       if (!user.value) {
-        const fetcher = import.meta.server ? useRequestFetch() : $fetch;
         try {
-          const userData = await fetcher<any>('/api/auth/me', { credentials: 'include' });
+          const userData = await requestFetch<any>('/api/auth/me', { credentials: 'include' });
           if (userData && (userData.id || userData._id)) {
             user.value = {
               ...userData,
@@ -78,7 +88,7 @@ export const useAuth = () => {
           const refreshed = await rotateToken({ redirectIfFailed: false }).catch(() => null);
           if (refreshed && refreshed.accessToken) {
             try {
-              const userData = await fetcher<any>('/api/auth/me', {
+              const userData = await requestFetch<any>('/api/auth/me', {
                 credentials: 'include',
                 headers: { Authorization: `Bearer ${refreshed.accessToken}` }
               });
@@ -123,38 +133,57 @@ export const useAuth = () => {
     }
   };
 
+  let ssrRefreshPromise: Promise<any> | null = null;
+
   const rotateToken = async (options: { redirectIfFailed?: boolean } = {}): Promise<any> => {
-    if (refreshPromise.value) {
-      return refreshPromise.value;
+    const existingPromise = import.meta.client ? clientRefreshPromise : ssrRefreshPromise;
+    if (existingPromise) {
+      return existingPromise;
     }
 
     const promise = (async () => {
       startRequest();
       try {
-        const response = await $fetch<{ accessToken: string; refreshToken?: string }>('/api/auth/refresh', {
+        const response = await requestFetch<{ accessToken: string; refreshToken?: string }>('/api/auth/refresh', {
           method: 'POST',
-          credentials: 'include'
+          credentials: 'include',
+          // Only send explicit body in SSR context where cookies might not auto-forward
+          body: import.meta.server && cookieRefresh.value ? { refreshToken: cookieRefresh.value } : undefined
         });
 
         if (response && response.accessToken) {
           accessToken.value = response.accessToken;
+          cookieAccess.value = response.accessToken;
           if (response.refreshToken) {
             refreshToken.value = response.refreshToken;
+            cookieRefresh.value = response.refreshToken;
           }
           return response;
         }
         throw new Error('Refresh response missing token');
-      } catch (e) {
-        console.warn('[Auth] Token refresh failed:', e);
-        logout({ redirect: options.redirectIfFailed });
+      } catch (e: any) {
+        const status = e?.status || e?.statusCode || e?.data?.statusCode;
+        const errorMsg = e?.data?.statusMessage || e?.statusMessage || e?.message || String(e);
+        console.warn(`[Auth] Token refresh failed: ${errorMsg}`);
+        if (status === 401 || errorMsg.includes('revoked') || errorMsg.includes('Unauthorized') || errorMsg.includes('Invalid session')) {
+          logout({ redirect: options.redirectIfFailed });
+        }
         throw e;
       } finally {
         endRequest();
-        refreshPromise.value = null;
+        if (import.meta.client) {
+          clientRefreshPromise = null;
+        } else {
+          ssrRefreshPromise = null;
+        }
       }
     })();
 
-    refreshPromise.value = promise;
+    if (import.meta.client) {
+      clientRefreshPromise = promise;
+    } else {
+      ssrRefreshPromise = promise;
+    }
     return promise;
   };
 
@@ -162,6 +191,8 @@ export const useAuth = () => {
     user.value = newUser;
     accessToken.value = newAccess;
     refreshToken.value = newRefresh;
+    cookieAccess.value = newAccess;
+    cookieRefresh.value = newRefresh;
 
     if (newUser.firms && newUser.firms.length > 0) {
       const storedFirm = cookieFirm.value || (import.meta.client ? localStorage.getItem('active_firm_id') : null);
@@ -209,10 +240,12 @@ export const useAuth = () => {
   };
 
   const logout = (options?: { redirect?: boolean } | Event | any) => {
-    $fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include'
-    }).catch(err => console.warn('Logout endpoint failed:', err));
+    if (import.meta.client) {
+      $fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      }).catch(() => {});
+    }
 
     user.value = null;
     accessToken.value = null;
@@ -220,6 +253,7 @@ export const useAuth = () => {
     selectedFirmId.value = null;
     cookieFirm.value = null;
     cookieAccess.value = null;
+    cookieRefresh.value = null;
 
     if (import.meta.client) {
       localStorage.removeItem('active_firm_id');

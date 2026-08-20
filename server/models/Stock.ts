@@ -13,6 +13,7 @@ export interface IBatch {
 
 export interface IStock extends Document {
   firm_id: mongoose.Types.ObjectId;
+  firmId?: mongoose.Types.ObjectId;
   item: string;
   pno?: string;
   oem?: string;
@@ -42,6 +43,7 @@ const batchSchema = new Schema({
 const stockSchema = new Schema(
   {
     firm_id: { type: Schema.Types.ObjectId, ref: 'Firm', required: true },
+    firmId: { type: Schema.Types.ObjectId, ref: 'Firm' },
     item: { type: String, required: true },
     pno: { type: String },
     oem: { type: String },
@@ -57,6 +59,14 @@ const stockSchema = new Schema(
   },
   { timestamps: true }
 );
+
+stockSchema.pre('save', function (this: any) {
+  if (this.firm_id && !this.firmId) {
+    this.firmId = this.firm_id;
+  } else if (this.firmId && !this.firm_id) {
+    this.firm_id = this.firmId;
+  }
+});
 
 stockSchema.index({ firm_id: 1, item: 1 }, { unique: true });
 

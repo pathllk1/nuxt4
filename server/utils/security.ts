@@ -128,14 +128,24 @@ export const blacklistToken = async (
   expiresAt: Date
 ) => {
   try {
-    await TokenBlacklist.create({
-      token,
-      tokenType,
-      userId,
-      reason,
-      expiresAt
-    });
-  } catch (error) {
+    await TokenBlacklist.updateOne(
+      { token },
+      {
+        $setOnInsert: {
+          token,
+          tokenType,
+          userId,
+          reason,
+          expiresAt
+        }
+      },
+      { upsert: true }
+    );
+  } catch (error: any) {
+    // If the token is already blacklisted (e.g. concurrent race condition), treat as success
+    if (error?.code === 11000 || error?.name === 'MongoServerError') {
+      return;
+    }
     console.error('Failed to blacklist token:', error);
     throw error;
   }
@@ -149,16 +159,28 @@ export const validateSession = async (
   event: H3Event
 ): Promise<{ valid: boolean; reason?: string }> => {
   const session = await Session.findOne({ 
-    refreshToken, 
-    isActive: true 
+    isActive: true,
+    $or: [
+      { refreshToken },
+      { previousRefreshToken: refreshToken }
+    ]
   });
   
   if (!session) {
     return { valid: false, reason: 'Session not found or inactive' };
   }
+
+  // If matched via previousRefreshToken, check grace window (30 seconds)
+  if (session.previousRefreshToken === refreshToken) {
+    const gracePeriodMs = 30 * 1000;
+    const rotatedAt = session.previousRotatedAt ? new Date(session.previousRotatedAt).getTime() : 0;
+    if (Date.now() - rotatedAt > gracePeriodMs) {
+      return { valid: false, reason: 'Session expired (rotation grace period elapsed)' };
+    }
+  }
   
   // Check if session expired
-  if (session.expiresAt < new Date()) {
+  if (session.expiresAt && session.expiresAt < new Date()) {
     return { valid: false, reason: 'Session expired' };
   }
   

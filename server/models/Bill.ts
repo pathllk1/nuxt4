@@ -3,7 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IBillItem {
   stockId?: mongoose.Types.ObjectId;
   item: string;
-  hsn: string;
+  hsn?: string;
   qty: number;
   uom: string;
   rate: number;
@@ -57,10 +57,12 @@ export interface IBill extends Document {
   cgst: number;
   sgst: number;
   igst: number;
+  cess?: number;
 
   btype: 'SALES' | 'PURCHASE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'PROFORMA' | 'DELIVERY_NOTE';
   billSubtype?: string;
   invoiceMode?: 'INVENTORY' | 'ACCOUNTING';
+  docType?: string;
   
   items: IBillItem[];
   otherCharges: IBillOtherCharge[];
@@ -71,6 +73,12 @@ export interface IBill extends Document {
   dispatchThrough?: string;
   narration?: string;
   reverseCharge: boolean;
+
+  irn?: string;
+  irnDate?: string;
+  source?: string;
+  gstr1FilingStatus?: string;
+  gstr3bFilingStatus?: string;
   
   refBillId?: mongoose.Types.ObjectId;
   
@@ -99,9 +107,9 @@ export interface IBill extends Document {
 const BillItemSchema = new Schema({
   stockId: { type: Schema.Types.ObjectId, ref: 'Stock', required: false },
   item: { type: String, required: true },
-  hsn: { type: String, required: true },
+  hsn: { type: String, required: false, default: '' },
   qty: { type: Number, required: true },
-  uom: { type: String, required: true },
+  uom: { type: String, required: false, default: 'NOS' },
   rate: { type: Number, required: true },
   grate: { type: Number, required: true },
   disc: { type: Number, default: 0 },
@@ -141,10 +149,12 @@ const BillSchema: Schema = new Schema(
     cgst: { type: Number, default: 0 },
     sgst: { type: Number, default: 0 },
     igst: { type: Number, default: 0 },
+    cess: { type: Number, default: 0 },
 
     btype: { type: String, enum: ['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'PROFORMA', 'DELIVERY_NOTE'], required: true },
     billSubtype: { type: String },
     invoiceMode: { type: String, enum: ['INVENTORY', 'ACCOUNTING'], default: 'INVENTORY' },
+    docType: { type: String },
     
     items: [BillItemSchema],
     otherCharges: [{ type: Schema.Types.Mixed }],
@@ -155,6 +165,12 @@ const BillSchema: Schema = new Schema(
     dispatchThrough: { type: String },
     narration: { type: String },
     reverseCharge: { type: Boolean, default: false },
+
+    irn: { type: String },
+    irnDate: { type: String },
+    source: { type: String },
+    gstr1FilingStatus: { type: String },
+    gstr3bFilingStatus: { type: String },
     
     refBillId: { type: Schema.Types.ObjectId, ref: 'Bill', default: null },
     

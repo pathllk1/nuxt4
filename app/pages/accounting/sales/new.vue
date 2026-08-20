@@ -204,6 +204,11 @@
               <p class="text-[10px] text-slate-400">Finalize & create document</p>
             </div>
             <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-blue-600 text-sm">Alt + H / F7</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Party-Item History</p>
+              <p class="text-[10px] text-slate-400">View past billed rates & apply</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
               <span class="font-mono font-black text-purple-600 text-sm">Insert / Ctrl+N</span>
               <p class="font-bold text-slate-800 dark:text-white mt-1">Register New</p>
               <p class="text-[10px] text-slate-400">Quick create Party or Stock</p>

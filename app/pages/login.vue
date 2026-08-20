@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { useAuth } from '../composables/useAuth';
 import { useRouter } from '#app';
 import AppSidebar from '../components/AppSidebar.vue';
@@ -93,15 +93,8 @@ const password = ref('');
 const loading = ref(false);
 const error = ref<string | null>(null);
 
-const { login, isAuthenticated, initAuth } = useAuth();
+const { login } = useAuth();
 const router = useRouter();
-
-onMounted(async () => {
-  await initAuth();
-  if (isAuthenticated.value) {
-    router.replace('/dashboard');
-  }
-});
 
 const onSubmit = async (e?: Event) => {
   if (e) e.preventDefault();

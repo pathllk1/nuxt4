@@ -1216,3 +1216,93 @@ export async function exportDrillDownToPdfBuffer(data: {
   };
   return createPdfBufferFromDocDef(docDefinition);
 }
+
+// ── Day Book PDF Generator ──────────────────────────────────────────────────
+export async function generateDayBookPdf(data: {
+  firmName: string;
+  periodText: string;
+  vouchers: any[];
+  summary: any;
+}): Promise<Buffer> {
+  const tableBody: any[] = [
+    [
+      { text: 'Date', style: 'tblHdr', alignment: 'center' },
+      { text: 'Voucher No', style: 'tblHdr' },
+      { text: 'Type', style: 'tblHdr', alignment: 'center' },
+      { text: 'Particulars (Account Heads)', style: 'tblHdr' },
+      { text: 'Narration', style: 'tblHdr' },
+      { text: 'Debit (₹)', style: 'tblHdr', alignment: 'right' },
+      { text: 'Credit (₹)', style: 'tblHdr', alignment: 'right' }
+    ]
+  ];
+
+  (data.vouchers || []).forEach((v: any) => {
+    if (Array.isArray(v.entries) && v.entries.length > 0) {
+      v.entries.forEach((en: any, entryIdx: number) => {
+        tableBody.push([
+          { text: entryIdx === 0 ? v.transactionDate : '', alignment: 'center', fontSize: 7.5 },
+          { text: entryIdx === 0 ? v.voucherNo : '', bold: entryIdx === 0, fontSize: 8 },
+          { text: entryIdx === 0 ? v.voucherType : '', alignment: 'center', fontSize: 7.5 },
+          { text: `${en.debitAmount > 0 ? 'Dr. ' : '     To '} ${en.accountHead}`, bold: en.debitAmount > 0, fontSize: 8 },
+          { text: entryIdx === 0 ? (v.narration || '') : '', fontSize: 7.5, color: C.textMid },
+          { text: en.debitAmount > 0 ? formatCurrency(en.debitAmount) : '', alignment: 'right', fontSize: 8, color: C.green },
+          { text: en.creditAmount > 0 ? formatCurrency(en.creditAmount) : '', alignment: 'right', fontSize: 8, color: C.red }
+        ]);
+      });
+    } else {
+      tableBody.push([
+        { text: v.transactionDate, alignment: 'center', fontSize: 7.5 },
+        { text: v.voucherNo, bold: true, fontSize: 8 },
+        { text: v.voucherType, alignment: 'center', fontSize: 7.5 },
+        { text: v.primaryAccount, fontSize: 8 },
+        { text: v.narration || '', fontSize: 7.5, color: C.textMid },
+        { text: v.totalDebit > 0 ? formatCurrency(v.totalDebit) : '', alignment: 'right', fontSize: 8, color: C.green },
+        { text: v.totalCredit > 0 ? formatCurrency(v.totalCredit) : '', alignment: 'right', fontSize: 8, color: C.red }
+      ]);
+    }
+  });
+
+  // Grand Total Row
+  tableBody.push([
+    { text: 'TOTALS', colSpan: 4, bold: true, alignment: 'right', fontSize: 8.5 },
+    {},
+    {},
+    {},
+    { text: `Count: ${data.summary.totalVouchers || 0}`, bold: true, fontSize: 8 },
+    { text: formatCurrency(data.summary.totalDebits || 0), alignment: 'right', bold: true, color: C.green, fontSize: 8.5 },
+    { text: formatCurrency(data.summary.totalCredits || 0), alignment: 'right', bold: true, color: C.red, fontSize: 8.5 }
+  ]);
+
+  const docDefinition: any = {
+    pageSize: 'A4',
+    pageOrientation: 'landscape',
+    pageMargins: [25, 25, 25, 25],
+    defaultStyle: { fontSize: 8, color: C.textDark },
+    content: [
+      { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
+      { text: 'DAY BOOK (TRANSACTION JOURNAL)', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
+      { text: `Period: ${data.periodText}  |  Generated on: ${new Date().toLocaleString('en-IN')}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+      {
+        columns: [
+          { text: `Total Vouchers: ${data.summary.totalVouchers || 0}`, bold: true },
+          { text: `Total Inflows: ${formatCurrency(data.summary.totalReceipts || 0)}`, bold: true, color: C.green },
+          { text: `Total Outflows: ${formatCurrency(data.summary.totalPayments || 0)}`, bold: true, color: C.red },
+          { text: `Status: ${data.summary.isBooksBalanced ? 'BALANCED (Dr = Cr)' : 'IMBALANCED'}`, bold: true, alignment: 'right' }
+        ],
+        margin: [0, 0, 0, 6]
+      },
+      {
+        table: {
+          headerRows: 1,
+          widths: [55, 75, 55, 210, '*', 95, 95],
+          body: tableBody
+        }
+      }
+    ],
+    styles: {
+      tblHdr: { bold: true, fontSize: 8, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
+    }
+  };
+
+  return createPdfBufferFromDocDef(docDefinition);
+}

@@ -123,22 +123,17 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 const success = ref(false);
 
-const { signup, isAuthenticated, initAuth } = useAuth();
+const { signup } = useAuth();
 const router = useRouter();
 
 const firmItems = computed(() => {
   return firms.value.map(firm => ({
-    label: `${firm.name} (${firm.code})`,
-    value: firm._id
+    label: firm.code ? `${firm.name} (${firm.code})` : firm.name,
+    value: String(firm._id)
   }));
 });
 
 onMounted(async () => {
-  await initAuth();
-  if (isAuthenticated.value) {
-    router.replace('/dashboard');
-    return;
-  }
   try {
     const res = await $fetch<{ data: any[] }>('/api/firms');
     firms.value = res.data || [];

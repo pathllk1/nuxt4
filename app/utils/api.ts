@@ -106,8 +106,9 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
         }
         return retryRes.json()
       }
-      auth.logout({ redirect: true });
-      throw new Error('Session expired. Please login again.')
+      if (!auth.isAuthenticated.value) {
+        throw new Error('Session expired. Please login again.')
+      }
     }
 
     if (!response.ok) {

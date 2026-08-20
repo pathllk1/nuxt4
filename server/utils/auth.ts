@@ -31,15 +31,30 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
     });
   }
 
-  // Validate that the authenticated user actually belongs to the requested firm
-  // This prevents IDOR where a user sets x-firm-id to another firm's ID
+  if (!mongoose.Types.ObjectId.isValid(String(firmId)) || !mongoose.Types.ObjectId.isValid(String(userId))) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Bad Request: Invalid firm or user identifier format'
+    });
+  }
+
   const firmOid = new mongoose.Types.ObjectId(String(firmId));
-  const userDoc = await User.findOne({
-    _id: new mongoose.Types.ObjectId(String(userId)),
-    'firms.firm': firmOid
-  }).lean();
+  const userOid = new mongoose.Types.ObjectId(String(userId));
+  const userDoc: any = await User.findById(userOid).lean();
 
   if (!userDoc) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'Unauthorized: User not found'
+    });
+  }
+
+  const hasAccess = userDoc.role === 'superadmin' || 
+    (userDoc.firms && userDoc.firms.some((f: any) => 
+      String(f.firm?._id || f.firm) === String(firmOid)
+    ));
+
+  if (!hasAccess) {
     throw createError({
       statusCode: 403,
       statusMessage: 'Forbidden: You do not have access to this firm'
@@ -48,8 +63,8 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
 
   return {
     firm_id: firmOid,
-    _id: new mongoose.Types.ObjectId(String(userId)),
-    username: userPayload?.username,
-    email: userPayload?.email
+    _id: userOid,
+    username: userPayload?.username || userDoc.name,
+    email: userPayload?.email || userDoc.email
   };
 }

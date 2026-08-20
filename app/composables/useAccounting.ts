@@ -37,6 +37,7 @@ export const useAccounting = () => {
   const api = useApi();
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const ledgerStatement = ref<any>(null);
   const ledgerEntries = ref<LedgerEntry[]>([]);
   const accountBalance = ref({ totalDebit: 0, totalCredit: 0, balance: 0, balanceType: 'DR' });
   const trialBalance = ref<any[]>([]);
@@ -51,10 +52,21 @@ export const useAccounting = () => {
     try {
       const response = await api.get('/accounting/ledger', { params });
       if (response.success) {
-        ledgerEntries.value = response.data;
+        if (Array.isArray(response.data)) {
+          ledgerEntries.value = response.data;
+          ledgerStatement.value = null;
+        } else if (response.data && Array.isArray(response.data.entries)) {
+          ledgerEntries.value = response.data.entries;
+          ledgerStatement.value = response.data;
+        } else {
+          ledgerEntries.value = [];
+          ledgerStatement.value = null;
+        }
       }
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch ledger';
+      ledgerEntries.value = [];
+      ledgerStatement.value = null;
     } finally {
       loading.value = false;
     }
@@ -278,9 +290,95 @@ export const useAccounting = () => {
     await api.download(url, `DrillDown_${safeType}_${params?.toDate || new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const dayBookVouchers = ref<any[]>([]);
+  const dayBookSummary = ref<any>({});
+
+  const fetchDayBook = async (params?: {
+    date?: string;
+    fromDate?: string;
+    toDate?: string;
+    voucherType?: string;
+    accountHead?: string;
+    partyId?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await api.get('/accounting/daybook', { params });
+      if (response.success && response.data) {
+        dayBookVouchers.value = response.data.vouchers || [];
+        dayBookSummary.value = response.data.summary || {};
+      }
+    } catch (err: any) {
+      error.value = err.message || 'Failed to fetch Day Book';
+      dayBookVouchers.value = [];
+      dayBookSummary.value = {};
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const exportDayBookPdf = async (params?: {
+    date?: string;
+    fromDate?: string;
+    toDate?: string;
+    voucherType?: string;
+    accountHead?: string;
+    partyId?: string;
+    search?: string;
+  }) => {
+    let url = '/accounting/daybook/pdf';
+    const query = new URLSearchParams();
+    if (params?.date) query.append('date', params.date);
+    if (params?.fromDate) query.append('fromDate', params.fromDate);
+    if (params?.toDate) query.append('toDate', params.toDate);
+    if (params?.voucherType) query.append('voucherType', params.voucherType);
+    if (params?.accountHead) query.append('accountHead', params.accountHead);
+    if (params?.partyId) query.append('partyId', params.partyId);
+    if (params?.search) query.append('search', params.search);
+    const queryString = query.toString();
+    if (queryString) url += '?' + queryString;
+
+    const fDate = params?.fromDate || params?.date;
+    const tDate = params?.toDate || params?.date;
+    const periodStr = fDate && tDate ? (fDate === tDate ? fDate : `${fDate}_to_${tDate}`) : (fDate || tDate || 'Today');
+    await api.download(url, `DayBook_${periodStr}.pdf`);
+  };
+
+  const exportDayBookExcel = async (params?: {
+    date?: string;
+    fromDate?: string;
+    toDate?: string;
+    voucherType?: string;
+    accountHead?: string;
+    partyId?: string;
+    search?: string;
+  }) => {
+    let url = '/accounting/daybook/excel';
+    const query = new URLSearchParams();
+    if (params?.date) query.append('date', params.date);
+    if (params?.fromDate) query.append('fromDate', params.fromDate);
+    if (params?.toDate) query.append('toDate', params.toDate);
+    if (params?.voucherType) query.append('voucherType', params.voucherType);
+    if (params?.accountHead) query.append('accountHead', params.accountHead);
+    if (params?.partyId) query.append('partyId', params.partyId);
+    if (params?.search) query.append('search', params.search);
+    const queryString = query.toString();
+    if (queryString) url += '?' + queryString;
+
+    const fDate = params?.fromDate || params?.date;
+    const tDate = params?.toDate || params?.date;
+    const periodStr = fDate && tDate ? (fDate === tDate ? fDate : `${fDate}_to_${tDate}`) : (fDate || tDate || 'Today');
+    await api.download(url, `DayBook_${periodStr}.xlsx`);
+  };
+
   return {
     loading,
     error,
+    ledgerStatement,
     ledgerEntries,
     accountBalance,
     trialBalance,
@@ -288,6 +386,8 @@ export const useAccounting = () => {
     journalSummary,
     accountTypeSummaries,
     chartOfAccounts,
+    dayBookVouchers,
+    dayBookSummary,
     fetchLedger,
     fetchAccountBalance,
     fetchTrialBalance,
@@ -295,6 +395,7 @@ export const useAccounting = () => {
     fetchJournalSummary,
     fetchAccountTypeSummaries,
     fetchCOA,
+    fetchDayBook,
     createVoucher,
     submitVoucher,
     createOpeningBalance,
@@ -303,10 +404,12 @@ export const useAccounting = () => {
     exportBalanceSheetPdf,
     exportLedgerPdf,
     exportDrillDownPdf,
+    exportDayBookPdf,
     exportTrialBalanceExcel,
     exportProfitLossExcel,
     exportBalanceSheetExcel,
     exportLedgerExcel,
     exportDrillDownExcel,
+    exportDayBookExcel,
   };
 };

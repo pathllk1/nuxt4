@@ -36,6 +36,15 @@
           color="neutral"
           variant="outline"
           size="sm"
+          icon="i-heroicons-book-open"
+          label="Day Book"
+          class="font-semibold text-xs h-8"
+          @click="$router.push('/accounting/daybook')"
+        />
+        <UButton
+          color="neutral"
+          variant="outline"
+          size="sm"
           label="Account Heads"
           class="font-semibold text-xs h-8"
           @click="$router.push('/accounting/coa')"
@@ -135,6 +144,15 @@
             
             <div class="space-y-2">
                <h3 class="text-[9px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest ml-1 leading-none">Quick Workflows</h3>
+               <button @click="$router.push('/accounting/daybook')" class="w-full p-2 px-3 flex items-center gap-3 rounded-xl bg-gray-50/60 dark:bg-zinc-800/40 hover:bg-gray-100 dark:hover:bg-zinc-850/60 transition-all border border-gray-100/50 dark:border-zinc-800/50 group">
+                  <div class="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                     <UIcon name="i-heroicons-book-open" class="w-4.5 h-4.5" />
+                  </div>
+                  <div class="text-left min-w-0">
+                     <h4 class="text-xs font-bold text-gray-900 dark:text-white leading-none">Day Book</h4>
+                     <p class="text-[9px] text-gray-400 dark:text-zinc-500 font-bold uppercase mt-0.5 leading-none">Daily Journal & Vouchers</p>
+                  </div>
+               </button>
                <button @click="$router.push('/accounting/coa')" class="w-full p-2 px-3 flex items-center gap-3 rounded-xl bg-gray-50/60 dark:bg-zinc-800/40 hover:bg-gray-100 dark:hover:bg-zinc-850/60 transition-all border border-gray-100/50 dark:border-zinc-800/50 group">
                   <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                      <UIcon name="i-heroicons-clipboard-document-list" class="w-4.5 h-4.5" />

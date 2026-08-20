@@ -10,18 +10,20 @@ import {
 } from '../../utils/jwt';
 import { 
   isTokenBlacklisted, 
-  validateSession, 
   logSecurityEvent,
-  blacklistToken,
   generateDeviceFingerprint,
   parseDeviceInfo,
   getLocationFromIP
 } from '../../utils/security';
 
+const REFRESH_GRACE_PERIOD_MS = 30 * 1000; // 30 seconds concurrency grace window
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 export default defineEventHandler(async (event) => {
   await connectDB();
   const body = await readBody(event).catch(() => ({}));
-  const refreshToken = (body && body.refreshToken) || getCookie(event, 'refresh_token');
+  // Prioritize secure HttpOnly cookie from browser over potentially stale JavaScript in-memory body
+  const refreshToken = getCookie(event, 'refresh_token') || (body && body.refreshToken);
 
   if (!refreshToken) {
     throw createError({
@@ -31,51 +33,50 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    // 1. Blacklist check
-    if (await isTokenBlacklisted(refreshToken)) {
+    // 1. Verify token signature and claims
+    let decoded: any;
+    try {
+      decoded = verifyRefreshToken(refreshToken);
+    } catch (jwtErr: any) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'Invalid or expired refresh token'
+      });
+    }
+
+    // 2. Find active session (check primary refreshToken or recent previousRefreshToken in grace window)
+    const session = await Session.findOne({
+      userId: decoded.id,
+      isActive: true,
+      $or: [
+        { refreshToken },
+        { previousRefreshToken: refreshToken }
+      ]
+    });
+
+    if (!session) {
+      // If blacklisted or not in session, reject
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'Unauthorized: Session not found or expired'
+      });
+    }
+
+    const isGraceWindowHit = session.previousRefreshToken === refreshToken &&
+      session.previousRotatedAt &&
+      (Date.now() - new Date(session.previousRotatedAt).getTime() < REFRESH_GRACE_PERIOD_MS);
+
+    // 3. If not in grace window and token is blacklisted, reject
+    if (!isGraceWindowHit && await isTokenBlacklisted(refreshToken)) {
       await logSecurityEvent({
         action: 'invalid_token',
         event,
-        metadata: { reason: 'Refresh token is blacklisted' },
+        metadata: { reason: 'Refresh token is blacklisted and grace period expired' },
         severity: 'high'
       });
-      
       throw createError({
         statusCode: 401,
         statusMessage: 'Refresh token has been revoked'
-      });
-    }
-
-    // 2. Verify token signature and claims
-    const decoded = verifyRefreshToken(refreshToken);
-
-    // 3. Validate Session
-    const sessionValidation = await validateSession(refreshToken, event);
-    if (!sessionValidation.valid) {
-      await logSecurityEvent({
-        userId: decoded.id,
-        action: 'invalid_token',
-        event,
-        metadata: { reason: sessionValidation.reason },
-        severity: 'high'
-      });
-      
-      throw createError({
-        statusCode: 401,
-        statusMessage: `Unauthorized: ${sessionValidation.reason}`
-      });
-    }
-
-    const session = await Session.findOne({
-      refreshToken,
-      userId: decoded.id,
-      isActive: true
-    } as any);
-
-    if (!session) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: 'Unauthorized: Session not found'
       });
     }
 
@@ -106,23 +107,23 @@ export default defineEventHandler(async (event) => {
     const targetGrade = targetMembership?.grade;
 
     const newAccessToken = generateAccessToken(user, deviceFingerprint, targetFirmId, targetGrade);
-    let newRefreshToken = refreshToken;
+    let effectiveRefreshToken = session.refreshToken;
 
-    // Token rotation matches ROTATE_REFRESH_TOKEN in .env
+    // 6. Handle Token Rotation if this is a primary token refresh (not a grace-period retry)
     const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
-    if (shouldRotate) {
-      newRefreshToken = generateRefreshToken(user, deviceFingerprint);
+    if (shouldRotate && !isGraceWindowHit) {
+      const newRefreshToken = generateRefreshToken(user, deviceFingerprint);
       
-      // Blacklist old refresh token
-      const oldExp = getTokenExpiration(refreshToken) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      await blacklistToken(refreshToken, 'refresh', user._id.toString(), 'Token rotated', oldExp);
-      
-      // Update session with new refresh token
+      session.previousRefreshToken = refreshToken;
+      session.previousRotatedAt = new Date();
       session.refreshToken = newRefreshToken;
-      session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+      effectiveRefreshToken = newRefreshToken;
+    } else {
+      session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     }
 
-    // Update session active states
+    // 7. Update session metadata
     const clientIP = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
     const userAgent = getHeader(event, 'user-agent') || 'unknown';
     
@@ -133,16 +134,17 @@ export default defineEventHandler(async (event) => {
     session.lastActivity = new Date();
     await session.save();
 
-    // Log refresh event
+    // 8. Log refresh event
     await logSecurityEvent({
       userId: user._id.toString(),
       email: user.email,
       action: 'token_refresh',
       event,
+      metadata: { gracePeriod: isGraceWindowHit },
       severity: 'low'
     });
 
-    // Set refreshed cookies with HttpOnly
+    // 9. Set refreshed cookies with HttpOnly
     const isProduction = process.env.NODE_ENV === 'production';
     setCookie(event, 'access_token', newAccessToken, {
       httpOnly: true,
@@ -151,19 +153,18 @@ export default defineEventHandler(async (event) => {
       path: '/',
       maxAge: 15 * 60 // 15 minutes
     });
-    if (shouldRotate) {
-      setCookie(event, 'refresh_token', newRefreshToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 60 * 60 * 24 * 30
-      });
-    }
+
+    setCookie(event, 'refresh_token', effectiveRefreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30 // 30 days
+    });
 
     return {
       accessToken: newAccessToken,
-      refreshToken: newRefreshToken
+      refreshToken: effectiveRefreshToken
     };
   } catch (error: any) {
     if (error.statusCode) {
