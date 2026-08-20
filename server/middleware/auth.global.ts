@@ -117,31 +117,22 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    if (user.isAccountLocked) {
-      const lockedUntil = user.securitySettings?.accountLockedUntil;
-      if (lockedUntil && new Date(lockedUntil) > new Date()) {
-        await logSecurityEvent({
-          userId: user._id.toString(),
-          email: user.email,
-          action: 'suspicious_activity',
-          event,
-          metadata: { reason: 'Attempted access with locked account' },
-          severity: 'high'
-        });
-        
-        throw createError({
-          statusCode: 403,
-          statusMessage: 'Account locked due to suspicious activity',
-          data: { lockedUntil: lockedUntil.toISOString() }
-        });
-      } else {
-        // Lock expired, unlock account
-        user.isAccountLocked = false;
-        if (user.securitySettings) {
-          user.securitySettings.accountLockedUntil = undefined;
-        }
-        await user.save();
-      }
+    const isLocked = await user.checkAndUnlockAccount();
+    if (isLocked) {
+      await logSecurityEvent({
+        userId: user._id.toString(),
+        email: user.email,
+        action: 'suspicious_activity',
+        event,
+        metadata: { reason: 'Attempted access with locked account' },
+        severity: 'high'
+      });
+      
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Account locked due to suspicious activity',
+        data: { lockedUntil: user.securitySettings?.accountLockedUntil?.toISOString() }
+      });
     }
     
     // Attach user payload to Nitro context
@@ -213,14 +204,12 @@ export default defineEventHandler(async (event) => {
                   }
                 }
 
-                if (user.isAccountLocked) {
-                  const lockedUntil = user.securitySettings?.accountLockedUntil;
-                  if (lockedUntil && new Date(lockedUntil) > new Date()) {
-                    throw createError({
-                      statusCode: 403,
-                      statusMessage: 'Account locked due to suspicious activity'
-                    });
-                  }
+                const isLocked = await user.checkAndUnlockAccount();
+                if (isLocked) {
+                  throw createError({
+                    statusCode: 403,
+                    statusMessage: 'Account locked due to suspicious activity'
+                  });
                 }
 
                 const deviceFingerprint = generateDeviceFingerprint(event);
@@ -267,7 +256,7 @@ export default defineEventHandler(async (event) => {
               setCookie(event, 'access_token', newAccessToken, {
                 httpOnly: true,
                 secure: isProduction,
-                sameSite: 'lax',
+                sameSite: 'strict', // Strict for CSRF protection
                 path: '/',
                 maxAge: 15 * 60
               });
@@ -275,20 +264,16 @@ export default defineEventHandler(async (event) => {
                 setCookie(event, 'refresh_token', newRefreshToken, {
                   httpOnly: true,
                   secure: isProduction,
-                  sameSite: 'lax',
+                  sameSite: 'strict', // Strict for CSRF protection
                   path: '/',
                   maxAge: 60 * 60 * 24 * 30
                 });
               }
 
-              // RT-B5 & Auto-Refresh: Expose headers via CORS so client script can read new tokens
+              // RT-B5 & Auto-Refresh: Expose access token header for client-side detection
+              // Refresh token is NEVER exposed - it's already set in HttpOnly cookie
               setResponseHeader(event, 'x-new-access-token', newAccessToken);
-              if (shouldRotate) {
-                setResponseHeader(event, 'x-new-refresh-token', newRefreshToken);
-                setResponseHeader(event, 'Access-Control-Expose-Headers', 'x-new-access-token, x-new-refresh-token');
-              } else {
-                setResponseHeader(event, 'Access-Control-Expose-Headers', 'x-new-access-token');
-              }
+              setResponseHeader(event, 'Access-Control-Expose-Headers', 'x-new-access-token');
               
               // Proceed with the request using the new token's payload
               const newDecoded = verifyAccessToken(newAccessToken);

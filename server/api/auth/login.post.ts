@@ -75,30 +75,24 @@ export default defineEventHandler(async (event) => {
     }
 
     // Check account lockout
-    if (user.isAccountLocked) {
-      const lockedUntil = user.securitySettings?.accountLockedUntil;
-      if (lockedUntil && new Date(lockedUntil) > new Date()) {
-        await logSecurityEvent({
-          userId: user._id.toString(),
-          email: user.email,
-          action: 'login_failed',
-          event,
-          metadata: { reason: 'Account locked', lockedUntil },
-          severity: 'high'
-        });
-        
-        throw createError({
-          statusCode: 403,
-          statusMessage: 'Account locked due to multiple failed login attempts. Please try again later.'
-        });
-      } else {
-        // Lock expired, unlock
-        user.isAccountLocked = false;
-        if (user.securitySettings) {
-          user.securitySettings.accountLockedUntil = undefined;
-        }
-        await user.save();
-      }
+    const isLocked = await user.checkAndUnlockAccount();
+    if (isLocked) {
+      await logSecurityEvent({
+        userId: user._id.toString(),
+        email: user.email,
+        action: 'login_failed',
+        event,
+        metadata: { 
+          reason: 'Account locked', 
+          lockedUntil: user.securitySettings?.accountLockedUntil 
+        },
+        severity: 'high'
+      });
+      
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Account locked due to multiple failed login attempts. Please try again later.'
+      });
     }
 
     // Compare passwords
@@ -214,14 +208,14 @@ export default defineEventHandler(async (event) => {
     setCookie(event, 'access_token', accessToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: 'strict', // Strict for CSRF protection
       path: '/',
       maxAge: 15 * 60 // 15 minutes (matches JWT expiry)
     });
     setCookie(event, 'refresh_token', refreshToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: 'strict', // Strict for CSRF protection
       path: '/',
       maxAge: 60 * 60 * 24 * 30 // 30 days
     });

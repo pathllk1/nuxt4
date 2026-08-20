@@ -44,15 +44,26 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    // 2. Find active session (check primary refreshToken or recent previousRefreshToken in grace window)
-    const session = await Session.findOne({
-      userId: decoded.id,
-      isActive: true,
-      $or: [
-        { refreshToken },
-        { previousRefreshToken: refreshToken }
-      ]
-    });
+    // 2. Find active session and atomically update last activity
+    // This provides a soft lock to detect concurrent refreshes
+    const session = await Session.findOneAndUpdate(
+      {
+        userId: decoded.id,
+        isActive: true,
+        $or: [
+          { refreshToken },
+          { previousRefreshToken: refreshToken }
+        ]
+      },
+      {
+        $set: {
+          lastRefreshAttempt: new Date()
+        }
+      },
+      {
+        new: true // Return updated document
+      }
+    );
 
     if (!session) {
       // If blacklisted or not in session, reject
@@ -89,14 +100,12 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    if (user.isAccountLocked) {
-      const lockedUntil = user.securitySettings?.accountLockedUntil;
-      if (lockedUntil && new Date(lockedUntil) > new Date()) {
-        throw createError({
-          statusCode: 403,
-          statusMessage: 'Account locked due to suspicious activity'
-        });
-      }
+    const isLocked = await user.checkAndUnlockAccount();
+    if (isLocked) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Account locked due to suspicious activity'
+      });
     }
 
     // 5. Generate new access token
@@ -112,14 +121,26 @@ export default defineEventHandler(async (event) => {
     // 6. Handle Token Rotation if this is a primary token refresh (not a grace-period retry)
     const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
     if (shouldRotate && !isGraceWindowHit) {
-      const newRefreshToken = generateRefreshToken(user, deviceFingerprint);
+      // Check if another concurrent request already rotated this token (within last 5 seconds)
+      const recentRotation = session.previousRotatedAt && 
+        (Date.now() - new Date(session.previousRotatedAt).getTime() < 5000);
       
-      session.previousRefreshToken = refreshToken;
-      session.previousRotatedAt = new Date();
-      session.refreshToken = newRefreshToken;
-      session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-      effectiveRefreshToken = newRefreshToken;
+      if (recentRotation && session.previousRefreshToken === refreshToken) {
+        // Another request just rotated this token, reuse the new one (race condition detected)
+        effectiveRefreshToken = session.refreshToken;
+        console.log('[Auth] Race condition detected: reusing existing rotated token');
+      } else {
+        // We're the first to rotate, generate new token
+        const newRefreshToken = generateRefreshToken(user, deviceFingerprint);
+        
+        session.previousRefreshToken = refreshToken;
+        session.previousRotatedAt = new Date();
+        session.refreshToken = newRefreshToken;
+        session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+        effectiveRefreshToken = newRefreshToken;
+      }
     } else {
+      // Not rotating, just extend session TTL
       session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     }
 
@@ -149,7 +170,7 @@ export default defineEventHandler(async (event) => {
     setCookie(event, 'access_token', newAccessToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: 'strict', // Strict for CSRF protection
       path: '/',
       maxAge: 15 * 60 // 15 minutes
     });
@@ -157,7 +178,7 @@ export default defineEventHandler(async (event) => {
     setCookie(event, 'refresh_token', effectiveRefreshToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: 'strict', // Strict for CSRF protection
       path: '/',
       maxAge: 60 * 60 * 24 * 30 // 30 days
     });

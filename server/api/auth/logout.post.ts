@@ -14,14 +14,14 @@ export default defineEventHandler(async (event) => {
   setCookie(event, 'access_token', '', {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: 'strict', // Strict for CSRF protection
     path: '/',
     maxAge: 0
   });
   setCookie(event, 'refresh_token', '', {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: 'strict', // Strict for CSRF protection
     path: '/',
     maxAge: 0
   });

@@ -30,6 +30,7 @@ export interface IUser extends Document {
   incrementFailedLogins(): Promise<void>;
   resetFailedLogins(): Promise<void>;
   lockAccount(duration: number): Promise<void>;
+  checkAndUnlockAccount(): Promise<boolean>;
 }
 
 const UserSchema: Schema = new Schema({
@@ -112,20 +113,27 @@ UserSchema.methods.lockAccount = async function(durationMinutes: number): Promis
   await this.save();
 };
 
-// Virtual to check if account lock has expired
-UserSchema.virtual('isLocked').get(function(this: IUser) {
+// Method to check and unlock account if lock has expired
+UserSchema.methods.checkAndUnlockAccount = async function(): Promise<boolean> {
   if (!this.isAccountLocked) return false;
-  if (!this.securitySettings.accountLockedUntil) return false;
   
-  if (this.securitySettings.accountLockedUntil < new Date()) {
+  const lockedUntil = this.securitySettings?.accountLockedUntil;
+  if (!lockedUntil) {
     this.isAccountLocked = false;
-    this.securitySettings.accountLockedUntil = undefined;
-    this.save();
+    await this.save();
     return false;
   }
   
-  return true;
-});
+  if (new Date(lockedUntil) < new Date()) {
+    // Lock expired, unlock account
+    this.isAccountLocked = false;
+    this.securitySettings.accountLockedUntil = undefined;
+    await this.save();
+    return false;
+  }
+  
+  return true; // Still locked
+};
 
 // Avoid Mongoose Model compilation errors if hot-reloaded by Nitro/Next.js
 export default (mongoose.models.User || mongoose.model<IUser>('User', UserSchema)) as mongoose.Model<IUser>;
