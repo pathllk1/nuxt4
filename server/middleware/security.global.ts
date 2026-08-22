@@ -1,4 +1,4 @@
-import { defineEventHandler, getQuery, readBody, setHeader, getRequestIP } from 'h3';
+import { defineEventHandler, getQuery, readBody, setHeader, getRequestIP, createError } from 'h3';
 import { sanitizeQueryParams, sanitizeObject } from '../utils/sanitizer';
 
 // Fix #10: Bounded LRU rate-limit store (prevents unbounded memory growth)

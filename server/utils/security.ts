@@ -107,18 +107,19 @@ export const logSecurityEvent = async (params: {
 };
 
 /**
- * Check if token is blacklisted
+ * Check if token is blacklisted (queries hashed token)
  */
 export const isTokenBlacklisted = async (token: string): Promise<boolean> => {
+  const hashedToken = hashToken(token);
   const blacklisted = await TokenBlacklist.findOne({
-    token,
+    token: hashedToken,
     expiresAt: { $gt: new Date() }
   });
   return !!blacklisted;
 };
 
 /**
- * Blacklist a token
+ * Blacklist a token (stores hashed token)
  */
 export const blacklistToken = async (
   token: string,
@@ -128,11 +129,12 @@ export const blacklistToken = async (
   expiresAt: Date
 ) => {
   try {
+    const hashedToken = hashToken(token);
     await TokenBlacklist.updateOne(
-      { token },
+      { token: hashedToken },
       {
         $setOnInsert: {
-          token,
+          token: hashedToken,
           tokenType,
           userId,
           reason,
@@ -152,17 +154,18 @@ export const blacklistToken = async (
 };
 
 /**
- * Validate session and detect anomalies
+ * Validate session and detect anomalies (queries hashed tokens)
  */
 export const validateSession = async (
   refreshToken: string,
   event: H3Event
 ): Promise<{ valid: boolean; reason?: string }> => {
+  const hashedToken = hashToken(refreshToken);
   const session = await Session.findOne({ 
     isActive: true,
     $or: [
-      { refreshToken },
-      { previousRefreshToken: refreshToken }
+      { refreshToken: hashedToken },
+      { previousRefreshToken: hashedToken }
     ]
   });
   
@@ -171,11 +174,20 @@ export const validateSession = async (
   }
 
   // If matched via previousRefreshToken, check grace window (30 seconds)
-  if (session.previousRefreshToken === refreshToken) {
+  if (session.previousRefreshToken === hashedToken) {
     const gracePeriodMs = 30 * 1000;
     const rotatedAt = session.previousRotatedAt ? new Date(session.previousRotatedAt).getTime() : 0;
     if (Date.now() - rotatedAt > gracePeriodMs) {
-      return { valid: false, reason: 'Session expired (rotation grace period elapsed)' };
+      // SEC-03: Token reuse outside grace window — revoke all sessions for this user
+      await revokeAllSessions(session.userId.toString(), 'Refresh token reuse detected');
+      await logSecurityEvent({
+        userId: session.userId.toString(),
+        action: 'suspicious_activity',
+        event,
+        metadata: { reason: 'Previous refresh token used outside grace window — all sessions revoked' },
+        severity: 'critical'
+      });
+      return { valid: false, reason: 'Token reuse detected. All sessions have been revoked.' };
     }
   }
   
@@ -233,10 +245,11 @@ export const revokeOtherSessions = async (
   currentRefreshToken: string,
   reason: string = 'User requested logout from other devices'
 ) => {
+  const hashedToken = hashToken(currentRefreshToken);
   await Session.updateMany(
     { 
       userId, 
-      refreshToken: { $ne: currentRefreshToken },
+      refreshToken: { $ne: hashedToken },
       isActive: true 
     },
     { 

@@ -40,7 +40,8 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
 
   const firmOid = new mongoose.Types.ObjectId(String(firmId));
   const userOid = new mongoose.Types.ObjectId(String(userId));
-  const userDoc: any = await User.findById(userOid).lean();
+  // SEC-10: Reuse user document from middleware if available (avoids redundant DB query)
+  const userDoc: any = event.context.userDoc || await User.findById(userOid).lean();
 
   if (!userDoc) {
     throw createError({

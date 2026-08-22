@@ -1,6 +1,7 @@
 import { defineEventHandler, getQuery, createError } from 'h3';
 import { getSql, connectPostgres } from '../../utils/pg.config';
 import { requireAuthSession } from '../../utils/auth';
+import { getB2DownloadToken } from '../../utils/b2';
 
 export default defineEventHandler(async (event) => {
   let sql = getSql();
@@ -102,7 +103,10 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // Compute dynamic status
+    // Fetch dynamic download authorization token from B2 (if configured)
+    const downloadToken = await getB2DownloadToken();
+
+    // Compute dynamic status and append B2 authorization token if private
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -119,8 +123,15 @@ export default defineEventHandler(async (event) => {
         }
       }
 
+      // Append authorization token to Backblaze B2 URLs to prevent 401 on private buckets
+      let fileUrl = doc.file_url;
+      if (fileUrl && downloadToken && fileUrl.includes('backblazeb2.com') && !fileUrl.includes('Authorization=')) {
+        fileUrl = `${fileUrl}?Authorization=${downloadToken}`;
+      }
+
       return {
         ...doc,
+        file_url: fileUrl,
         computed_status: computedStatus
       };
     });

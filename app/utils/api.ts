@@ -50,6 +50,12 @@ const getActiveFirmId = (): string | null => {
 }
 
 const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => {
+  // SSR Guard: Native fetch() in Node.js does not forward browser HttpOnly cookies.
+  // Use $fetch or useRequestFetch() instead of this utility during SSR.
+  if (import.meta.server) {
+    throw new Error(`[api.ts] rawRequest called during SSR for "${endpoint}". Use $fetch or useRequestFetch() for server-side requests to ensure cookies are forwarded.`)
+  }
+
   const url = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('/api') ? endpoint : `/api${endpoint.startsWith('/') ? '' : '/'}${endpoint}`)
   
   let finalUrl = url
@@ -63,7 +69,7 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
   }
 
   const auth = useAuth()
-  const token = auth.accessToken.value
+  // No need to get token - it's in HttpOnly cookies
   const firmId = getActiveFirmId()
 
   const headers: Record<string, string> = {
@@ -71,27 +77,22 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
     ...(options.headers || {}),
   }
 
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  // Don't set Authorization header - tokens are in HttpOnly cookies
   if (firmId) headers['X-Firm-ID'] = firmId
 
   const performRequest = async (retry = true): Promise<any> => {
     const response = await fetch(finalUrl, {
       ...options,
       headers,
-      credentials: options.credentials || 'include'
+      credentials: options.credentials || 'include'  // Send HttpOnly cookies
     })
 
-    const newToken = response.headers.get('x-new-access-token') || response.headers.get('X-New-Access-Token')
-    if (newToken) {
-      auth.accessToken.value = newToken
-    }
+    // No need to read x-new-access-token - server sets cookies directly
 
     if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh') && retry) {
       const rotated = await auth.rotateToken().catch(() => null)
-      if (rotated?.accessToken) {
-        if (auth.accessToken.value) {
-          headers['Authorization'] = `Bearer ${auth.accessToken.value}`
-        }
+      if (rotated) {
+        // Token refreshed in cookies, retry request
         const retryRes = await fetch(finalUrl, {
           ...options,
           headers,

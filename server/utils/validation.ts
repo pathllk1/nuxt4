@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createError } from 'h3';
 
 // ============================================================
 // Fix #20: Zod-based input validation schemas
@@ -71,8 +72,7 @@ export function validateBody<T extends z.ZodType>(schema: T, data: unknown): z.i
       message: issue.message
     }));
     
-    // Import createError dynamically to avoid circular dependencies
-    const { createError } = require('h3');
+    
     throw createError({
       statusCode: 400,
       statusMessage: 'Validation failed',

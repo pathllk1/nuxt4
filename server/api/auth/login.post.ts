@@ -12,7 +12,8 @@ import {
   parseDeviceInfo, 
   getLocationFromIP, 
   logSecurityEvent,
-  detectSuspiciousActivity
+  detectSuspiciousActivity,
+  hashToken
 } from '../../utils/security';
 import { recordLoginIP } from '../../utils/trusted-ips';
 import { loginSchema, validateBody } from '../../utils/validation';
@@ -152,11 +153,16 @@ export default defineEventHandler(async (event) => {
     const clientIP = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
     const deviceInfo = parseDeviceInfo(userAgent);
     // Enforce max active session limit (RT-B12)
-    const MAX_ACTIVE_SESSIONS = 5;
-    const activeSessions = await Session.find({ userId: user._id, isActive: true }).sort({ createdAt: 1 });
+    const MAX_ACTIVE_SESSIONS = parseInt(process.env.MAX_ACTIVE_SESSIONS || '10', 10);  // Increased from 5 to 10
+    const activeSessions = await Session.find({ 
+      userId: user._id, 
+      isActive: true 
+    }).sort({ lastActivity: 1 });  // Sort by lastActivity (oldest first)
+    
     if (activeSessions.length >= MAX_ACTIVE_SESSIONS) {
       const excessCount = activeSessions.length - MAX_ACTIVE_SESSIONS + 1;
-      const sessionsToDeactivate = activeSessions.slice(0, excessCount);
+      const sessionsToDeactivate = activeSessions.slice(0, excessCount);  // Deactivate least recently used
+      console.log(`[Login] Deactivating ${sessionsToDeactivate.length} old sessions for user ${user._id}`);
       for (const s of sessionsToDeactivate) {
         s.isActive = false;
         s.revokedAt = new Date();
@@ -169,7 +175,7 @@ export default defineEventHandler(async (event) => {
 
     await Session.create({
       userId: user._id,
-      refreshToken,
+      refreshToken: hashToken(refreshToken),
       deviceFingerprint,
       ipAddress: clientIP,
       userAgent,
@@ -227,9 +233,7 @@ export default defineEventHandler(async (event) => {
         email: user.email,
         role: user.role,
         firms: firmsMapped
-      },
-      accessToken,
-      refreshToken
+      }
     };
   } catch (error: any) {
     if (error.statusCode) {

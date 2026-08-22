@@ -2,7 +2,7 @@ import { defineEventHandler, readBody, createError, getHeader, getCookie, setCoo
 import Session from '../../models/Session';
 import { connectDB } from '../../plugins/mongodb';
 import { verifyRefreshToken, getTokenExpiration } from '../../utils/jwt';
-import { blacklistToken, logSecurityEvent } from '../../utils/security';
+import { blacklistToken, logSecurityEvent, hashToken } from '../../utils/security';
 
 export default defineEventHandler(async (event) => {
   await connectDB();
@@ -35,10 +35,11 @@ export default defineEventHandler(async (event) => {
 
   try {
     const decoded = verifyRefreshToken(refreshToken);
+    const hashedToken = hashToken(refreshToken);
     
     // Deactivate session
     const session = await Session.findOne({
-      refreshToken,
+      refreshToken: hashedToken,
       userId: decoded.id,
       isActive: true
     } as any);
@@ -51,7 +52,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // Blacklist the refresh token
-    const refreshExp = getTokenExpiration(refreshToken) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const refreshExp = getTokenExpiration(refreshToken) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await blacklistToken(refreshToken, 'refresh', decoded.id, 'User logout', refreshExp);
 
     // Blacklist current access token if provided in authorization headers or cookie

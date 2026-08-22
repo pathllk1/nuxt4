@@ -84,7 +84,7 @@ export const generateRefreshToken = (
   
   return jwt.sign(payload, getRefreshTokenSecret(), { 
     algorithm: 'HS512',
-    expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d',
+    expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '30d',
     issuer: process.env.JWT_ISSUER || 'nxt-auth-server',
     audience: process.env.JWT_AUDIENCE || 'nxt-client'
   } as jwt.SignOptions);

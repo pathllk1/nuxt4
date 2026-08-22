@@ -1,6 +1,7 @@
 import { defineEventHandler, readMultipartFormData, createError } from 'h3';
 import { getSql, connectPostgres } from '../../utils/pg.config';
 import { requireAuthSession } from '../../utils/auth';
+import { uploadToBackblazeB2 } from '../../utils/b2';
 
 export default defineEventHandler(async (event) => {
   let sql = getSql();
@@ -62,9 +63,21 @@ export default defineEventHandler(async (event) => {
 
     let fileUrl: string | null = null;
     if (fileBuffer && fileBuffer.length > 0) {
-      // Store as Data URL fallback if external B2 is not configured
-      const base64Str = fileBuffer.toString('base64');
-      fileUrl = `data:${fileType || 'application/octet-stream'};base64,${base64Str}`;
+      const isB2Configured = Boolean(process.env.B2_APPLICATION_KEY_ID && process.env.B2_APPLICATION_KEY && process.env.B2_BUCKET_ID);
+      if (isB2Configured) {
+        try {
+          const uploadResult = await uploadToBackblazeB2(fileBuffer, originalFileName);
+          fileUrl = uploadResult.fileUrl;
+        } catch (b2Err: any) {
+          console.warn('[DOCUMENTS_POST] B2 upload failed, falling back to base64:', b2Err.message);
+          const base64Str = fileBuffer.toString('base64');
+          fileUrl = `data:${fileType || 'application/octet-stream'};base64,${base64Str}`;
+        }
+      } else {
+        // Store as Data URL fallback if external B2 is not configured
+        const base64Str = fileBuffer.toString('base64');
+        fileUrl = `data:${fileType || 'application/octet-stream'};base64,${base64Str}`;
+      }
     }
 
     const name = fields.name;

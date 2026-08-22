@@ -81,7 +81,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useAuth } from '../composables/useAuth';
-import { useRouter } from '#app';
 import AppSidebar from '../components/AppSidebar.vue';
 
 definePageMeta({
@@ -94,7 +93,6 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 const { login } = useAuth();
-const router = useRouter();
 
 const onSubmit = async (e?: Event) => {
   if (e) e.preventDefault();
@@ -105,12 +103,9 @@ const onSubmit = async (e?: Event) => {
 
   try {
     const res = await login({ email: email.value, password: password.value });
-    if (res && res.accessToken) {
-      if (import.meta.client) {
-        window.location.href = '/dashboard';
-      } else {
-        await router.push('/dashboard');
-      }
+    // Server no longer returns accessToken in JSON (SEC-06 fix) — check res.user instead
+    if (res && res.user) {
+      await navigateTo('/dashboard');
     }
   } catch (err: any) {
     console.error('Login error:', err);

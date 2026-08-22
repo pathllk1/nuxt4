@@ -29,95 +29,84 @@ export const useAuth = () => {
 
   // Nuxt useState for SSR state hydration (prevents cross-request pollution and works across F5 reloads)
   const user = useState<User | null>('auth_user', () => null);
-  const accessToken = useState<string | null>('auth_access_token', () => null);
-  const refreshToken = useState<string | null>('auth_refresh_token', () => null);
   const selectedFirmId = useState<string | null>('auth_firm_id', () => null);
   const isInitialized = useState<boolean>('auth_initialized', () => false);
 
   const cookieFirm = useCookie<string | null>('active_firm_id', { maxAge: 60 * 60 * 24 * 30, path: '/' });
-  const cookieAccess = useCookie<string | null>('access_token', { maxAge: 15 * 60, path: '/' });
-  const cookieRefresh = useCookie<string | null>('refresh_token', { maxAge: 60 * 60 * 24 * 30, path: '/' });
 
-  const initAuth = async () => {
-    // Idempotency guard: skip if SSR already successfully authenticated
-    // If SSR failed (user is null), allow client-side to retry (browser can send HttpOnly cookies)
-    if (isInitialized.value && user.value) return;
+  const initAuth = async (options?: { force?: boolean }) => {
+    // Idempotency guard: skip if already successfully authenticated unless force re-validation requested
+    if (isInitialized.value && user.value && !options?.force) return;
 
     try {
+      // Restore firm selection from cookie
       if (cookieFirm.value && cookieFirm.value !== 'undefined' && cookieFirm.value !== 'null') {
         selectedFirmId.value = cookieFirm.value;
       }
 
-      if (cookieAccess.value) {
-        accessToken.value = cookieAccess.value;
-      }
-
-      if (cookieRefresh.value) {
-        refreshToken.value = cookieRefresh.value;
-      }
-
-      if (import.meta.client) {
-        const storedFirm = localStorage.getItem('active_firm_id');
-        if (!selectedFirmId.value && storedFirm && storedFirm !== 'undefined' && storedFirm !== 'null') {
-          selectedFirmId.value = storedFirm;
-          cookieFirm.value = storedFirm;
+      // Ask server for user info - browser auto-sends HttpOnly cookies
+      // /api/auth/me is protected by auth.global.ts which auto-refreshes tokens if expired
+      try {
+        const userData = await requestFetch<any>('/api/auth/me', { 
+          credentials: 'include' 
+        });
+        
+        if (userData && (userData.id || userData._id)) {
+          user.value = {
+            ...userData,
+            id: userData.id || userData._id
+          };
+          
+          // Set default firm if needed
+          if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
+            const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
+            if (defaultFirmId) {
+              selectedFirmId.value = defaultFirmId;
+              cookieFirm.value = defaultFirmId;
+            }
+          }
+        } else {
+          user.value = null;
         }
-      }
-
-      // If user state is empty, recover user profile securely via HttpOnly cookie (works on both SSR and Client)
-      if (!user.value) {
-        try {
-          const userData = await requestFetch<any>('/api/auth/me', { credentials: 'include' });
-          if (userData && (userData.id || userData._id)) {
-            user.value = {
-              ...userData,
-              id: userData.id || userData._id
-            };
-            if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
-              const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
-              if (defaultFirmId) {
-                selectedFirmId.value = defaultFirmId;
-                cookieFirm.value = defaultFirmId;
-              }
-            }
-          } else {
-            logout({ redirect: false });
-          }
-        } catch {
-          // Profile fetch failed — attempt quiet silent refresh
-          const refreshed = await rotateToken({ redirectIfFailed: false }).catch(() => null);
-          if (refreshed && refreshed.accessToken) {
-            try {
-              const userData = await requestFetch<any>('/api/auth/me', {
-                credentials: 'include',
-                headers: { Authorization: `Bearer ${refreshed.accessToken}` }
-              });
-              if (userData && (userData.id || userData._id)) {
-                user.value = {
-                  ...userData,
-                  id: userData.id || userData._id
-                };
-                if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
-                  const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
-                  if (defaultFirmId) {
-                    selectedFirmId.value = defaultFirmId;
-                    cookieFirm.value = defaultFirmId;
-                  }
+      } catch (error: any) {
+        const status = error?.status || error?.statusCode;
+        
+        // If 401 (token expired or invalid), try explicit rotateToken fallback
+        if (status === 401) {
+          try {
+            await rotateToken({ redirectIfFailed: false });
+            
+            // Retry getting user data with new token
+            const userData = await requestFetch<any>('/api/auth/me', { 
+              credentials: 'include' 
+            });
+            
+            if (userData && (userData.id || userData._id)) {
+              user.value = {
+                ...userData,
+                id: userData.id || userData._id
+              };
+              
+              if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
+                const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
+                if (defaultFirmId) {
+                  selectedFirmId.value = defaultFirmId;
+                  cookieFirm.value = defaultFirmId;
                 }
-              } else {
-                logout({ redirect: false });
               }
-            } catch {
-              logout({ redirect: false });
+            } else {
+              user.value = null;
             }
-          } else {
-            logout({ redirect: false });
+          } catch (refreshError) {
+            console.warn('[Auth] Token refresh failed during init:', refreshError);
+            user.value = null;
           }
+        } else {
+          console.warn('[Auth] Failed to fetch user:', error);
         }
       }
     } catch (e) {
-      console.error('Failed to restore auth state:', e);
-      logout({ redirect: false });
+      console.error('[Auth] Unexpected error in initAuth:', e);
     } finally {
       isInitialized.value = true;
     }
@@ -144,29 +133,29 @@ export const useAuth = () => {
     const promise = (async () => {
       startRequest();
       try {
-        const response = await requestFetch<{ accessToken: string; refreshToken?: string }>('/api/auth/refresh', {
+        const response = await requestFetch<{ success: boolean }>('/api/auth/refresh', {
           method: 'POST',
-          credentials: 'include',
-          // Only send explicit body in SSR context where cookies might not auto-forward
-          body: import.meta.server && cookieRefresh.value ? { refreshToken: cookieRefresh.value } : undefined
+          credentials: 'include'  // Browser sends HttpOnly cookies automatically
         });
 
-        if (response && response.accessToken) {
-          accessToken.value = response.accessToken;
-          cookieAccess.value = response.accessToken;
-          if (response.refreshToken) {
-            refreshToken.value = response.refreshToken;
-            cookieRefresh.value = response.refreshToken;
-          }
-          return response;
-        }
-        throw new Error('Refresh response missing token');
+        // Server sets new tokens in HttpOnly cookies - we don't need to manage them client-side
+        return response;
       } catch (e: any) {
         const status = e?.status || e?.statusCode || e?.data?.statusCode;
         const errorMsg = e?.data?.statusMessage || e?.statusMessage || e?.message || String(e);
         console.warn(`[Auth] Token refresh failed: ${errorMsg}`);
-        if (status === 401 || errorMsg.includes('revoked') || errorMsg.includes('Unauthorized') || errorMsg.includes('Invalid session')) {
-          logout({ redirect: options.redirectIfFailed });
+        
+        // Only logout on actual 401/403 auth failure, not on network errors
+        if (status === 401 || status === 403) {
+          // HttpOnly cookies can only be cleared by the server via /api/auth/logout
+          
+          // Provide reason for logout
+          let reason = 'session_expired';
+          if (errorMsg.includes('deactivated') || errorMsg.includes('Exceeded maximum')) {
+            reason = 'session_limit';
+          }
+          
+          logout({ redirect: options.redirectIfFailed, reason });
         }
         throw e;
       } finally {
@@ -187,23 +176,17 @@ export const useAuth = () => {
     return promise;
   };
 
-  const setAuth = (newUser: User, newAccess: string, newRefresh: string) => {
+  const setAuth = (newUser: User) => {
     user.value = newUser;
-    accessToken.value = newAccess;
-    refreshToken.value = newRefresh;
-    cookieAccess.value = newAccess;
-    cookieRefresh.value = newRefresh;
+    // Tokens are managed in HttpOnly cookies by server - no client-side token management needed
 
     if (newUser.firms && newUser.firms.length > 0) {
-      const storedFirm = cookieFirm.value || (import.meta.client ? localStorage.getItem('active_firm_id') : null);
+      const storedFirm = cookieFirm.value;
       const defaultFirmId = extractFirmId(newUser.firms[0]?.firm);
       const currentFirmId = (storedFirm && storedFirm !== 'undefined' && storedFirm !== 'null') ? storedFirm : defaultFirmId;
       if (currentFirmId) {
         cookieFirm.value = currentFirmId;
         selectedFirmId.value = currentFirmId;
-        if (import.meta.client) {
-          localStorage.setItem('active_firm_id', currentFirmId);
-        }
       }
     }
   };
@@ -211,14 +194,14 @@ export const useAuth = () => {
   const login = async (credentials: any) => {
     startRequest();
     try {
-      const response = await $fetch<{ user: User; accessToken: string; refreshToken: string }>('/api/auth/login', {
+      const response = await $fetch<{ user: User }>('/api/auth/login', {
         method: 'POST',
         body: credentials,
         credentials: 'include'
       });
 
-      if (response && response.accessToken) {
-        setAuth(response.user, response.accessToken, response.refreshToken);
+      if (response && response.user) {
+        setAuth(response.user);  // Server sets tokens in HttpOnly cookies
       }
       return response;
     } finally {
@@ -239,7 +222,7 @@ export const useAuth = () => {
     }
   };
 
-  const logout = (options?: { redirect?: boolean } | Event | any) => {
+  const logout = (options?: { redirect?: boolean; reason?: string } | Event | any) => {
     if (import.meta.client) {
       $fetch('/api/auth/logout', {
         method: 'POST',
@@ -248,21 +231,9 @@ export const useAuth = () => {
     }
 
     user.value = null;
-    accessToken.value = null;
-    refreshToken.value = null;
     selectedFirmId.value = null;
     cookieFirm.value = null;
-    cookieAccess.value = null;
-    cookieRefresh.value = null;
-
-    if (import.meta.client) {
-      localStorage.removeItem('active_firm_id');
-      try {
-        document.cookie = 'access_token=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        document.cookie = 'refresh_token=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        document.cookie = 'active_firm_id=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-      } catch {}
-    }
+    // No need to clear access/refresh tokens - server manages HttpOnly cookies
 
     const currentPath = router.currentRoute.value?.path || '';
     const publicRoutes = ['/', '/login', '/signup', '/about', '/contact', '/weather', '/privacy', '/terms'];
@@ -271,22 +242,23 @@ export const useAuth = () => {
     const redirectOpt = (options && typeof options === 'object' && !('preventDefault' in options) && 'redirect' in options) 
       ? options.redirect 
       : undefined;
+    const reason = (options && typeof options === 'object' && !('preventDefault' in options) && 'reason' in options)
+      ? options.reason
+      : undefined;
 
     const shouldRedirect = redirectOpt ?? !isPublic;
 
     if (shouldRedirect) {
-      router.push('/login');
+      const query = reason ? { reason } : {};
+      router.push({ path: '/login', query });
     }
   };
 
   const apiFetch = async <T = any>(request: string, options: any = {}): Promise<T> => {
     options.headers = options.headers || {};
-    options.credentials = options.credentials || 'include';
+    options.credentials = options.credentials || 'include';  // Auto-send HttpOnly cookies
 
-    if (accessToken.value) {
-      options.headers['Authorization'] = `Bearer ${accessToken.value}`;
-    }
-
+    // Only send firm ID header
     if (selectedFirmId.value && selectedFirmId.value !== 'undefined' && selectedFirmId.value !== 'null') {
       options.headers['X-Firm-ID'] = selectedFirmId.value;
     }
@@ -294,20 +266,18 @@ export const useAuth = () => {
     startRequest();
     try {
       const response = await $fetch.raw<T>(request, options);
-
-      const newAccessHeader = response.headers.get('x-new-access-token');
-      if (newAccessHeader) {
-        accessToken.value = newAccessHeader;
-      }
-
       return response._data as T;
     } catch (error: any) {
-      const status = error.status || error.statusCode;
-      if (status === 401 && !request.includes('/auth/login') && !request.includes('/auth/refresh')) {
-        const rotated = await rotateToken().catch(() => null);
-        if (rotated && rotated.accessToken) {
-          options.headers['Authorization'] = `Bearer ${rotated.accessToken}`;
-          return await apiFetch<T>(request, options);
+      const status = error?.status || error?.statusCode;
+      
+      // On 401 on client, attempt single-flight token rotation and retry once
+      if (status === 401 && import.meta.client && !request.includes('/api/auth/')) {
+        try {
+          await rotateToken({ redirectIfFailed: false });
+          const retryRes = await $fetch.raw<T>(request, options);
+          return retryRes._data as T;
+        } catch (retryErr) {
+          throw retryErr;
         }
       }
       throw error;
@@ -318,8 +288,6 @@ export const useAuth = () => {
 
   return {
     user,
-    accessToken,
-    refreshToken,
     selectedFirmId,
     isAuthenticated,
     initAuth,
