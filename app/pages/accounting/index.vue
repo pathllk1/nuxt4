@@ -50,6 +50,15 @@
           @click="$router.push('/accounting/coa')"
         />
         <UButton
+          color="neutral"
+          variant="outline"
+          size="sm"
+          icon="i-heroicons-clipboard-document-check"
+          label="Work Tracker"
+          class="font-semibold text-xs h-8"
+          @click="$router.push('/accounting/work-tracker')"
+        />
+        <UButton
           color="primary"
           icon="i-heroicons-plus"
           size="sm"
@@ -57,6 +66,7 @@
           class="font-semibold text-xs h-8"
           @click="showVoucherModal = true"
         />
+
       </div>
     </div>
 
