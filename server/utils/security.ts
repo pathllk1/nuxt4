@@ -178,16 +178,34 @@ export const validateSession = async (
     const gracePeriodMs = 30 * 1000;
     const rotatedAt = session.previousRotatedAt ? new Date(session.previousRotatedAt).getTime() : 0;
     if (Date.now() - rotatedAt > gracePeriodMs) {
-      // SEC-03: Token reuse outside grace window — revoke all sessions for this user
-      await revokeAllSessions(session.userId.toString(), 'Refresh token reuse detected');
+      // Self-Healing Same-Device Recovery:
+      // Only revoke if the request comes from a different device.
+      // Same device = browser slept and missed the rotated cookie.
+      const requestFingerprint = generateDeviceFingerprint(event);
+      if (session.deviceFingerprint !== requestFingerprint) {
+        // SEC-03: Token reuse from different device — genuine theft
+        await revokeAllSessions(session.userId.toString(), 'Refresh token reuse detected from different device');
+        await logSecurityEvent({
+          userId: session.userId.toString(),
+          action: 'suspicious_activity',
+          event,
+          metadata: {
+            reason: 'Previous refresh token used from different device outside grace window — all sessions revoked',
+            sessionFingerprint: session.deviceFingerprint,
+            requestFingerprint
+          },
+          severity: 'critical'
+        });
+        return { valid: false, reason: 'Token reuse detected. All sessions have been revoked.' };
+      }
+      // Same device — self-heal (treat as valid)
       await logSecurityEvent({
         userId: session.userId.toString(),
-        action: 'suspicious_activity',
+        action: 'token_refresh',
         event,
-        metadata: { reason: 'Previous refresh token used outside grace window — all sessions revoked' },
-        severity: 'critical'
+        metadata: { reason: 'Self-healed stale token in validateSession (idle wakeup recovery)' },
+        severity: 'low'
       });
-      return { valid: false, reason: 'Token reuse detected. All sessions have been revoked.' };
     }
   }
   

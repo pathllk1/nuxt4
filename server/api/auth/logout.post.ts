@@ -37,11 +37,14 @@ export default defineEventHandler(async (event) => {
     const decoded = verifyRefreshToken(refreshToken);
     const hashedToken = hashToken(refreshToken);
     
-    // Deactivate session
+    // Also check previousRefreshToken — the browser may hold a stale pre-rotation token
     const session = await Session.findOne({
-      refreshToken: hashedToken,
       userId: decoded.id,
-      isActive: true
+      isActive: true,
+      $or: [
+        { refreshToken: hashedToken },
+        { previousRefreshToken: hashedToken }
+      ]
     } as any);
 
     if (session) {

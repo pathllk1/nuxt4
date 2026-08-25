@@ -54,16 +54,15 @@ export default defineEventHandler(async (event) => {
           maxAge: 15 * 60
         });
 
-        const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
-        if (shouldRotate) {
-          setCookie(event, 'refresh_token', result.refreshToken, {
-            httpOnly: true,
-            secure: isProduction,
-            sameSite: 'strict',
-            path: '/',
-            maxAge: 60 * 60 * 24 * 30
-          });
-        }
+        // Always re-set refresh_token cookie to resynchronize browser
+        // (critical for self-heal recovery after idle wakeup with rotation enabled)
+        setCookie(event, 'refresh_token', result.refreshToken, {
+          httpOnly: true,
+          secure: isProduction,
+          sameSite: 'strict',
+          path: '/',
+          maxAge: 60 * 60 * 24 * 30
+        });
 
         // SEC-10: Attach user document to event context for downstream reuse
         event.context.user = result.decoded;
@@ -195,16 +194,15 @@ export default defineEventHandler(async (event) => {
             maxAge: 15 * 60
           });
 
-          const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
-          if (shouldRotate) {
-            setCookie(event, 'refresh_token', result.refreshToken, {
-              httpOnly: true,
-              secure: isProduction,
-              sameSite: 'strict',
-              path: '/',
-              maxAge: 60 * 60 * 24 * 30
-            });
-          }
+          // Always re-set refresh_token cookie to resynchronize browser
+          // (critical for self-heal recovery after idle wakeup with rotation enabled)
+          setCookie(event, 'refresh_token', result.refreshToken, {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: 'strict',
+            path: '/',
+            maxAge: 60 * 60 * 24 * 30
+          });
 
           // Expose access token header for client-side detection
           setResponseHeader(event, 'x-new-access-token', result.accessToken);

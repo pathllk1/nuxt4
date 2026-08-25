@@ -29,6 +29,8 @@ export default defineEventHandler(async (event) => {
       maxAge: 15 * 60 // 15 minutes
     });
 
+    // Always set refresh_token cookie — when ROTATE=true, this contains the new rotated/healed token;
+    // when ROTATE=false, this is the same token (idempotent). Critical for self-heal resync.
     setCookie(event, 'refresh_token', result.refreshToken, {
       httpOnly: true,
       secure: isProduction,

@@ -116,19 +116,46 @@ export async function performTokenRefresh(
     const timeSinceRotation = session.previousRotatedAt ? (Date.now() - new Date(session.previousRotatedAt).getTime()) : Infinity;
     const isGraceWindowHit = isPreviousToken && (timeSinceRotation < REFRESH_GRACE_PERIOD_MS);
 
-    // If outside grace window and token matched previousRefreshToken, this is true token reuse!
-    if (isPreviousToken && !isGraceWindowHit) {
-      await revokeAllSessions(decoded.id, 'Refresh token reuse detected');
+    // Self-Healing Same-Device Recovery:
+    // If stale token arrives outside grace window, check if it's the same device.
+    // Same device → browser slept and missed the Set-Cookie → self-heal by re-issuing fresh tokens.
+    // Different device → genuine token theft → revoke all sessions.
+    const isSelfHeal = isPreviousToken && !isGraceWindowHit;
+    if (isSelfHeal) {
+      const requestFingerprint = generateDeviceFingerprint(event);
+      const isSameDevice = session.deviceFingerprint === requestFingerprint;
+
+      if (!isSameDevice) {
+        // DIFFERENT device presenting a rotated-out token = genuine theft
+        await revokeAllSessions(decoded.id, 'Refresh token reuse detected from different device');
+        await logSecurityEvent({
+          userId: decoded.id,
+          action: 'suspicious_activity',
+          event,
+          metadata: {
+            reason: 'Previous refresh token used from different device outside grace window — all sessions revoked',
+            sessionFingerprint: session.deviceFingerprint,
+            requestFingerprint
+          },
+          severity: 'critical'
+        });
+        throw createError({
+          statusCode: 401,
+          statusMessage: 'Unauthorized: Token reuse detected. All sessions have been revoked.'
+        });
+      }
+
+      // SAME device — browser went to sleep and missed the rotated cookie.
+      // Log it and continue to self-heal below (step 8 handles re-rotation).
       await logSecurityEvent({
         userId: decoded.id,
-        action: 'suspicious_activity',
+        action: 'token_refresh',
         event,
-        metadata: { reason: 'Previous refresh token used outside grace window — all sessions revoked' },
-        severity: 'critical'
-      });
-      throw createError({
-        statusCode: 401,
-        statusMessage: 'Unauthorized: Token reuse detected. All sessions have been revoked.'
+        metadata: {
+          reason: 'Self-healed stale token from same device (idle wakeup recovery)',
+          staleSinceMs: timeSinceRotation
+        },
+        severity: 'low'
       });
     }
 
@@ -174,8 +201,30 @@ export async function performTokenRefresh(
     const shouldRotate = process.env.ROTATE_REFRESH_TOKEN === 'true';
     const isWithinCooldown = session.previousRotatedAt && (timeSinceRotation < REFRESH_COOLDOWN_MS);
 
-    if (shouldRotate && !isWithinCooldown) {
-      // Rotate token: generate new raw token & hash it
+    if (isSelfHeal && shouldRotate) {
+      // Self-heal path: browser slept and missed the last rotation.
+      // We can't reverse the stored hash to recover the current raw token,
+      // so generate a fresh rotated token to resynchronize the browser's cookie jar.
+      const healedRawToken = generateRefreshToken(user, deviceFingerprint);
+      const healedHashedToken = hashToken(healedRawToken);
+
+      await Session.findOneAndUpdate(
+        { _id: session._id, isActive: true },
+        {
+          $set: {
+            refreshToken: healedHashedToken,
+            previousRefreshToken: session.refreshToken, // current becomes previous
+            previousRotatedAt: new Date(),
+            lastActivity: new Date(),
+            expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+            ipAddress: getRequestIP(event, { xForwardedFor: true }) || 'unknown',
+            userAgent: getHeader(event, 'user-agent') || 'unknown'
+          }
+        }
+      );
+      effectiveRawRefreshToken = healedRawToken;
+    } else if (shouldRotate && !isWithinCooldown) {
+      // Normal rotation: generate new raw token & hash it
       const newRawRefreshToken = generateRefreshToken(user, deviceFingerprint);
       const newHashedRefreshToken = hashToken(newRawRefreshToken);
 
@@ -235,6 +284,7 @@ export async function performTokenRefresh(
     };
   })();
 
+  // Set the lock immediately after promise creation so concurrent requests coalesce
   inFlightRefreshes.set(lockKey, refreshPromise);
   try {
     return await refreshPromise;
