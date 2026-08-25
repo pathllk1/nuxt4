@@ -1,5 +1,6 @@
 import { ref, computed, reactive } from 'vue';
 import { useAuth } from './useAuth';
+import { useFirebaseAuth } from './useFirebaseAuth';
 import {
   type Client,
   type Work,
@@ -25,18 +26,11 @@ import {
   WALLET_COLORS
 } from '../types/work-tracker';
 
-const DEFAULT_FIREBASE_UID = '6NCnWG74HMaPDvbICnW2FqusHNj1';
-
 // Module-level reactive singleton state to share across tabs and modals
 const activeTab = ref<string>('dashboard');
 const activeReportTab = ref<string>('outstanding');
 const loading = ref<boolean>(false);
 const toasts = ref<ToastMessage[]>([]);
-
-// Browser Firebase User UID configuration
-const firebaseUserUid = ref<string>(
-  (typeof window !== 'undefined' && localStorage.getItem('wt_firebase_user_uid')) || DEFAULT_FIREBASE_UID
-);
 
 const rawClients = ref<Client[]>([]);
 const rawWorks = ref<Work[]>([]);
@@ -213,33 +207,11 @@ const reportFilters = reactive({ dateFrom: '', dateTo: '' });
 
 export const useWorkTracker = () => {
   const { apiFetch } = useAuth();
+  const firebaseAuth = useFirebaseAuth();
 
-  // Internal fetch helper that attaches x-firebase-user-uid header
+  // Internal fetch helper - delegates session-authenticated requests to the backend
   const trackerFetch = <T = any>(url: string, opts: any = {}): Promise<T> => {
-    const headers = {
-      ...(opts.headers || {}),
-      'x-firebase-user-uid': firebaseUserUid.value || DEFAULT_FIREBASE_UID
-    };
-    return apiFetch<T>(url, { ...opts, headers });
-  };
-
-  const setFirebaseUserUid = (uid: string) => {
-    const clean = uid.trim() || DEFAULT_FIREBASE_UID;
-    firebaseUserUid.value = clean;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('wt_firebase_user_uid', clean);
-    }
-    showToast(`Active Firebase Profile set to: ${clean}`, 'info');
-    loadAllData();
-  };
-
-  const resetFirebaseUserUid = () => {
-    firebaseUserUid.value = DEFAULT_FIREBASE_UID;
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('wt_firebase_user_uid');
-    }
-    showToast('Reset to default Firebase Profile', 'info');
-    loadAllData();
+    return apiFetch<T>(url, opts);
   };
 
   const showToast = (message: string, type: ToastMessage['type'] = 'info') => {
@@ -510,6 +482,22 @@ export const useWorkTracker = () => {
   const loadAllData = async () => {
     loading.value = true;
     try {
+      // Ensure Google connection status is checked
+      const status = await firebaseAuth.fetchAuthStatus();
+      if (!status?.isLinked) {
+        rawClients.value = [];
+        rawWorks.value = [];
+        rawPayments.value = [];
+        rawWallets.value = [];
+        rawTransfers.value = [];
+        rawExpenses.value = [];
+        rawReceipts.value = [];
+        rawBudgets.value = [];
+        rawAdjustments.value = [];
+        rawRecurringTemplates.value = [];
+        return;
+      }
+
       const [cls, wks, pymts, wlts, txfs, exps, rcpts, bdgts, adjs, tmpls] = await Promise.all([
         trackerFetch<Client[]>('/api/work-tracker/clients'),
         trackerFetch<Work[]>('/api/work-tracker/works'),
@@ -534,7 +522,9 @@ export const useWorkTracker = () => {
       rawAdjustments.value = adjs || [];
       rawRecurringTemplates.value = tmpls || [];
     } catch (err: any) {
-      showToast('Failed to load tracker data: ' + (err?.message || err), 'error');
+      if (err?.data?.code !== 'FIREBASE_NOT_LINKED') {
+        showToast('Failed to load tracker data: ' + (err?.data?.statusMessage || err?.message || err), 'error');
+      }
     } finally {
       loading.value = false;
     }
@@ -1261,9 +1251,7 @@ export const useWorkTracker = () => {
     activeReportTab,
     loading,
     toasts,
-    firebaseUserUid,
-    setFirebaseUserUid,
-    resetFirebaseUserUid,
+    firebaseAuth,
     clients: rawClients,
     works: worksExpanded,
     payments: paymentsExpanded,

@@ -78,15 +78,17 @@ export default defineEventHandler(async (event) => {
   setHeader(event, 'X-Frame-Options', 'DENY');
   setHeader(event, 'Referrer-Policy', 'strict-origin-when-cross-origin');
   setHeader(event, 'Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  setHeader(event, 'Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 
-  // Content-Security-Policy (allows HTTPS images like freepik, randomuser, unsplash, etc.)
+  // Content-Security-Policy (allows HTTPS images and Google/Firebase Auth scripts & iframes)
   setHeader(event, 'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.firebaseapp.com https://*.googleapis.com https://accounts.google.com; " +
     "style-src 'self' 'unsafe-inline' https:; " +
     "font-src 'self' data: https:; " +
-    "img-src 'self' data: blob: https: http:; " +
-    "connect-src 'self' https: ws: wss:; " +
+    "img-src 'self' data: blob: https: http: https://*.googleusercontent.com; " +
+    "connect-src 'self' https: ws: wss: https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com https://*.googleapis.com; " +
+    "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://*.google.com; " +
     "frame-ancestors 'none';"
   );
   setHeader(event, 'Strict-Transport-Security', 'max-age=31536000; includeSubDomains');

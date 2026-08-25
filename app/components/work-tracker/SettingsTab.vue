@@ -1,23 +1,33 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useWorkTracker } from '~/composables/useWorkTracker';
 import type { ExpenseCategory } from '~/types/work-tracker';
 
 const state = useWorkTracker();
 
+onMounted(async () => {
+  await state.firebaseAuth.fetchAuthStatus();
+});
+
 const newWorkType = ref('');
 const newCategoryName = ref('');
 const newCategoryIcon = ref('📦');
-const uidInput = ref(state.firebaseUserUid.value);
 
-const saveUid = () => {
-  if (!uidInput.value.trim()) return;
-  state.setFirebaseUserUid(uidInput.value.trim());
+const handleConnectGoogle = async () => {
+  const res = await state.firebaseAuth.signInWithGoogle();
+  if (res.success) {
+    state.showToast('Google Account connected successfully!', 'success');
+    await state.loadAllData();
+  }
 };
 
-const resetUid = () => {
-  state.resetFirebaseUserUid();
-  uidInput.value = state.firebaseUserUid.value;
+const handleDisconnectGoogle = async () => {
+  if (!confirm('Are you sure you want to disconnect your Google Account from Work Tracker?')) return;
+  const ok = await state.firebaseAuth.unlinkGoogle();
+  if (ok) {
+    state.showToast('Google Account disconnected', 'info');
+    await state.loadAllData();
+  }
 };
 
 const addWorkType = () => {
@@ -65,7 +75,8 @@ const removeCategory = (id: string) => {
 
 const exportBackup = () => {
   const dump = {
-    firebaseUserUid: state.firebaseUserUid.value,
+    firebaseEmail: state.firebaseAuth.linkedEmail.value,
+    firebaseUid: state.firebaseAuth.linkedUid.value,
     clients: state.clients.value,
     works: state.works.value,
     payments: state.payments.value,
@@ -90,46 +101,94 @@ const exportBackup = () => {
 
 <template>
   <div class="space-y-3 font-sans text-xs w-full">
-    <!-- Cloud Database Profile & Sync -->
-    <div class="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs space-y-2.5">
+    <!-- Google Account & Cloud Database Sync -->
+    <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-xs space-y-3">
       <div class="flex items-center justify-between">
         <div>
           <h3 class="text-xs font-black uppercase tracking-wider text-gray-800 flex items-center gap-1.5">
             <span>🔥</span>
-            <span>Firebase Cloud Database Sync</span>
+            <span>Google Cloud Database Profile</span>
           </h3>
-          <p class="text-[10px] text-gray-500 font-normal">Active Firestore User Profile Scope (Stored in Browser)</p>
+          <p class="text-[10px] text-gray-500 font-normal">
+            Cryptographic identity & private Firestore vault isolation
+          </p>
         </div>
-        <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
-          ONLINE
+        <span
+          v-if="state.firebaseAuth.isLinked.value"
+          class="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-50 text-emerald-700 border border-emerald-200"
+        >
+          CONNECTED
+        </span>
+        <span
+          v-else
+          class="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-50 text-amber-700 border border-amber-200"
+        >
+          NOT CONNECTED
         </span>
       </div>
 
-      <div class="flex flex-col sm:flex-row gap-2">
-        <input
-          v-model="uidInput"
-          type="text"
-          placeholder="Firebase User UID (e.g. 6NCnWG74HMaPDvbICnW2FqusHNj1)"
-          class="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono font-bold text-gray-800 outline-none"
-        />
+      <!-- Connected State Card -->
+      <div
+        v-if="state.firebaseAuth.isLinked.value"
+        class="bg-slate-50 border border-slate-200 p-3 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+      >
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-sm">
+            👤
+          </div>
+          <div>
+            <div class="text-xs font-bold text-gray-900">
+              {{ state.firebaseAuth.linkedEmail.value || 'Google User' }}
+            </div>
+            <div class="text-[10px] font-mono text-gray-400">
+              UID: {{ state.firebaseAuth.linkedUid.value }}
+            </div>
+          </div>
+        </div>
+
         <div class="flex items-center gap-2">
           <button
-            @click="saveUid"
-            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition border-0 cursor-pointer shadow-xs whitespace-nowrap"
+            @click="handleConnectGoogle"
+            :disabled="state.firebaseAuth.isAuthenticating.value"
+            class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition border border-gray-200 cursor-pointer shadow-xs whitespace-nowrap"
           >
-            Save & Re-sync
+            Switch Account
           </button>
           <button
-            @click="resetUid"
-            class="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition border border-gray-200 cursor-pointer whitespace-nowrap"
-            title="Reset to default UID"
+            @click="handleDisconnectGoogle"
+            :disabled="state.firebaseAuth.isAuthenticating.value"
+            class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold transition border border-rose-200 cursor-pointer shadow-xs whitespace-nowrap"
           >
-            Reset
+            Disconnect
           </button>
         </div>
       </div>
-      <p class="text-[9px] text-gray-400 font-bold">
-        Currently querying: <span class="font-mono text-gray-600 font-black">users/{{ state.firebaseUserUid.value }}/*</span>
+
+      <!-- Disconnected State Prompt -->
+      <div
+        v-else
+        class="bg-amber-50 border border-amber-200 p-3.5 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+      >
+        <div>
+          <div class="text-xs font-bold text-amber-900">
+            No Google account connected
+          </div>
+          <div class="text-[10px] text-amber-700">
+            Connect with Google to activate multi-tenant cloud storage and access your work orders and wallets.
+          </div>
+        </div>
+
+        <button
+          @click="handleConnectGoogle"
+          :disabled="state.firebaseAuth.isAuthenticating.value"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition border-0 cursor-pointer shadow-xs whitespace-nowrap flex items-center gap-2"
+        >
+          <span>Sign in with Google</span>
+        </button>
+      </div>
+
+      <p class="text-[9px] text-gray-400 font-medium">
+        All financial records and work ledger items are scoped strictly to your authenticated Google UID in Firestore.
       </p>
     </div>
 
@@ -140,13 +199,15 @@ const exportBackup = () => {
       <div class="flex items-center gap-2 pt-1">
         <button
           @click="state.seedSampleData()"
-          class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition border-0 cursor-pointer shadow-xs"
+          :disabled="!state.firebaseAuth.isLinked.value"
+          class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition border-0 cursor-pointer shadow-xs disabled:opacity-50"
         >
           🌱 Seed Default Vaults & Clients
         </button>
         <button
           @click="exportBackup"
-          class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition border-0 cursor-pointer shadow-xs"
+          :disabled="!state.firebaseAuth.isLinked.value"
+          class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition border-0 cursor-pointer shadow-xs disabled:opacity-50"
         >
           💾 Export JSON
         </button>

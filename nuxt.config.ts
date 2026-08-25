@@ -35,6 +35,19 @@ export default defineNuxtConfig({
     strict: true,
     typeCheck: false
   },
+  runtimeConfig: {
+    public: {
+      firebase: {
+        apiKey: process.env.NUXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyCKMWfNfD4fuCknFhceuhcYA3fJGgw5suU',
+        authDomain: process.env.NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'work-vs-payment.firebaseapp.com',
+        projectId: process.env.NUXT_PUBLIC_FIREBASE_PROJECT_ID || 'work-vs-payment',
+        storageBucket: process.env.NUXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'work-vs-payment.firebasestorage.app',
+        messagingSenderId: process.env.NUXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '432257160846',
+        appId: process.env.NUXT_PUBLIC_FIREBASE_APP_ID || '1:432257160846:web:afa71b4fe4b38381909bdf',
+        measurementId: process.env.NUXT_PUBLIC_FIREBASE_MEASUREMENT_ID || 'G-J77N3W1H4C'
+      }
+    }
+  },
 
   // Fix #19: Body size limit for API routes (10 MB max)
   nitro: {

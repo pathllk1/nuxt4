@@ -1,12 +1,16 @@
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
+import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, Firestore, CollectionReference } from 'firebase-admin/firestore';
+import { getAuth, Auth, DecodedIdToken } from 'firebase-admin/auth';
 import { getHeader, createError, type H3Event } from 'h3';
+import User from '../models/User';
 
+let firebaseAdminApp: App | null = null;
 let firestoreInstance: Firestore | null = null;
+let authInstance: Auth | null = null;
 
-export function getFirestoreDb(): Firestore {
-  if (firestoreInstance) {
-    return firestoreInstance;
+export function getFirebaseAdminApp(): App {
+  if (firebaseAdminApp) {
+    return firebaseAdminApp;
   }
 
   if (getApps().length === 0) {
@@ -26,24 +30,52 @@ export function getFirestoreDb(): Firestore {
     }
 
     if (serviceAccount) {
-      initializeApp({
+      firebaseAdminApp = initializeApp({
         credential: cert(serviceAccount),
         projectId: serviceAccount.project_id
       });
     } else {
       throw new Error('Firebase service account credentials are not configured in environment variables');
     }
+  } else {
+    firebaseAdminApp = getApps()[0]!;
   }
 
-  firestoreInstance = getFirestore();
+  return firebaseAdminApp;
+}
+
+export function getFirestoreDb(): Firestore {
+  if (firestoreInstance) {
+    return firestoreInstance;
+  }
+  const app = getFirebaseAdminApp();
+  firestoreInstance = getFirestore(app);
   return firestoreInstance;
+}
+
+export function getFirebaseAuth(): Auth {
+  if (authInstance) {
+    return authInstance;
+  }
+  const app = getFirebaseAdminApp();
+  authInstance = getAuth(app);
+  return authInstance;
+}
+
+/**
+ * Verifies a Google/Firebase ID Token cryptographically on the server
+ */
+export async function verifyFirebaseIdToken(idToken: string): Promise<DecodedIdToken> {
+  const auth = getFirebaseAuth();
+  return await auth.verifyIdToken(idToken);
 }
 
 /**
  * Returns a user-scoped collection reference in Firestore.
  * Matches existing Angular Firestore schema: users/{uid}/{collectionName}
+ * Cryptographically secured to the authenticated user's linked firebaseUid.
  */
-export function getScopedCollection(event: H3Event | null, collectionName: string): CollectionReference {
+export async function getScopedCollectionAsync(event: H3Event | null, collectionName: string): Promise<CollectionReference> {
   const db = getFirestoreDb();
 
   // Normalize collection names to match existing Angular Firestore subcollections
@@ -51,13 +83,58 @@ export function getScopedCollection(event: H3Event | null, collectionName: strin
   if (collectionName === 'transfers') normalizedName = 'wallet_transfers';
   if (collectionName === 'templates') normalizedName = 'recurring_templates';
 
-  // Read header passed from browser (Settings Tab storage) or session
-  const uid = (event ? getHeader(event, 'x-firebase-user-uid') : '') || event?.context?.user?.firebaseUid || '';
+  let uid = event?.context?.userDoc?.firebaseUid || event?.context?.user?.firebaseUid;
+
+  // Fallback: If not on context, fetch user document from database
+  if (!uid && event?.context?.user?.id) {
+    const user = await User.findById(event.context.user.id).select('firebaseUid role').lean();
+    if (user) {
+      uid = user.firebaseUid;
+      if (event.context.userDoc) {
+        event.context.userDoc.firebaseUid = uid;
+      }
+    }
+  }
+
+  // Superadmin dev override (only if superadmin explicitly passes header for testing)
+  const isSuperadmin = event?.context?.userDoc?.role === 'superadmin' || event?.context?.user?.role === 'superadmin';
+  const superadminOverride = isSuperadmin && event ? getHeader(event, 'x-firebase-user-uid') : null;
+  if (superadminOverride) {
+    uid = superadminOverride;
+  }
 
   if (!uid) {
     throw createError({
-      statusCode: 400,
-      statusMessage: 'Firebase User UID is required. Please set your UID in Settings.'
+      statusCode: 403,
+      statusMessage: 'Firebase Account Not Linked. Please connect your Google Account in Work Tracker Settings.',
+      data: { code: 'FIREBASE_NOT_LINKED' }
+    });
+  }
+
+  return db.collection('users').doc(uid).collection(normalizedName);
+}
+
+export function getScopedCollection(event: H3Event | null, collectionName: string): CollectionReference {
+  const db = getFirestoreDb();
+
+  let normalizedName = collectionName;
+  if (collectionName === 'transfers') normalizedName = 'wallet_transfers';
+  if (collectionName === 'templates') normalizedName = 'recurring_templates';
+
+  let uid = event?.context?.userDoc?.firebaseUid || event?.context?.user?.firebaseUid;
+
+  // Superadmin dev override
+  const isSuperadmin = event?.context?.userDoc?.role === 'superadmin' || event?.context?.user?.role === 'superadmin';
+  const superadminOverride = isSuperadmin && event ? getHeader(event, 'x-firebase-user-uid') : null;
+  if (superadminOverride) {
+    uid = superadminOverride;
+  }
+
+  if (!uid) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Firebase Account Not Linked. Please connect your Google Account in Work Tracker Settings.',
+      data: { code: 'FIREBASE_NOT_LINKED' }
     });
   }
 

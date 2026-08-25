@@ -25,6 +25,8 @@ export interface IUser extends Document {
   status: 'pending' | 'active' | 'suspended';
   firms: IUserFirm[];
   securitySettings: ISecuritySettings;
+  firebaseUid?: string;
+  firebaseEmail?: string;
   isAccountLocked: boolean;
   comparePassword(password: string): Promise<boolean>;
   incrementFailedLogins(): Promise<void>;
@@ -37,6 +39,8 @@ const UserSchema: Schema = new Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true, index: true },
   password: { type: String, required: true },
+  firebaseUid: { type: String, sparse: true, index: true },
+  firebaseEmail: { type: String },
   role: { 
     type: String, 
     enum: ['superadmin', 'standard'], 
