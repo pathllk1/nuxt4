@@ -52,7 +52,7 @@ export default defineNuxtConfig({
   // Fix #19: Body size limit for API routes (10 MB max)
   nitro: {
     externals: {
-      inline: ['firebase-admin', 'jwks-rsa'],
+      inline: [],
       external: ['pdfmake']
     },
     routeRules: {
