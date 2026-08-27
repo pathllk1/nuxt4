@@ -21,6 +21,8 @@ export function extractFirmId(firm: any): string | null {
 
 // Client-side singleton promise lock for token rotation
 let clientRefreshPromise: Promise<any> | null = null;
+// Client-side guard to prevent redundant logout calls (Finding 5: double logout in same cascade)
+let logoutInFlight = false;
 
 export const useAuth = () => {
   const router = useRouter();
@@ -223,11 +225,12 @@ export const useAuth = () => {
   };
 
   const logout = (options?: { redirect?: boolean; reason?: string } | Event | any) => {
-    if (import.meta.client) {
+    if (import.meta.client && !logoutInFlight) {
+      logoutInFlight = true;
       $fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include'
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => { logoutInFlight = false; });
     }
 
     user.value = null;

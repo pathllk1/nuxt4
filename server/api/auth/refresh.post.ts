@@ -29,15 +29,17 @@ export default defineEventHandler(async (event) => {
       maxAge: 15 * 60 // 15 minutes
     });
 
-    // Always set refresh_token cookie — when ROTATE=true, this contains the new rotated/healed token;
-    // when ROTATE=false, this is the same token (idempotent). Critical for self-heal resync.
-    setCookie(event, 'refresh_token', result.refreshToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'strict',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 30 // 30 days
-    });
+    // Only set refresh_token cookie if this instance won the distributed lock.
+    // Losers MUST NOT set it — prevents last-write-wins clobbering.
+    if (!result.isLockLoser) {
+      setCookie(event, 'refresh_token', result.refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'strict',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30 // 30 days
+      });
+    }
 
     // SEC-06: Do not return raw tokens in JSON body — they are in HttpOnly cookies
     return {

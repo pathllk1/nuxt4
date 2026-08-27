@@ -54,21 +54,24 @@ export default defineEventHandler(async (event) => {
           maxAge: 15 * 60
         });
 
-        // Always re-set refresh_token cookie to resynchronize browser
-        // (critical for self-heal recovery after idle wakeup with rotation enabled)
-        setCookie(event, 'refresh_token', result.refreshToken, {
-          httpOnly: true,
-          secure: isProduction,
-          sameSite: 'strict',
-          path: '/',
-          maxAge: 60 * 60 * 24 * 30
-        });
+        // Only set refresh_token cookie if this instance won the distributed lock.
+        // Losers MUST NOT set it — prevents last-write-wins clobbering across
+        // concurrent Vercel serverless responses.
+        if (!result.isLockLoser) {
+          setCookie(event, 'refresh_token', result.refreshToken, {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: 'strict',
+            path: '/',
+            maxAge: 60 * 60 * 24 * 30
+          });
+        }
 
         // SEC-10: Attach user document to event context for downstream reuse
         event.context.user = result.decoded;
         event.context.userDoc = result.user;
         
-        console.log('[Middleware] Auto-refresh successful (no access token)');
+        console.log(`[Middleware] Auto-refresh successful (no access token, lockWinner=${!result.isLockLoser})`);
         return;
       } catch (refreshError: any) {
         console.error('[Middleware] Auto-refresh failed when no access token:', refreshError.message);
@@ -194,15 +197,17 @@ export default defineEventHandler(async (event) => {
             maxAge: 15 * 60
           });
 
-          // Always re-set refresh_token cookie to resynchronize browser
-          // (critical for self-heal recovery after idle wakeup with rotation enabled)
-          setCookie(event, 'refresh_token', result.refreshToken, {
-            httpOnly: true,
-            secure: isProduction,
-            sameSite: 'strict',
-            path: '/',
-            maxAge: 60 * 60 * 24 * 30
-          });
+          // Only set refresh_token cookie if this instance won the distributed lock.
+          // Losers MUST NOT set it — prevents last-write-wins clobbering.
+          if (!result.isLockLoser) {
+            setCookie(event, 'refresh_token', result.refreshToken, {
+              httpOnly: true,
+              secure: isProduction,
+              sameSite: 'strict',
+              path: '/',
+              maxAge: 60 * 60 * 24 * 30
+            });
+          }
 
           // Expose access token header for client-side detection
           setResponseHeader(event, 'x-new-access-token', result.accessToken);

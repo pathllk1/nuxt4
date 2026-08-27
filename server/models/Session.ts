@@ -6,6 +6,7 @@ export interface ISession extends Document {
   previousRefreshToken?: string;
   previousRotatedAt?: Date;
   lastRefreshAttempt?: Date;
+  refreshLockedUntil?: Date;
   deviceFingerprint: string;
   ipAddress: string;
   userAgent: string;
@@ -33,6 +34,7 @@ const SessionSchema: Schema = new Schema({
   previousRefreshToken: { type: String, index: true },
   previousRotatedAt: { type: Date },
   lastRefreshAttempt: { type: Date },
+  refreshLockedUntil: { type: Date },
   deviceFingerprint: { type: String, required: true, index: true },
   ipAddress: { type: String, required: true },
   userAgent: { type: String, required: true },
