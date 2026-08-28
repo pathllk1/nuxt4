@@ -181,7 +181,57 @@ coordinated "session is dead, log out once" action. Low severity (harmless beyon
 wasted request) but worth deduplicating — same class of missing-coordination problem as
 Finding 3, just on the client side instead of the server side.
 
-## 8. Evidence gaps blocking full confirmation
+## 8. New Finding 6 — Distributed lock shipped, but the cooldown branch reintroduces the same clobbering bug (Aug 27, second incident post-fix)
+
+**Status: root cause of the continued failure after Phase 1–4 were implemented.**
+
+The distributed lock (Finding 3's fix) correctly serializes truly-simultaneous lock
+contention — confirmed working as designed. However, a fresh log export from the same day,
+captured after deployment, still shows the identical failure signature: all 7 requests in
+a wake-up burst fail immediately with `"Session not found or expired"`, with no successful
+rotation visible anywhere in the capture window — meaning the session was already orphaned
+*before* this particular burst started.
+
+**Root cause: `authService.ts`'s cooldown short-circuit branch never sets `isLockLoser`.**
+
+```js
+if (shouldRotate && !isWithinCooldown) {
+  // distributed lock winner/loser logic — correctly sets isLockLoser
+} else {
+  // Within cooldown window or rotation disabled: extend session activity only
+  session.lastActivity = new Date();
+  session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  await session.save();
+  // isLockLoser is NEVER set here — stays at its default `false`
+}
+```
+
+`isWithinCooldown` only checks elapsed time since the last rotation — it does not check
+whether the presented token is the current or previous one. A genuine straggler presenting
+the **stale, already-rotated-out previous token** within 15 seconds of a legitimate
+rotation takes this branch, and `effectiveRawRefreshToken` is returned unchanged (i.e.
+still stale). Because `isLockLoser` stays `false`, `auth.global.ts` treats this response as
+authoritative and sets `Set-Cookie: refresh_token=<stale value>`. If this response reaches
+the browser after the real winner's response, it silently overwrites the correct cookie
+with a dead one — reproducing Finding 0's exact symptom through a code path the original
+fix never covered.
+
+**Secondary, lower-probability contributor:** both winner branches (self-heal and normal
+rotation) compute `previousRefreshToken` from the `session` object read *before* the lock
+was acquired, not a fresh re-read after acquiring it. A slow straggler that wins the lock
+after another winner already completed can write based on stale data. The atomic CAS
+protects against two writers colliding at the same instant; it does not protect a late
+writer from acting on outdated information.
+
+**Fix (primary):** explicitly set `isLockLoser = true` in the cooldown/no-rotate branch,
+since this request never performs a rotation write and must never be treated as
+authoritative for the `refresh_token` cookie.
+
+**Fix (secondary):** re-fetch rotation-relevant session fields immediately after acquiring
+the lock, and compute `previousRefreshToken`/`previousRotatedAt` from that fresh read
+rather than the pre-lock snapshot.
+
+## 9. Evidence gaps blocking full confirmation
 
 - No fresh server logs from the post-Option-2 failure — **Resolved: logs captured Aug 27, see Finding 0**
 - No confirmation of the exact error message/statusCode from the repeat failure — **Resolved: see Finding 0**
@@ -189,7 +239,7 @@ Finding 3, just on the client side instead of the server side.
 - No DevTools confirmation of cookie persistence across a normal (non-idle) refresh
 - ~~No confirmation of deployment architecture~~ — **Resolved: confirmed Vercel** (see Finding 3)
 
-## 9. Severity
+## 10. Severity
 
 **High.** The primary mechanism (Finding 0 / Finding 3) is a normal consequence of
 ordinary concurrent page-load traffic on the current deployment — not an edge case

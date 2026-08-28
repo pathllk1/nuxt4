@@ -21,8 +21,12 @@ export function extractFirmId(firm: any): string | null {
 
 // Client-side singleton promise lock for token rotation
 let clientRefreshPromise: Promise<any> | null = null;
-// Client-side guard to prevent redundant logout calls (Finding 5: double logout in same cascade)
+// Client-side singleton promise lock for initAuth
+let clientInitAuthPromise: Promise<void> | null = null;
+// Client-side guard & cooldown to prevent redundant logout calls (Finding 5)
 let logoutInFlight = false;
+let lastLogoutTime = 0;
+const LOGOUT_COOLDOWN_MS = 2000;
 
 export const useAuth = () => {
   const router = useRouter();
@@ -40,77 +44,94 @@ export const useAuth = () => {
     // Idempotency guard: skip if already successfully authenticated unless force re-validation requested
     if (isInitialized.value && user.value && !options?.force) return;
 
-    try {
-      // Restore firm selection from cookie
-      if (cookieFirm.value && cookieFirm.value !== 'undefined' && cookieFirm.value !== 'null') {
-        selectedFirmId.value = cookieFirm.value;
-      }
+    // Mutex guard: reuse in-flight client initialization promise to prevent race conditions
+    if (import.meta.client && clientInitAuthPromise && !options?.force) {
+      return clientInitAuthPromise;
+    }
 
-      // Ask server for user info - browser auto-sends HttpOnly cookies
-      // /api/auth/me is protected by auth.global.ts which auto-refreshes tokens if expired
+    const runInit = async () => {
       try {
-        const userData = await requestFetch<any>('/api/auth/me', { 
-          credentials: 'include' 
-        });
-        
-        if (userData && (userData.id || userData._id)) {
-          user.value = {
-            ...userData,
-            id: userData.id || userData._id
-          };
-          
-          // Set default firm if needed
-          if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
-            const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
-            if (defaultFirmId) {
-              selectedFirmId.value = defaultFirmId;
-              cookieFirm.value = defaultFirmId;
-            }
-          }
-        } else {
-          user.value = null;
+        // Restore firm selection from cookie
+        if (cookieFirm.value && cookieFirm.value !== 'undefined' && cookieFirm.value !== 'null') {
+          selectedFirmId.value = cookieFirm.value;
         }
-      } catch (error: any) {
-        const status = error?.status || error?.statusCode;
-        
-        // If 401 (token expired or invalid), try explicit rotateToken fallback
-        if (status === 401) {
-          try {
-            await rotateToken({ redirectIfFailed: false });
+
+        // Ask server for user info - browser auto-sends HttpOnly cookies
+        // /api/auth/me is protected by auth.global.ts which auto-refreshes tokens if expired
+        try {
+          const userData = await requestFetch<any>('/api/auth/me', { 
+            credentials: 'include' 
+          });
+          
+          if (userData && (userData.id || userData._id)) {
+            user.value = {
+              ...userData,
+              id: userData.id || userData._id
+            };
             
-            // Retry getting user data with new token
-            const userData = await requestFetch<any>('/api/auth/me', { 
-              credentials: 'include' 
-            });
-            
-            if (userData && (userData.id || userData._id)) {
-              user.value = {
-                ...userData,
-                id: userData.id || userData._id
-              };
-              
-              if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
-                const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
-                if (defaultFirmId) {
-                  selectedFirmId.value = defaultFirmId;
-                  cookieFirm.value = defaultFirmId;
-                }
+            // Set default firm if needed
+            if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
+              const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
+              if (defaultFirmId) {
+                selectedFirmId.value = defaultFirmId;
+                cookieFirm.value = defaultFirmId;
               }
-            } else {
-              user.value = null;
             }
-          } catch (refreshError) {
-            console.warn('[Auth] Token refresh failed during init:', refreshError);
+          } else {
             user.value = null;
           }
-        } else {
-          console.warn('[Auth] Failed to fetch user:', error);
+        } catch (error: any) {
+          const status = error?.status || error?.statusCode;
+          
+          // If 401 (token expired or invalid), try explicit rotateToken fallback
+          if (status === 401) {
+            try {
+              await rotateToken({ redirectIfFailed: false });
+              
+              // Retry getting user data with newly rotated token
+              const userData = await requestFetch<any>('/api/auth/me', { 
+                credentials: 'include' 
+              });
+              
+              if (userData && (userData.id || userData._id)) {
+                user.value = {
+                  ...userData,
+                  id: userData.id || userData._id
+                };
+                
+                if (userData.firms && userData.firms.length > 0 && !selectedFirmId.value) {
+                  const defaultFirmId = extractFirmId(userData.firms[0]?.firm);
+                  if (defaultFirmId) {
+                    selectedFirmId.value = defaultFirmId;
+                    cookieFirm.value = defaultFirmId;
+                  }
+                }
+              } else {
+                user.value = null;
+              }
+            } catch (refreshError) {
+              console.warn('[Auth] Token refresh failed during init:', refreshError);
+              user.value = null;
+            }
+          } else {
+            console.warn('[Auth] Failed to fetch user:', error);
+          }
+        }
+      } catch (e) {
+        console.error('[Auth] Unexpected error in initAuth:', e);
+      } finally {
+        isInitialized.value = true;
+        if (import.meta.client) {
+          clientInitAuthPromise = null;
         }
       }
-    } catch (e) {
-      console.error('[Auth] Unexpected error in initAuth:', e);
-    } finally {
-      isInitialized.value = true;
+    };
+
+    if (import.meta.client) {
+      clientInitAuthPromise = runInit();
+      return clientInitAuthPromise;
+    } else {
+      return runInit();
     }
   };
 
@@ -225,12 +246,16 @@ export const useAuth = () => {
   };
 
   const logout = (options?: { redirect?: boolean; reason?: string } | Event | any) => {
-    if (import.meta.client && !logoutInFlight) {
+    const now = Date.now();
+    if (import.meta.client && !logoutInFlight && (now - lastLogoutTime > LOGOUT_COOLDOWN_MS)) {
       logoutInFlight = true;
+      lastLogoutTime = now;
       $fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include'
-      }).catch(() => {}).finally(() => { logoutInFlight = false; });
+      }).catch(() => {}).finally(() => { 
+        logoutInFlight = false; 
+      });
     }
 
     user.value = null;

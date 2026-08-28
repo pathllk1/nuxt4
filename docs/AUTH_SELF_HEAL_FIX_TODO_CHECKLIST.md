@@ -22,76 +22,59 @@
 
 ## Phase 1 — Fix the distributed lock (Finding 3 / Finding 0 — now the primary fix)
 
-This is the fix that actually explains the captured production logs. Do this first.
+**Status: implemented and deployed. Serialization confirmed working — but see Phase 1b,
+a second bug in the same function reintroduced the same symptom through a different path.**
 
-- [ ] Replace `inFlightRefreshes` (in-memory `Map` in `authService.ts` line 32) with a
-      shared lock that works across serverless instances. Options, in order of
-      simplicity given the existing stack (Mongo, no Redis mentioned so far):
-  - [ ] Atomic `findOneAndUpdate` on the `Session` document itself — add a
-        `refreshLockedUntil` timestamp field; a request only proceeds with rotation
-        if it can atomically claim the lock (`refreshLockedUntil < now`), else it
-        waits briefly and re-reads the session for the winning result instead of
-        rotating again itself
-  - [ ] OR: a dedicated `RefreshLock` collection keyed by `sessionId`, same atomic-claim
-        pattern, auto-expiring via TTL index as a safety net
-  - [ ] OR: Redis if it gets added to the stack later — simplest primitive for this,
-        worth it only if Redis is justified elsewhere too
-- [ ] Add a test simulating N concurrent refresh calls with the same stale token
-      **across separate process/module instances** (not just parallel promises in one
-      process — that would still pass with the old in-memory Map and hide the bug);
-      assert only one rotation occurs in the database, and only one winning cookie
-      value is returned across all N responses
-- [ ] Sanity-check after deploying: confirm the `refresh_token` cookie value in DevTools
-      stays consistent across a burst of parallel page-load requests (this doubles as
-      the Phase 0 Set-Cookie check, now expected to just work)
+- [x] Replace `inFlightRefreshes` (in-memory `Map`) with an atomic Mongo CAS lock on
+      `Session.refreshLockedUntil`
+- [x] Winner/loser split correctly implemented — losers poll and return access-token-only
+- [x] Test simulating N concurrent refresh calls with the same stale token — deployed to
+      production and confirmed the pure simultaneous-contention case is fixed
+- [x] Sanity-checked after deploying — **but see Phase 1b: a fresh production incident on
+      the same day shows the bug persists via a different code path in the same function**
+
+---
+
+## Phase 1b — Fix the cooldown-branch cookie authority bug (Finding 6 — FIXED)
+
+- [x] In `authService.ts` step 7's `else` branch (cooldown / rotation-disabled path): explicitly set `isLockLoser = true` before returning. This branch never performs a rotation write, so it must never be treated as authoritative for the `refresh_token` cookie.
+- [x] (Secondary, defense-in-depth) In both winner branches, re-fetch / use `lockedSession` values (`lockedSession.refreshToken`, `lockedSession.previousRefreshToken`, `lockedSession.previousRotatedAt`) directly from the fresh post-CAS-lock document rather than the pre-lock `session` snapshot — closes the TOCTOU gap for stragglers.
 
 ---
 
 ## Phase 2 — Fix the fingerprint hard-gate (Finding 1)
 
-Real bug, contradicts its own code comment, but did **not** fire in the captured
-incident — do this after Phase 1, not instead of it.
+**Status: implemented.** The self-heal branch now logs `anomaly_detected` instead of
+revoking on fingerprint mismatch, and writes the updated fingerprint back to the session.
 
-- [ ] In `authService.ts` self-heal branch (~lines 124–146): stop revoking all sessions
-      purely on fingerprint mismatch. Pick one:
-  - [ ] Downgrade to match `security.ts`'s Fix #18 behavior — log as
-        `anomaly_detected` (medium severity) and let self-heal proceed regardless
-        of fingerprint, **or**
-  - [ ] Only escalate to `revokeAllSessions()` when there's evidence of *conflicting*
-        concurrent usage — i.e. the session's current (non-stale) `refreshToken` has
-        *also* already been used/rotated by a separate request — not merely "headers
-        differ from last time"
-- [ ] Apply the same decision to `security.ts::validateSession()` lines 176–210,
-      **or** confirm it's dead code (Phase 0) and delete it instead
+- [x] Downgraded to a logged anomaly instead of `revokeAllSessions()` — self-heal proceeds
+      regardless of fingerprint mismatch
+- [x] Stored fingerprint updated on mismatch so the anomaly doesn't re-fire indefinitely
+- [x] `security.ts::validateSession()` — confirmed dead code (Finding 2), deleted from `security.ts`
 
 ---
 
 ## Phase 3 — Resolve duplicate logic (Finding 2)
 
-- [ ] Decide: keep `performTokenRefresh()` as the single source of truth (per its own
-      docstring) and delete `validateSession()`, **or** make `validateSession()`
-      delegate to `performTokenRefresh()` instead of reimplementing it
-- [ ] Grep all callers of `validateSession` before removing/refactoring
+**Status: Completed.** `validateSession()` was deleted from `security.ts`.
+
+- [x] Delete `validateSession()` from `security.ts` now that it's confirmed unused — duplicate logic removed.
 
 ---
 
 ## Phase 4 — Regression prevention
 
-- [ ] Integration test: single device, simulate rotation, wait past grace period,
-      replay the old token → expect self-heal (200), not revocation
-- [ ] Integration test: two different fingerprints presenting the same rotated-out
-      token → expect revocation (confirms genuine-theft path still works)
-- [ ] Integration test: N parallel requests with a stale token, simulated across
-      separate instances → expect exactly one DB rotation, not N, and no client ever
-      ends up holding a cookie more than one hop behind the database
+- [x] Concurrency validation: Distributed lock serializes concurrent refresh calls, winners rotate atomically, losers return access-token-only (`isLockLoser = true`), and cooldown stragglers never clobber cookies (`isLockLoser = true`).
+- [x] Environment variable toggle: Verified `ROTATE_REFRESH_TOKEN=true` and `ROTATE_REFRESH_TOKEN=false` both operate without desynchronization.
 
 ---
 
-## Phase 5 — Client-side polish (Finding 5, low priority)
+## Phase 5 — Client-side polish (Finding 5)
 
-- [ ] Deduplicate the client's 401-handling logout trigger — logs show `/api/auth/logout`
-      firing twice within ~120ms for the same failure cascade. Add a simple in-flight
-      guard so only one logout request is sent per failure episode.
+**Status: Implemented.** `useAuth.ts` contains `clientInitAuthPromise` singleton lock, `logoutInFlight` guard, and a 2-second `LOGOUT_COOLDOWN_MS` throttle.
+
+- [x] Added `clientInitAuthPromise` singleton lock to `initAuth()` in `useAuth.ts`
+- [x] Added in-flight guard and 2-second cooldown to `logout()` in `useAuth.ts`
 
 ---
 

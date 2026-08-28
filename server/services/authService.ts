@@ -242,7 +242,7 @@ export async function performTokenRefresh(
             {
               $set: {
                 refreshToken: healedHashedToken,
-                previousRefreshToken: session.refreshToken, // current becomes previous
+                previousRefreshToken: lockedSession.refreshToken || session.refreshToken, // current becomes previous
                 previousRotatedAt: new Date(),
                 lastActivity: new Date(),
                 expiresAt: new Date(Date.now() + SESSION_TTL_MS),
@@ -258,6 +258,14 @@ export async function performTokenRefresh(
           const newRawRefreshToken = generateRefreshToken(user, deviceFingerprint);
           const newHashedRefreshToken = hashToken(newRawRefreshToken);
 
+          // Compute exact lineage from the freshest post-CAS-lock document
+          const prevTokenToWrite = isGraceWindowHit 
+            ? (lockedSession.previousRefreshToken || session.previousRefreshToken) 
+            : (lockedSession.refreshToken || tokenHash);
+          const prevRotatedAtToWrite = isGraceWindowHit 
+            ? (lockedSession.previousRotatedAt || session.previousRotatedAt) 
+            : new Date();
+
           // Atomic update with lock release
           const updatedSession = await Session.findOneAndUpdate(
             {
@@ -267,8 +275,8 @@ export async function performTokenRefresh(
             {
               $set: {
                 refreshToken: newHashedRefreshToken,
-                previousRefreshToken: isGraceWindowHit ? session.previousRefreshToken : tokenHash,
-                previousRotatedAt: isGraceWindowHit ? session.previousRotatedAt : new Date(),
+                previousRefreshToken: prevTokenToWrite,
+                previousRotatedAt: prevRotatedAtToWrite,
                 lastActivity: new Date(),
                 expiresAt: new Date(Date.now() + SESSION_TTL_MS),
                 ipAddress: getRequestIP(event, { xForwardedFor: true }) || 'unknown',
@@ -318,7 +326,10 @@ export async function performTokenRefresh(
       effectiveRawRefreshToken = refreshTokenValue;
     }
   } else {
-    // Within cooldown window or rotation disabled: extend session activity only
+    // Within cooldown window or rotation disabled: extend session activity only.
+    // Explicitly set isLockLoser = true so caller NEVER overwrites the browser's
+    // cookie jar with an older/straggler token.
+    isLockLoser = true;
     session.lastActivity = new Date();
     session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     await session.save();
