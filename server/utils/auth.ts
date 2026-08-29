@@ -50,20 +50,39 @@ export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
     });
   }
 
+  let effectiveFirmOid = firmOid;
+
   const hasAccess = userDoc.role === 'superadmin' || 
     (userDoc.firms && userDoc.firms.some((f: any) => 
       String(f.firm?._id || f.firm) === String(firmOid)
     ));
 
   if (!hasAccess) {
-    throw createError({
-      statusCode: 403,
-      statusMessage: 'Forbidden: You do not have access to this firm'
-    });
+    // Self-Healing Firm Fallback:
+    // If request provided a stale/desynced firm ID (e.g. from background cookie after wakeup),
+    // but the authenticated user has at least one valid firm, self-heal to their primary firm
+    // instead of breaking the entire application with 403 errors.
+    if (userDoc.firms && userDoc.firms.length > 0) {
+      const primaryFirm = userDoc.firms[0]?.firm;
+      const fallbackFirmId = String(primaryFirm?._id || primaryFirm);
+      if (mongoose.Types.ObjectId.isValid(fallbackFirmId)) {
+        effectiveFirmOid = new mongoose.Types.ObjectId(fallbackFirmId);
+      } else {
+        throw createError({
+          statusCode: 403,
+          statusMessage: 'Forbidden: You do not have access to this firm'
+        });
+      }
+    } else {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Forbidden: You do not have access to this firm'
+      });
+    }
   }
 
   return {
-    firm_id: firmOid,
+    firm_id: effectiveFirmOid,
     _id: userOid,
     username: userPayload?.username || userDoc.name,
     email: userPayload?.email || userDoc.email

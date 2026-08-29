@@ -1,5 +1,5 @@
 import { computed } from 'vue';
-import { useRouter, useState, useCookie } from '#app';
+import { useRouter, useState, useCookie, useRequestFetch } from '#app';
 import { startRequest, endRequest } from '../utils/api';
 
 export interface User {
@@ -28,10 +28,13 @@ let logoutInFlight = false;
 let lastLogoutTime = 0;
 const LOGOUT_COOLDOWN_MS = 2000;
 
+type FetchFunction = <T = any>(request: string, options?: any) => Promise<T>;
+
 export const useAuth = () => {
   const router = useRouter();
   // Capture requestFetch synchronously within the Nuxt composable context
-  const requestFetch = import.meta.server ? useRequestFetch() : $fetch;
+  // (useRequestFetch as any)() prevents TS2589 / TS2321 generic recursion on Nitro route score types
+  const requestFetch: FetchFunction = (import.meta.server ? (useRequestFetch as any)() : $fetch) as unknown as FetchFunction;
 
   // Nuxt useState for SSR state hydration (prevents cross-request pollution and works across F5 reloads)
   const user = useState<User | null>('auth_user', () => null);
@@ -209,11 +212,22 @@ export const useAuth = () => {
 
     if (newUser.firms && newUser.firms.length > 0) {
       const storedFirm = cookieFirm.value;
-      const defaultFirmId = extractFirmId(newUser.firms[0]?.firm);
-      const currentFirmId = (storedFirm && storedFirm !== 'undefined' && storedFirm !== 'null') ? storedFirm : defaultFirmId;
+      const validFirmIds = newUser.firms
+        .map((f: any) => extractFirmId(f.firm))
+        .filter(Boolean) as string[];
+      const defaultFirmId = validFirmIds[0] || null;
+
+      // Only retain storedFirm if it actually belongs to this user's authorized firms!
+      const currentFirmId = (storedFirm && validFirmIds.includes(storedFirm)) 
+        ? storedFirm 
+        : defaultFirmId;
+
       if (currentFirmId) {
         cookieFirm.value = currentFirmId;
         selectedFirmId.value = currentFirmId;
+        if (import.meta.client) {
+          localStorage.setItem('active_firm_id', currentFirmId);
+        }
       }
     }
   };
@@ -221,7 +235,7 @@ export const useAuth = () => {
   const login = async (credentials: any) => {
     startRequest();
     try {
-      const response = await $fetch<{ user: User }>('/api/auth/login', {
+      const response: any = await ($fetch as any)('/api/auth/login', {
         method: 'POST',
         body: credentials,
         credentials: 'include'
@@ -239,7 +253,7 @@ export const useAuth = () => {
   const signup = async (userData: any) => {
     startRequest();
     try {
-      return await $fetch('/api/auth/signup', {
+      return await ($fetch as any)('/api/auth/signup', {
         method: 'POST',
         body: userData,
         credentials: 'include'
@@ -254,7 +268,7 @@ export const useAuth = () => {
     if (import.meta.client && !logoutInFlight && (now - lastLogoutTime > LOGOUT_COOLDOWN_MS)) {
       logoutInFlight = true;
       lastLogoutTime = now;
-      $fetch('/api/auth/logout', {
+      ($fetch as any)('/api/auth/logout', {
         method: 'POST',
         credentials: 'include'
       }).catch(() => {}).finally(() => { 
@@ -297,16 +311,24 @@ export const useAuth = () => {
 
     startRequest();
     try {
-      const response = await $fetch.raw<T>(request, options);
+      const response = await ($fetch as any).raw(request, options);
       return response._data as T;
     } catch (error: any) {
       const status = error?.status || error?.statusCode;
       
-      // On 401 on client, attempt single-flight token rotation and retry once
-      if (status === 401 && import.meta.client && !request.includes('/api/auth/')) {
+      // On 401 or 403 on client, attempt single-flight recovery and retry once
+      if ((status === 401 || status === 403) && import.meta.client && !request.includes('/api/auth/')) {
         try {
-          await rotateToken({ redirectIfFailed: false });
-          const retryRes = await $fetch.raw<T>(request, options);
+          if (status === 401) {
+            await rotateToken({ redirectIfFailed: false });
+          } else if (status === 403) {
+            // 403 could be due to stale firm selection or desynced session context
+            await initAuth({ force: true });
+            if (selectedFirmId.value) {
+              options.headers['X-Firm-ID'] = selectedFirmId.value;
+            }
+          }
+          const retryRes = await ($fetch as any).raw(request, options);
           return retryRes._data as T;
         } catch (retryErr) {
           throw retryErr;

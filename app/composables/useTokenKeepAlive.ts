@@ -8,10 +8,10 @@ import { useAuth } from './useAuth';
 export const useTokenKeepAlive = () => {
   if (import.meta.server) return;
 
-  const { isAuthenticated, rotateToken } = useAuth();
+  const { isAuthenticated, initAuth } = useAuth();
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastCheckTime = 0;
-  const MIN_CHECK_INTERVAL_MS = 60 * 1000; // Do not check more than once per minute
+  const MIN_CHECK_INTERVAL_MS = 30 * 1000; // Check up to twice per minute
 
   const handleWakeup = () => {
     if (document.visibilityState !== 'visible' || !isAuthenticated.value) {
@@ -30,14 +30,14 @@ export const useTokenKeepAlive = () => {
     debounceTimer = setTimeout(async () => {
       lastCheckTime = Date.now();
       try {
-        // Proactively refresh tokens silently on wake to warm serverless instance
-        // and ensure cookies are refreshed before user triggers primary actions
-        await rotateToken({ redirectIfFailed: false });
+        // Proactively re-validate session and re-sync user/firm context from /api/auth/me on wake.
+        // This keeps tokens fresh, warms serverless functions, and ensures selectedFirmId matches
+        // the active user before primary actions or page queries fire.
+        await initAuth({ force: true });
       } catch (error) {
-        // Silently handled; regular request retry will take over if needed
-        console.debug('[KeepAlive] Silent wake refresh completed or skipped:', error);
+        console.debug('[KeepAlive] Wakeup session validation notice:', error);
       }
-    }, 400);
+    }, 100);
   };
 
   onMounted(() => {

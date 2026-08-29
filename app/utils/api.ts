@@ -112,6 +112,27 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
       }
     }
 
+    if (response.status === 403 && !endpoint.includes('/auth/') && retry) {
+      // Auto-heal 403 firm mismatch: re-sync user/firm context from /api/auth/me
+      await auth.initAuth({ force: true }).catch(() => null)
+      const freshFirmId = getActiveFirmId()
+      const retryHeaders = { ...headers }
+      if (freshFirmId) {
+        retryHeaders['X-Firm-ID'] = freshFirmId
+      }
+      const retryRes = await fetch(finalUrl, {
+        ...options,
+        headers: retryHeaders,
+        credentials: options.credentials || 'include'
+      })
+      if (retryRes.ok) {
+        if (options.responseType === 'blob') {
+          return retryRes.blob()
+        }
+        return retryRes.json()
+      }
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'An unknown error occurred' }))
       throw new Error(error.message || `HTTP error! status: ${response.status}`)

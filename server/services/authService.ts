@@ -198,9 +198,14 @@ export async function performTokenRefresh(
 
   // 6. Generate new access token (cheap, no rotation tracking — safe for all paths)
   const reqFirmId = getHeader(event, 'x-firm-id') || getHeader(event, 'X-Firm-ID');
-  const targetFirmId = reqFirmId || (user.firms && user.firms.length > 0 
-    ? ((user.firms[0]?.firm as any)?._id?.toString() || user.firms[0]?.firm?.toString()) 
-    : undefined);
+  const userFirmIds = (user.firms || []).map((f: any) => 
+    ((f.firm as any)?._id?.toString() || f.firm?.toString())
+  );
+  // Ensure the targetFirmId actually belongs to this user
+  const targetFirmId = (reqFirmId && userFirmIds.includes(reqFirmId))
+    ? reqFirmId
+    : (userFirmIds.length > 0 ? userFirmIds[0] : undefined);
+
   const targetMembership = (user.firms || []).find((f: any) => 
     ((f.firm as any)?._id?.toString() || f.firm?.toString()) === targetFirmId
   );

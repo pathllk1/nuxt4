@@ -3,6 +3,7 @@ import { initLaborPgTables } from './pg-labor-schema';
 
 let sql: postgres.Sql<any> | null = null;
 let pgReady = false;
+let pgTablesInitialized = false;
 
 /**
  * Initialize PostgreSQL connection using postgres-js
@@ -29,9 +30,16 @@ export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
     console.log('✅ PostgreSQL (postgres-js) connected in Nuxt server');
     pgReady = true;
 
-    // Auto-migrate Documents & Labor tables if not created yet
-    await initDocumentsPgTable(sql);
-    await initLaborPgTables(sql);
+    // Auto-migrate Documents & Labor tables asynchronously (prevents DDL lock timeouts on cold starts)
+    if (!pgTablesInitialized) {
+      pgTablesInitialized = true;
+      Promise.all([
+        initDocumentsPgTable(sql),
+        initLaborPgTables(sql)
+      ]).catch((migErr) => {
+        console.warn('⚠️ Background PG schema verification notice:', migErr?.message);
+      });
+    }
 
   } catch (err: any) {
     console.error('⚠️ PostgreSQL connection failed:', err.message);
