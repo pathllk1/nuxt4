@@ -75,10 +75,7 @@ export class ChatService {
       status: 'delivered'
     };
 
-    // 1. Save permanently to Couchbase Capella
-    await CouchbaseService.saveMessage(messagePayload);
-
-    // 2. Push to Upstash Redis hot-cache list (last 50 messages)
+    // 1. Push to Upstash Redis hot-cache list (last 50 messages)
     const redis = useRedis();
     if (redis) {
       const cacheKey = `chat:${chatId}`;
@@ -91,6 +88,13 @@ export class ChatService {
       // Update active conversation lists for both participants
       await redis.zadd(`chat:user:${recipientId}:active_chats`, { score: timestamp, member: chatId });
       await redis.zadd(`chat:user:${senderId}:active_chats`, { score: timestamp, member: chatId });
+    }
+
+    // 2. Save permanently to Couchbase Capella archive
+    try {
+      await CouchbaseService.saveMessage(messagePayload);
+    } catch (cbErr: any) {
+      console.warn('[Chat] Couchbase saveMessage notice:', cbErr.message);
     }
 
     return messagePayload;
@@ -110,8 +114,13 @@ export class ChatService {
     // Record user activity
     this.recordActivity(userId);
 
-    // 1. Update in Couchbase Capella
-    const updatedReactions = await CouchbaseService.updateReaction(messageId, emoji, userId);
+    // 1. Update in Couchbase Capella (safe try/catch)
+    let updatedReactions: Record<string, string[]> = {};
+    try {
+      updatedReactions = await CouchbaseService.updateReaction(messageId, emoji, userId);
+    } catch (cbErr: any) {
+      console.warn('[Chat] Couchbase updateReaction notice:', cbErr.message);
+    }
 
     // 2. Update hot message inside Upstash Redis rolling list
     const redis = useRedis();
@@ -144,7 +153,13 @@ export class ChatService {
     const { senderId, senderName, sourceMessageId, targetRecipientIds } = params;
 
     // 1. Fetch original message from Couchbase
-    let original = await CouchbaseService.getMessage(sourceMessageId);
+    let original: any = null;
+    try {
+      original = await CouchbaseService.getMessage(sourceMessageId);
+    } catch (cbErr: any) {
+      console.warn('[Chat] Couchbase getMessage notice:', cbErr.message);
+    }
+
     if (!original) {
       throw new Error('Original message not found');
     }
@@ -186,7 +201,6 @@ export class ChatService {
       // Update status in hot cache messages sent by the partner
       const cacheKey = `chat:${chatId}`;
       const rawMessages: any[] = await redis.lrange(cacheKey, 0, 49);
-      let updatedAny = false;
 
       for (let i = 0; i < rawMessages.length; i++) {
         const item = typeof rawMessages[i] === 'string' ? JSON.parse(rawMessages[i]) : rawMessages[i];
@@ -194,13 +208,16 @@ export class ChatService {
           item.status = 'read';
           item.readAt = Date.now();
           await redis.lset(cacheKey, i, JSON.stringify(item));
-          updatedAny = true;
         }
       }
     }
 
-    // 2. Update status in Couchbase Capella
-    await CouchbaseService.updateStatus(chatId, currentUserId, 'read');
+    // 2. Update status in Couchbase Capella (safe try/catch)
+    try {
+      await CouchbaseService.updateStatus(chatId, currentUserId, 'read');
+    } catch (cbErr: any) {
+      console.warn('[Chat] Couchbase updateStatus notice:', cbErr.message);
+    }
   }
 
   /**

@@ -59,7 +59,7 @@ export default defineNuxtConfig({
   nitro: {
     externals: {
       inline: [],
-      external: ['pdfmake', 'couchbase']
+      external: ['pdfmake']
     }
   },
 

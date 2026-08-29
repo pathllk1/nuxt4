@@ -7,7 +7,8 @@
     "dev": "node --max-old-space-size=4096 node_modules/nuxt/bin/nuxt.mjs dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test:couchbase": "node scripts/test-couchbase.mjs"
   },
   "dependencies": {
     "@iconify-json/heroicons": "^1.2.3",
@@ -18,7 +19,6 @@
     "@types/qrcode": "^1.5.6",
     "@upstash/redis": "^1.38.3",
     "chart.js": "^4.5.1",
-    "couchbase": "^4.7.1",
     "exceljs": "^4.4.0",
     "firebase": "^12.18.0",
     "firebase-admin": "^14.3.0",

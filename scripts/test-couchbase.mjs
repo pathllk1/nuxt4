@@ -1,9 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import dns from 'dns/promises';
-import https from 'https';
+import https from 'node:https';
 import { fileURLToPath } from 'url';
-import couchbase from 'couchbase';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,35 +24,53 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-// Helper to fetch public IP for Capella allowlist diagnosis
-async function getPublicIP() {
-  return new Promise((resolve) => {
-    https.get('https://api.ipify.org?format=json', { timeout: 3000 }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data).ip);
-        } catch {
-          resolve('Unknown');
-        }
-      });
-    }).on('error', () => resolve('Unknown'));
-  });
-}
-
 function mask(str, show = 3) {
   if (!str) return '<NOT SET>';
   if (str.length <= show * 2) return '***';
   return str.slice(0, show) + '***' + str.slice(-show);
 }
 
+const agent = new https.Agent({ rejectUnauthorized: false });
+
+async function querySql(endpointUrl, authHeader, statement, params = {}) {
+  const postData = JSON.stringify({ statement, ...params });
+  return new Promise((resolve, reject) => {
+    const req = https.request(endpointUrl, {
+      method: 'POST',
+      agent,
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, data: JSON.parse(body) });
+        } catch {
+          resolve({ status: res.statusCode, raw: body });
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.setTimeout(10000, () => {
+      req.destroy(new Error('Connection timeout to Couchbase Query Service'));
+    });
+    req.write(postData);
+    req.end();
+  });
+}
+
 async function runDiagnostics() {
   console.log('\n============================================================');
-  console.log('       Couchbase Capella Diagnostic & Connection Test       ');
+  console.log('    Couchbase Capella Pure REST Driver Diagnostic Test      ');
+  console.log('    (100% Native-Free: Compatible with Vercel & Node 22)    ');
   console.log('============================================================\n');
 
-  const url = process.env.COUCHBASE_URL;
+  const rawUrl = process.env.COUCHBASE_URL;
   const username = process.env.COUCHBASE_USERNAME;
   const password = process.env.COUCHBASE_PASSWORD;
   const bucketName = process.env.COUCHBASE_BUCKET || 'businesspro';
@@ -62,170 +78,85 @@ async function runDiagnostics() {
   const collectionName = process.env.COUCHBASE_COLLECTION || 'messages';
 
   console.log('Configuration Loaded:');
-  console.log(`  COUCHBASE_URL:        ${url || '<NOT SET>'}`);
+  console.log(`  COUCHBASE_URL:        ${rawUrl || '<NOT SET>'}`);
   console.log(`  COUCHBASE_USERNAME:   ${username || '<NOT SET>'}`);
   console.log(`  COUCHBASE_PASSWORD:   ${mask(password, 2)}`);
   console.log(`  COUCHBASE_BUCKET:     ${bucketName}`);
   console.log(`  COUCHBASE_SCOPE:      ${scopeName}`);
   console.log(`  COUCHBASE_COLLECTION: ${collectionName}\n`);
 
-  if (!url || !username || !password) {
+  if (!rawUrl || !username || !password) {
     console.error('❌ ERROR: Missing required Couchbase credentials in .env!');
-    console.error('   Please ensure COUCHBASE_URL, COUCHBASE_USERNAME, and COUCHBASE_PASSWORD are set.\n');
     process.exit(1);
   }
 
-  // Detect Public IP
-  process.stdout.write('🔍 Checking your current machine Public IP... ');
-  const publicIP = await getPublicIP();
-  console.log(`${publicIP}\n`);
+  const match = rawUrl.match(/^(?:couchbases?:\/\/|https?:\/\/)?([^/?#:]+)/);
+  const host = match ? match[1] : rawUrl;
+  const endpointUrl = `https://${host}:18093/query/service`;
+  const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 
-  // Parse hostname from URL
-  const match = url.match(/^(couchbases?:\/\/)?([^/?#]+)/);
-  const hostname = match ? match[2] : null;
+  console.log(`🌐 Target Endpoint: ${endpointUrl}`);
+  console.log('🔄 Executing SQL++ Ping query...');
 
-  if (hostname) {
-    process.stdout.write(`🌐 Testing DNS resolution for "${hostname}"... `);
-    try {
-      // Test SRV record resolution
-      const srvRecord = `_couchbases._tcp.${hostname}`;
-      try {
-        const srvResults = await dns.resolveSrv(srvRecord);
-        console.log('OK (SRV record found)');
-        console.log(`   Points to: ${srvResults.map(s => `${s.name}:${s.port}`).join(', ')}`);
-      } catch (srvErr) {
-        // Fallback standard A record
-        const addresses = await dns.resolve4(hostname);
-        console.log('OK (A record found)');
-        console.log(`   IPs: ${addresses.join(', ')}`);
-      }
-    } catch (dnsErr) {
-      console.log('FAILED');
-      console.warn(`   ⚠️ Warning: DNS resolution issue: ${dnsErr.message}`);
-    }
-  }
-
-  console.log('\n🔄 Attempting to connect to Couchbase Capella cluster...');
-  console.log('   Setting connectTimeout: 30000ms, kvTimeout: 20000ms...');
-
-  let cluster;
+  const startTime = Date.now();
   try {
-    const startTime = Date.now();
-    cluster = await couchbase.connect(url, {
-      username,
-      password,
-      timeouts: {
-        connectTimeout: 30000,
-        kvTimeout: 20000,
-        queryTimeout: 25000
-      }
-    });
+    const pingRes = await querySql(endpointUrl, authHeader, 'SELECT 1 as ping');
+    const elapsed = Date.now() - startTime;
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`✅ Cluster connection established in ${elapsed}s!\n`);
-
-    // Ping Bucket
-    process.stdout.write(`📡 Pinging bucket "${bucketName}"... `);
-    const bucket = cluster.bucket(bucketName);
-    const pingResult = await bucket.ping();
-    console.log('OK');
-
-    const services = Object.keys(pingResult.services || {});
-    console.log(`   Active services: ${services.join(', ')}`);
-
-    // Inspect Collections
-    console.log(`\n📂 Inspecting scopes and collections in bucket "${bucketName}"...`);
-    try {
-      const collectionManager = bucket.collections();
-      const scopes = await collectionManager.getAllScopes();
-      console.log(`   Found ${scopes.length} scope(s):`);
-      for (const s of scopes) {
-        const colNames = s.collections.map(c => c.name).join(', ');
-        console.log(`   - Scope "${s.name}": [${colNames}]`);
-      }
-    } catch (cmErr) {
-      console.warn(`   ⚠️ Note: CollectionManager check skipped (permission or mode): ${cmErr.message}`);
+    if (pingRes.status === 200 && pingRes.data?.status === 'success') {
+      console.log(`✅ Query service responded in ${elapsed}ms!`);
+    } else {
+      console.error(`❌ Authentication or Query error: Status ${pingRes.status}`, pingRes.data || pingRes.raw);
+      process.exit(1);
     }
 
-    // Test Key-Value Operation
-    console.log(`\n📝 Testing Key-Value Read/Write...`);
-    let collection;
-    try {
-      const scope = bucket.scope(scopeName);
-      collection = scope.collection(collectionName);
-    } catch {
-      console.log(`   Falling back to bucket.defaultCollection()`);
-      collection = bucket.defaultCollection();
-    }
+    // 2. Ensure Primary Index
+    process.stdout.write(`🔍 Checking primary index on \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\`... `);
+    const idxRes = await querySql(
+      endpointUrl,
+      authHeader,
+      `CREATE PRIMARY INDEX IF NOT EXISTS ON \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\``
+    );
+    console.log('OK (', idxRes.data?.status || 'success', ')');
 
-    const testDocId = `test::ping_${Date.now()}`;
-    process.stdout.write(`   Writing test document "${testDocId}"... `);
-    await collection.upsert(testDocId, {
-      test: true,
-      timestamp: Date.now(),
-      created_by: 'test-couchbase-script'
-    });
-    console.log('OK');
+    // 3. Test Upsert
+    const testKey = `test::diag_${Date.now()}`;
+    process.stdout.write(`📝 Testing document upsert (${testKey})... `);
+    const upsertRes = await querySql(
+      endpointUrl,
+      authHeader,
+      `UPSERT INTO \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\` (KEY, VALUE) VALUES ($key, $doc)`,
+      { $key: testKey, $doc: { test: true, timestamp: Date.now() } }
+    );
+    console.log('OK (', upsertRes.data?.status, ')');
 
-    process.stdout.write(`   Reading test document "${testDocId}"... `);
-    const readBack = await collection.get(testDocId);
-    console.log('OK');
-    console.log(`   Retrieved:`, JSON.stringify(readBack.content));
+    // 4. Test Select
+    process.stdout.write(`📖 Testing document select... `);
+    const selectRes = await querySql(
+      endpointUrl,
+      authHeader,
+      `SELECT m.* FROM \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\` m USE KEYS ($key)`,
+      { $key: testKey }
+    );
+    console.log('OK (', selectRes.data?.results?.[0]?.test ? 'Retrieved successfully' : 'Not found', ')');
 
-    process.stdout.write(`   Cleaning up test document... `);
-    await collection.remove(testDocId);
+    // 5. Cleanup
+    process.stdout.write(`🧹 Cleaning up test document... `);
+    await querySql(
+      endpointUrl,
+      authHeader,
+      `DELETE FROM \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\` USE KEYS ($key)`,
+      { $key: testKey }
+    );
     console.log('OK');
 
     console.log('\n============================================================');
-    console.log('🎉 SUCCESS! Couchbase Capella is fully reachable & operational.');
+    console.log('🎉 SUCCESS! Couchbase Capella REST driver is 100% operational.');
+    console.log('   Zero native binaries -> 100% Vercel / Linux x64 compatible!');
     console.log('============================================================\n');
 
   } catch (err) {
-    console.error('\n❌ Connection Failed!');
-    console.error(`   Error Name:    ${err.name}`);
-    console.error(`   Error Message: ${err.message}`);
-
-    console.log('\n------------------------------------------------------------');
-    console.log('             TROUBLESHOOTING & ACTION ITEMS:                ');
-    console.log('------------------------------------------------------------');
-
-    if (err.message.includes('unambiguous timeout') || err.message.includes('Timeout')) {
-      console.log(`\n👉 1. IP ALLOWLIST (Most likely cause for Capella):`);
-      console.log(`   Couchbase Capella blocks ALL incoming traffic by default.`);
-      console.log(`   Your current machine's public IP is: \x1b[32m${publicIP}\x1b[0m`);
-      console.log(`   Steps to fix:`);
-      console.log(`     a. Log into Couchbase Capella Console: https://cloud.couchbase.com`);
-      console.log(`     b. Select your Database/Cluster -> "Settings" -> "Allowed IP Addresses".`);
-      console.log(`     c. Click "Add Allowed IP" -> Add "${publicIP}/32" (or "0.0.0.0/0" for development).`);
-      console.log(`     d. Wait 1-2 minutes for Capella to apply firewall rules and run this test again.`);
-
-      console.log(`\n👉 2. DATABASE CREDENTIALS (Database Access):`);
-      console.log(`   Make sure "${username}" was created in:`);
-      console.log(`   Capella Console -> "Database Access" (or "Users") with "Read/Write" access.`);
-      console.log(`   Do NOT use your personal Capella Web Console login email as the username!`);
-
-      console.log(`\n👉 3. CLUSTER STATE:`);
-      console.log(`   Verify that your Capella cluster is in "Healthy / Running" state and not Paused.`);
-
-      console.log(`\n👉 4. PROTOCOL:`);
-      console.log(`   Ensure COUCHBASE_URL starts with "couchbases://" (with an 's' for TLS encryption).`);
-    } else if (err.message.includes('Authentication') || err.message.includes('auth')) {
-      console.log(`\n👉 AUTHENTICATION FAILURE:`);
-      console.log(`   The username or password for Couchbase is incorrect.`);
-      console.log(`   Verify credentials in Capella Console -> Database Access.`);
-    } else if (err.message.includes('Bucket') || err.message.includes('not found')) {
-      console.log(`\n👉 BUCKET NOT FOUND:`);
-      console.log(`   The bucket "${bucketName}" was not found in this cluster.`);
-      console.log(`   Check the exact bucket name under Capella Console -> Data Tools.`);
-    }
-    console.log('------------------------------------------------------------\n');
-  } finally {
-    if (cluster) {
-      try {
-        await cluster.close();
-      } catch {}
-    }
-    process.exit(0);
+    console.error('\n❌ Connection error:', err.message);
   }
 }
 

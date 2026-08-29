@@ -1,182 +1,152 @@
-import { connect, Cluster, Bucket, Scope, Collection } from 'couchbase';
+import https from 'node:https';
+import type { ChatMessage } from '../../app/types/chat';
 
-let clusterInstance: Cluster | null = null;
-let bucketInstance: Bucket | null = null;
-let collectionInstance: Collection | null = null;
-let isProvisioning = false;
+// Reusable HTTPS agent for Couchbase Capella REST Query Service
+const agent = new https.Agent({
+  rejectUnauthorized: false, // Compatibility with Capella TLS certificate chain
+  keepAlive: true,
+  timeout: 10000
+});
 
-/**
- * Get or establish the Couchbase Capella Collection instance.
- * Automatically provisions scope, collection and SQL++ indexes if they do not exist,
- * with graceful fallback to bucket.defaultCollection().
- */
-export async function getCouchbaseCollection(): Promise<Collection | null> {
-  if (collectionInstance) {
-    return collectionInstance;
-  }
+let isIndexProvisioned = false;
 
-  const url = process.env.COUCHBASE_URL;
-  const username = process.env.COUCHBASE_USERNAME;
-  const password = process.env.COUCHBASE_PASSWORD;
-  const bucketName = process.env.COUCHBASE_BUCKET || 'businesspro';
-  const scopeName = process.env.COUCHBASE_SCOPE || '_default';
-  const collectionName = process.env.COUCHBASE_COLLECTION || 'messages';
-
-  if (!url || !username || !password) {
-    console.warn('[Couchbase] Credentials not found in environment (COUCHBASE_URL, COUCHBASE_USERNAME, COUCHBASE_PASSWORD).');
-    return null;
-  }
-
-  if (!clusterInstance) {
-    try {
-      clusterInstance = await connect(url, {
-        username,
-        password,
-        timeouts: {
-          connectTimeout: 30000,
-          kvTimeout: 20000,
-          queryTimeout: 25000
-        }
-      });
-      console.log(`[Couchbase] Successfully connected to Capella cluster: ${url}`);
-    } catch (err: any) {
-      clusterInstance = null;
-      console.error('[Couchbase] Connection error:', err.message);
-      return null;
-    }
-  }
-
-  bucketInstance = clusterInstance.bucket(bucketName);
-
-  // Auto-provision scope & collection if not already running
-  if (!isProvisioning) {
-    isProvisioning = true;
-    try {
-      await ensureScopeAndCollection(bucketInstance, scopeName, collectionName);
-    } catch (err: any) {
-      console.warn('[Couchbase] Provisioning notice:', err.message);
-    } finally {
-      isProvisioning = false;
-    }
-  }
-
-  try {
-    const scope: Scope = bucketInstance.scope(scopeName);
-    collectionInstance = scope.collection(collectionName);
-  } catch (err) {
-    console.warn(`[Couchbase] Scope/Collection "${scopeName}.${collectionName}" unavailable, falling back to default collection:`, err);
-    collectionInstance = bucketInstance.defaultCollection();
-  }
-
-  return collectionInstance;
-}
-
-/**
- * Ensures the target scope and collection exist in Couchbase Capella.
- * If collection is missing, it auto-creates it and provisions necessary SQL++ indexes.
- */
-async function ensureScopeAndCollection(bucket: Bucket, scopeName: string, collectionName: string): Promise<void> {
-  if (scopeName === '_default' && collectionName === '_default') {
-    return;
-  }
-
-  try {
-    const collectionManager = bucket.collections();
-    const scopes = await collectionManager.getAllScopes();
-    let targetScope = scopes.find(s => s.name === scopeName);
-
-    // 1. Create scope if missing
-    if (!targetScope && scopeName !== '_default') {
-      console.log(`[Couchbase] Scope "${scopeName}" not found. Creating scope...`);
-      try {
-        await collectionManager.createScope(scopeName);
-        const updatedScopes = await collectionManager.getAllScopes();
-        targetScope = updatedScopes.find(s => s.name === scopeName);
-      } catch (scopeErr: any) {
-        if (!scopeErr.message?.includes('already exists')) {
-          throw scopeErr;
-        }
-      }
-    }
-
-    // 2. Create collection if missing
-    const collectionExists = targetScope?.collections.some(c => c.name === collectionName);
-    if (!collectionExists && collectionName !== '_default') {
-      console.log(`[Couchbase] Collection "${collectionName}" not found in scope "${scopeName}". Creating collection...`);
-      await collectionManager.createCollection({ name: collectionName, scopeName });
-      console.log(`[Couchbase] Collection "${collectionName}" created successfully.`);
-
-      // 3. Auto-provision SQL++ indexes
-      await provisionIndexes(bucket.name, scopeName, collectionName);
-    }
-  } catch (err: any) {
-    console.warn(`[Couchbase] Collection auto-provision notice (${scopeName}.${collectionName}): ${err.message}. Will use default collection.`);
-  }
-}
-
-/**
- * Provisions required SQL++ indexes for deep message history queries
- */
-async function provisionIndexes(bucket: string, scope: string, collection: string): Promise<void> {
-  if (!clusterInstance) return;
-  try {
-    console.log(`[Couchbase] Provisioning SQL++ indexes on \`${bucket}\`.\`${scope}\`.\`${collection}\`...`);
-    await clusterInstance.query(
-      `CREATE PRIMARY INDEX IF NOT EXISTS ON \`${bucket}\`.\`${scope}\`.\`${collection}\``
-    );
-    await clusterInstance.query(
-      `CREATE INDEX IF NOT EXISTS \`ix_chat_messages_chatId_timestamp\` ON \`${bucket}\`.\`${scope}\`.\`${collection}\`(\`chatId\`, \`timestamp\` DESC) WHERE \`type\` = 'message'`
-    );
-    await clusterInstance.query(
-      `CREATE INDEX IF NOT EXISTS \`ix_chat_messages_recipient_status\` ON \`${bucket}\`.\`${scope}\`.\`${collection}\`(\`recipientId\`, \`status\`) WHERE \`type\` = 'message'`
-    );
-    console.log(`[Couchbase] SQL++ indexes ready.`);
-  } catch (indexErr: any) {
-    console.warn(`[Couchbase] Index creation notice: ${indexErr.message}`);
-  }
+interface CouchbaseQueryResponse {
+  requestID: string;
+  status: 'success' | 'fatal' | 'errors';
+  results?: any[];
+  errors?: Array<{ code: number; msg: string }>;
 }
 
 export class CouchbaseService {
-  /**
-   * Save message to Couchbase Capella permanent storage
-   */
-  static async saveMessage(messageDoc: any): Promise<void> {
-    const collection = await getCouchbaseCollection();
-    if (!collection) {
-      console.warn('[Couchbase] Skipping saveMessage — Couchbase collection not available');
-      return;
+  private static getEndpoint(): { url: string; authHeader: string; bucket: string; scope: string; collection: string } | null {
+    const rawUrl = process.env.COUCHBASE_URL;
+    const username = process.env.COUCHBASE_USERNAME;
+    const password = process.env.COUCHBASE_PASSWORD;
+    const bucket = process.env.COUCHBASE_BUCKET || 'businesspro';
+    const scope = process.env.COUCHBASE_SCOPE || '_default';
+    const collection = process.env.COUCHBASE_COLLECTION || 'messages';
+
+    if (!rawUrl || !username || !password) {
+      return null;
     }
-    const docKey = `message::${messageDoc.messageId}`;
-    await collection.upsert(docKey, messageDoc);
+
+    // Extract hostname from couchbases:// or https:// URL
+    const match = rawUrl.match(/^(?:couchbases?:\/\/|https?:\/\/)?([^/?#:]+)/);
+    const host = match ? match[1] : rawUrl;
+    const endpointUrl = `https://${host}:18093/query/service`;
+    const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+
+    return { url: endpointUrl, authHeader, bucket, scope, collection };
   }
 
   /**
-   * Get single message by ID from Couchbase Capella
+   * Execute SQL++ statement via Couchbase Capella HTTPS Query Service
+   * 100% pure JavaScript - 0 native C++ dependencies (fully Vercel / Linux compatible)
+   */
+  static async query(statement: string, params: Record<string, any> = {}): Promise<CouchbaseQueryResponse> {
+    const cfg = this.getEndpoint();
+    if (!cfg) {
+      return { requestID: '', status: 'fatal', errors: [{ code: 0, msg: 'Couchbase credentials not configured' }] };
+    }
+
+    const postData = JSON.stringify({ statement, ...params });
+
+    return new Promise((resolve) => {
+      const req = https.request(cfg.url, {
+        method: 'POST',
+        agent,
+        headers: {
+          'Authorization': cfg.authHeader,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      }, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(body) as CouchbaseQueryResponse;
+            resolve(parsed);
+          } catch {
+            resolve({ requestID: '', status: 'fatal', errors: [{ code: res.statusCode || 500, msg: body }] });
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        resolve({ requestID: '', status: 'fatal', errors: [{ code: 500, msg: err.message }] });
+      });
+
+      req.setTimeout(8000, () => {
+        req.destroy(new Error('Couchbase query timeout'));
+        resolve({ requestID: '', status: 'fatal', errors: [{ code: 408, msg: 'Query timeout' }] });
+      });
+
+      req.write(postData);
+      req.end();
+    });
+  }
+
+  /**
+   * Ensure primary index exists on collection (executed once on startup)
+   */
+  private static async ensureIndex(): Promise<void> {
+    if (isIndexProvisioned) return;
+    const cfg = this.getEndpoint();
+    if (!cfg) return;
+
+    try {
+      await this.query(`CREATE PRIMARY INDEX IF NOT EXISTS ON \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\``);
+      isIndexProvisioned = true;
+    } catch {
+      // Non-critical
+    }
+  }
+
+  /**
+   * Save message to permanent archive
+   */
+  static async saveMessage(messageDoc: ChatMessage): Promise<void> {
+    const cfg = this.getEndpoint();
+    if (!cfg) return;
+
+    await this.ensureIndex();
+    const docKey = `message::${messageDoc.messageId}`;
+    const statement = `UPSERT INTO \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\` (KEY, VALUE) VALUES ($docKey, $doc)`;
+
+    const res = await this.query(statement, {
+      $docKey: docKey,
+      $doc: messageDoc
+    });
+
+    if (res.status !== 'success') {
+      console.warn('[Couchbase REST] Upsert notice:', res.errors?.[0]?.msg || res.status);
+    }
+  }
+
+  /**
+   * Get single message by ID
    */
   static async getMessage(messageId: string): Promise<any | null> {
-    const collection = await getCouchbaseCollection();
-    if (!collection) return null;
-    try {
-      const result = await collection.get(`message::${messageId}`);
-      return result.content;
-    } catch (err: any) {
-      if (err.name === 'DocumentNotFoundError' || err.message?.includes('not found')) {
-        return null;
-      }
-      throw err;
+    const cfg = this.getEndpoint();
+    if (!cfg) return null;
+
+    const docKey = `message::${messageId}`;
+    const statement = `SELECT m.* FROM \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\` m USE KEYS ($docKey)`;
+
+    const res = await this.query(statement, { $docKey: docKey });
+    if (res.status === 'success' && res.results && res.results.length > 0) {
+      return res.results[0];
     }
+    return null;
   }
 
   /**
-   * Toggle reaction on a message in Couchbase Capella
+   * Toggle reaction on a message
    */
   static async updateReaction(messageId: string, emoji: string, userId: string): Promise<Record<string, string[]>> {
-    const collection = await getCouchbaseCollection();
-    if (!collection) return {};
-
-    const docKey = `message::${messageId}`;
-    const docResult = await collection.get(docKey);
-    const msg = docResult.content;
+    const msg = await this.getMessage(messageId);
+    if (!msg) return {};
 
     const reactions: Record<string, string[]> = msg.reactions || {};
     const users: string[] = reactions[emoji] || [];
@@ -195,7 +165,14 @@ export class CouchbaseService {
     }
 
     msg.reactions = reactions;
-    await collection.replace(docKey, msg);
+
+    const cfg = this.getEndpoint();
+    if (cfg) {
+      const docKey = `message::${messageId}`;
+      const statement = `UPSERT INTO \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\` (KEY, VALUE) VALUES ($docKey, $doc)`;
+      await this.query(statement, { $docKey: docKey, $doc: msg });
+    }
+
     return reactions;
   }
 
@@ -203,54 +180,46 @@ export class CouchbaseService {
    * Update message status (e.g. read or delivered)
    */
   static async updateStatus(chatId: string, recipientId: string, status: 'read' | 'delivered'): Promise<void> {
-    const collection = await getCouchbaseCollection();
-    if (!collection || !clusterInstance) return;
+    const cfg = this.getEndpoint();
+    if (!cfg) return;
 
-    const bucketName = process.env.COUCHBASE_BUCKET || 'businesspro';
-    const scopeName = process.env.COUCHBASE_SCOPE || '_default';
-    const collectionName = process.env.COUCHBASE_COLLECTION || 'messages';
-
-    const query = `
-      UPDATE \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\`
+    const statement = `
+      UPDATE \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\`
       SET status = $status, readAt = $now
       WHERE type = 'message' AND chatId = $chatId AND recipientId = $recipientId AND status != 'read'
     `;
 
-    try {
-      await clusterInstance.query(query, {
-        parameters: { status, now: Date.now(), chatId, recipientId }
-      });
-    } catch (err: any) {
-      console.warn('[Couchbase] Status update query notice:', err.message);
-    }
+    await this.query(statement, {
+      $status: status,
+      $now: Date.now(),
+      $chatId: chatId,
+      $recipientId: recipientId
+    });
   }
 
   /**
    * Deep historical pagination query using Couchbase SQL++
    */
   static async getHistory(chatId: string, beforeTimestamp: number, limit = 30): Promise<any[]> {
-    const collection = await getCouchbaseCollection();
-    if (!collection || !clusterInstance) return [];
+    const cfg = this.getEndpoint();
+    if (!cfg) return [];
 
-    const bucketName = process.env.COUCHBASE_BUCKET || 'businesspro';
-    const scopeName = process.env.COUCHBASE_SCOPE || '_default';
-    const collectionName = process.env.COUCHBASE_COLLECTION || 'messages';
-
-    const query = `
-      SELECT m.* FROM \`${bucketName}\`.\`${scopeName}\`.\`${collectionName}\` m
+    const statement = `
+      SELECT m.* FROM \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\` m
       WHERE m.type = 'message' AND m.chatId = $chatId AND m.timestamp < $beforeTimestamp
       ORDER BY m.timestamp DESC
       LIMIT $limit
     `;
 
-    try {
-      const result = await clusterInstance.query(query, {
-        parameters: { chatId, beforeTimestamp, limit }
-      });
-      return result.rows || [];
-    } catch (err: any) {
-      console.warn('[Couchbase] History query notice:', err.message);
-      return [];
+    const res = await this.query(statement, {
+      $chatId: chatId,
+      $beforeTimestamp: beforeTimestamp,
+      $limit: limit
+    });
+
+    if (res.status === 'success' && res.results) {
+      return res.results;
     }
+    return [];
   }
 }
