@@ -76,8 +76,8 @@ export default defineEventHandler(async (event) => {
       } catch (refreshError: any) {
         console.error('[Middleware] Auto-refresh failed when no access token:', refreshError.message);
         throw createError({
-          statusCode: refreshError.statusCode || 401,
-          statusMessage: refreshError.statusMessage || 'Unauthorized: Token refresh failed'
+          statusCode: refreshError.statusCode || 500,
+          statusMessage: refreshError.statusMessage || 'Token refresh failed'
         });
       }
     }
@@ -218,14 +218,16 @@ export default defineEventHandler(async (event) => {
           event.context.userDoc = result.user;
           return;
         } catch (refreshError: any) {
-          if (refreshError.statusCode) {
-            throw refreshError;
-          }
           await logSecurityEvent({
             action: 'invalid_token',
             event,
             metadata: { reason: 'Refresh token validation failed', error: String(refreshError) },
             severity: 'medium'
+          }).catch(() => {});
+
+          throw createError({
+            statusCode: refreshError.statusCode || 500,
+            statusMessage: refreshError.statusMessage || 'Token refresh failed'
           });
         }
       }

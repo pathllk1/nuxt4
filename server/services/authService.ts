@@ -15,6 +15,12 @@ import {
   revokeAllSessions,
   hashToken
 } from '../utils/security';
+import {
+  acquireRedisLock,
+  releaseRedisLock,
+  cacheRotatedToken,
+  getRotatedToken
+} from '../utils/redis';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const REFRESH_GRACE_PERIOD_MS = 30 * 1000; // 30 seconds
@@ -209,27 +215,46 @@ export async function performTokenRefresh(
   let effectiveRawRefreshToken = refreshTokenValue;
   let isLockLoser = false;
 
-  if (shouldRotate && !isWithinCooldown) {
-    // --- DISTRIBUTED LOCK: Atomic CAS claim on Session.refreshLockedUntil ---
-    const now = new Date();
-    const lockExpiry = new Date(Date.now() + LOCK_TTL_MS);
+  // Check Redis token bridge first: did another concurrent request just rotate this token?
+  const cachedRotatedToken = await getRotatedToken(tokenHash);
+  if (cachedRotatedToken) {
+    console.log(`[AuthService] Using Redis-bridged rotated token for user ${user._id}`);
+    effectiveRawRefreshToken = cachedRotatedToken;
+    isLockLoser = false;
+  } else if (shouldRotate && !isWithinCooldown) {
+    // --- DISTRIBUTED LOCK: Try Redis lock first, fall back to MongoDB CAS ---
+    const redisLockKey = `auth:lock:${session._id}`;
+    let redisLockId = await acquireRedisLock(redisLockKey, LOCK_TTL_MS);
+    let lockedViaMongo = false;
+    let lockedSession: any = null;
 
-    const lockedSession = await Session.findOneAndUpdate(
-      {
-        _id: session._id,
-        isActive: true,
-        $or: [
-          { refreshLockedUntil: { $exists: false } },
-          { refreshLockedUntil: null },
-          { refreshLockedUntil: { $lt: now } }
-        ]
-      },
-      { $set: { refreshLockedUntil: lockExpiry } },
-      { returnDocument: 'after' }
-    );
+    if (!redisLockId) {
+      // Redis unavailable or lock busy: try Mongo CAS atomic claim
+      const now = new Date();
+      const lockExpiry = new Date(Date.now() + LOCK_TTL_MS);
 
-    if (lockedSession) {
-      // === WINNER PATH: This instance won the CAS lock ===
+      lockedSession = await Session.findOneAndUpdate(
+        {
+          _id: session._id,
+          isActive: true,
+          $or: [
+            { refreshLockedUntil: { $exists: false } },
+            { refreshLockedUntil: null },
+            { refreshLockedUntil: { $lt: now } }
+          ]
+        },
+        { $set: { refreshLockedUntil: lockExpiry } },
+        { returnDocument: 'after' }
+      );
+      if (lockedSession) {
+        lockedViaMongo = true;
+      }
+    }
+
+    const hasLock = Boolean(redisLockId || lockedViaMongo);
+
+    if (hasLock) {
+      // === WINNER PATH: This instance won the lock ===
       try {
         if (isSelfHeal) {
           // Self-heal path: browser slept and missed the last rotation.
@@ -242,28 +267,29 @@ export async function performTokenRefresh(
             {
               $set: {
                 refreshToken: healedHashedToken,
-                previousRefreshToken: lockedSession.refreshToken || session.refreshToken, // current becomes previous
+                previousRefreshToken: (lockedSession?.refreshToken) || session.refreshToken,
                 previousRotatedAt: new Date(),
                 lastActivity: new Date(),
                 expiresAt: new Date(Date.now() + SESSION_TTL_MS),
                 ipAddress: getRequestIP(event, { xForwardedFor: true }) || 'unknown',
                 userAgent: getHeader(event, 'user-agent') || 'unknown',
-                refreshLockedUntil: null // Release lock on success
+                refreshLockedUntil: null // Release Mongo lock on success
               }
             }
           );
           effectiveRawRefreshToken = healedRawToken;
+          await cacheRotatedToken(tokenHash, healedRawToken, 60);
         } else {
           // Normal rotation: generate new raw token & hash it
           const newRawRefreshToken = generateRefreshToken(user, deviceFingerprint);
           const newHashedRefreshToken = hashToken(newRawRefreshToken);
 
-          // Compute exact lineage from the freshest post-CAS-lock document
+          // Compute exact lineage from the freshest post-lock document
           const prevTokenToWrite = isGraceWindowHit 
-            ? (lockedSession.previousRefreshToken || session.previousRefreshToken) 
-            : (lockedSession.refreshToken || tokenHash);
+            ? (lockedSession?.previousRefreshToken || session.previousRefreshToken) 
+            : (lockedSession?.refreshToken || tokenHash);
           const prevRotatedAtToWrite = isGraceWindowHit 
-            ? (lockedSession.previousRotatedAt || session.previousRotatedAt) 
+            ? (lockedSession?.previousRotatedAt || session.previousRotatedAt) 
             : new Date();
 
           // Atomic update with lock release
@@ -281,7 +307,7 @@ export async function performTokenRefresh(
                 expiresAt: new Date(Date.now() + SESSION_TTL_MS),
                 ipAddress: getRequestIP(event, { xForwardedFor: true }) || 'unknown',
                 userAgent: getHeader(event, 'user-agent') || 'unknown',
-                refreshLockedUntil: null // Release lock on success
+                refreshLockedUntil: null // Release Mongo lock on success
               }
             },
             { returnDocument: 'after' }
@@ -289,50 +315,76 @@ export async function performTokenRefresh(
 
           if (updatedSession) {
             effectiveRawRefreshToken = newRawRefreshToken;
+            await cacheRotatedToken(tokenHash, newRawRefreshToken, 60);
           }
-          // If CAS failed (session deactivated mid-flight), keep original token
         }
-      } catch (rotationError) {
-        // Release lock immediately on ANY failure so losers don't wait the full TTL
+      } catch (rotationError: any) {
+        // Release locks immediately on ANY failure so losers don't wait the full TTL
+        if (redisLockId) {
+          await releaseRedisLock(redisLockKey, redisLockId).catch(() => {});
+        }
         await Session.updateOne(
           { _id: session._id },
           { $set: { refreshLockedUntil: null } }
-        ).catch(() => {}); // Best-effort cleanup, don't mask the original error
-        throw rotationError;
+        ).catch(() => {});
+
+        console.error('[AuthService] Token rotation DB failure:', rotationError);
+        // Wrap with 503 so it is classified as a transient server error, not invalid credentials
+        throw createError({
+          statusCode: 503,
+          statusMessage: 'Service temporarily unavailable: Token rotation in progress, please retry'
+        });
+      } finally {
+        if (redisLockId) {
+          await releaseRedisLock(redisLockKey, redisLockId).catch(() => {});
+        }
       }
     } else {
       // === LOSER PATH: Another instance holds the lock ===
-      // Wait for the winner to finish, then return access-token-only result.
+      // Wait for winner to finish rotation
       isLockLoser = true;
 
       for (let attempt = 0; attempt < LOCK_POLL_MAX_ATTEMPTS; attempt++) {
         await sleep(LOCK_POLL_INTERVAL_MS);
 
+        // Check if rotated token was published to Redis
+        const newCachedToken = await getRotatedToken(tokenHash);
+        if (newCachedToken) {
+          effectiveRawRefreshToken = newCachedToken;
+          isLockLoser = false; // Winner published token, safe to set cookie
+          console.log(`[AuthService] Joined lock via Redis bridge after ${(attempt + 1) * LOCK_POLL_INTERVAL_MS}ms`);
+          break;
+        }
+
         const refreshedSession = await Session.findOne({ _id: session._id }).lean();
         if (!refreshedSession) break;
 
-        // Check if lock has been released (winner finished or lock expired)
         const lockReleased = !refreshedSession.refreshLockedUntil || 
                              new Date(refreshedSession.refreshLockedUntil).getTime() <= Date.now();
         if (lockReleased) {
-          console.log(`[AuthService] Joined distributed lock after ${(attempt + 1) * LOCK_POLL_INTERVAL_MS}ms — returning access token only`);
+          console.log(`[AuthService] Joined distributed lock after ${(attempt + 1) * LOCK_POLL_INTERVAL_MS}ms`);
           break;
         }
       }
 
-      // Return the original refresh token — caller will NOT set refresh_token cookie.
-      // The winner's response (a different HTTP response in this burst) will be the
-      // sole source of truth for the browser's refresh_token cookie.
-      effectiveRawRefreshToken = refreshTokenValue;
+      if (isLockLoser) {
+        effectiveRawRefreshToken = refreshTokenValue;
+      }
     }
   } else {
     // Within cooldown window or rotation disabled: extend session activity only.
-    // Explicitly set isLockLoser = true so caller NEVER overwrites the browser's
-    // cookie jar with an older/straggler token.
-    isLockLoser = true;
-    session.lastActivity = new Date();
-    session.expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-    await session.save();
+    // When rotation is disabled, the same token value is returned — safe to re-set cookie
+    // to refresh maxAge. Only suppress cookie for actual cooldown-within-rotation scenarios.
+    isLockLoser = Boolean(isWithinCooldown && shouldRotate);
+    await Session.updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          lastActivity: new Date(),
+          expiresAt: new Date(Date.now() + SESSION_TTL_MS)
+        }
+      }
+    ).catch((err) => console.warn('[AuthService] Failed to update session activity:', err));
   }
 
   // 8. Log refresh event

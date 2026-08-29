@@ -3,6 +3,9 @@ import { onMounted } from 'vue';
 import { isGlobalLoading } from './utils/api';
 import GlobalToolsHost from './components/tools/GlobalToolsHost.vue';
 import GlobalGuidelineDrawer from './components/guidelines/GlobalGuidelineDrawer.vue';
+import { useTokenKeepAlive } from './composables/useTokenKeepAlive';
+
+useTokenKeepAlive();
 
 const colorMode = useColorMode();
 colorMode.preference = 'light';

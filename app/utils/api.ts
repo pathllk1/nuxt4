@@ -90,7 +90,7 @@ const rawRequest = async (endpoint: string, options: any = {}): Promise<any> => 
     // No need to read x-new-access-token - server sets cookies directly
 
     if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh') && retry) {
-      const rotated = await auth.rotateToken().catch(() => null)
+      const rotated = await auth.rotateToken({ redirectIfFailed: false }).catch(() => null)
       if (rotated) {
         // Token refreshed in cookies, retry request
         const retryRes = await fetch(finalUrl, {

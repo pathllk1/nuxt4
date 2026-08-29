@@ -82,7 +82,13 @@ export const useAuth = () => {
           }
         } catch (error: any) {
           const status = error?.status || error?.statusCode;
+          const isNetworkError = !status && (error?.message?.includes('fetch') || error?.name === 'TypeError');
           
+          if (isNetworkError) {
+            console.warn('[Auth] Network error during init, preserving session state until connection restores');
+            return;
+          }
+
           // If 401 (token expired or invalid), try explicit rotateToken fallback
           if (status === 401) {
             try {
@@ -168,17 +174,15 @@ export const useAuth = () => {
         const errorMsg = e?.data?.statusMessage || e?.statusMessage || e?.message || String(e);
         console.warn(`[Auth] Token refresh failed: ${errorMsg}`);
         
-        // Only logout on actual 401/403 auth failure, not on network errors
-        if (status === 401 || status === 403) {
-          // HttpOnly cookies can only be cleared by the server via /api/auth/logout
-          
+        // Only logout when redirectIfFailed is not false and it is a 401/403
+        if ((status === 401 || status === 403) && options.redirectIfFailed !== false) {
           // Provide reason for logout
           let reason = 'session_expired';
           if (errorMsg.includes('deactivated') || errorMsg.includes('Exceeded maximum')) {
             reason = 'session_limit';
           }
           
-          logout({ redirect: options.redirectIfFailed, reason });
+          logout({ redirect: true, reason });
         }
         throw e;
       } finally {

@@ -1,8 +1,8 @@
 import { defineEventHandler, getQuery, readBody, setHeader, getRequestIP, createError } from 'h3';
 import { sanitizeQueryParams, sanitizeObject } from '../utils/sanitizer';
+import { useRedis } from '../utils/redis';
 
-// Fix #10: Bounded LRU rate-limit store (prevents unbounded memory growth)
-// NOTE: For multi-instance/serverless deployments, migrate to Redis/Upstash
+// Bounded LRU in-memory rate-limit store for fallback
 interface RateLimitBucket {
   timestamps: number[];
   banUntil?: number;
@@ -21,7 +21,7 @@ const evictOldEntries = () => {
   }
 };
 
-const checkRateLimit = (
+const checkRateLimitMemory = (
   ip: string,
   route: string,
   max: number,
@@ -70,6 +70,54 @@ const checkRateLimit = (
   return { allowed: true, retryAfter: 0 };
 };
 
+const checkRateLimit = async (
+  ip: string,
+  route: string,
+  max: number,
+  timeWindowMs: number,
+  banThreshold: number = 0,
+  banDurationMs: number = 0
+): Promise<{ allowed: boolean; retryAfter: number }> => {
+  const redis = useRedis();
+  if (redis) {
+    try {
+      const windowSec = Math.ceil(timeWindowMs / 1000);
+      const key = `ratelimit:${route}:${ip}`;
+      const banKey = `ratelimit:ban:${route}:${ip}`;
+
+      // Check if banned
+      const bannedTtl = await redis.ttl(banKey);
+      if (bannedTtl > 0) {
+        return { allowed: false, retryAfter: bannedTtl };
+      }
+
+      // Atomic increment in Redis
+      const current = await redis.incr(key);
+      if (current === 1) {
+        await redis.expire(key, windowSec);
+      }
+
+      if (current > max) {
+        const ttl = await redis.ttl(key);
+        // Apply ban if threshold exceeded
+        if (banThreshold > 0 && current >= banThreshold && banDurationMs > 0) {
+          const banSec = Math.ceil(banDurationMs / 1000);
+          await redis.set(banKey, '1', { ex: banSec });
+          return { allowed: false, retryAfter: banSec };
+        }
+        return { allowed: false, retryAfter: Math.max(1, ttl) };
+      }
+
+      return { allowed: true, retryAfter: 0 };
+    } catch (err) {
+      console.warn('[Security] Redis rate limit check failed, using memory fallback:', err);
+    }
+  }
+
+  // Fallback to in-memory store
+  return checkRateLimitMemory(ip, route, max, timeWindowMs, banThreshold, banDurationMs);
+};
+
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
@@ -104,13 +152,13 @@ export default defineEventHandler(async (event) => {
 
     if (path.includes('/login')) {
       // Login limit: 10 attempts per 15 minutes, ban after 20 failed logins
-      limitCheck = checkRateLimit(ip, 'login', 10, 15 * 60 * 1000, 20, 15 * 60 * 1000);
+      limitCheck = await checkRateLimit(ip, 'login', 10, 15 * 60 * 1000, 20, 15 * 60 * 1000);
     } else if (path.includes('/signup')) {
       // Signup limit: 5 attempts per hour
-      limitCheck = checkRateLimit(ip, 'signup', 5, 60 * 60 * 1000);
+      limitCheck = await checkRateLimit(ip, 'signup', 5, 60 * 60 * 1000);
     } else if (path.includes('/refresh')) {
       // Refresh limit: 300 per 15 minutes to support multi-tab apps & silent auto-refreshes
-      limitCheck = checkRateLimit(ip, 'refresh', 300, 15 * 60 * 1000);
+      limitCheck = await checkRateLimit(ip, 'refresh', 300, 15 * 60 * 1000);
     }
 
     if (!limitCheck.allowed) {
