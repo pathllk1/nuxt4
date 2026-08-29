@@ -7,6 +7,13 @@ import type { ChatParams, ChatChunk, ModelInfo } from './providers/base';
 import { executeWebSearch, validateTavilyKey } from './webSearch';
 import type { SearchMode } from './webSearch';
 import { randomUUID } from 'crypto';
+import {
+  getCachedChatMessages,
+  setCachedChatMessages,
+  appendCachedChatMessage,
+  invalidateConversationCache,
+  invalidateManyConversationsCache
+} from './chatCache';
 
 export interface ChatRequest {
   conversationId?: string;
@@ -101,7 +108,26 @@ export async function getConversation(id: string, userId: string): Promise<{ con
     const conv: any = await AiConversation.findOne({ _id: id, user_id: userId }).lean();
     if (!conv) return null;
 
-    const msgs: any[] = await AiMessage.find({ conversation_id: id }).sort({ created_at: 1 }).lean();
+    // Check Redis Hot Cache first
+    let messagesList: any[] = [];
+    const cachedMsgs = await getCachedChatMessages(id);
+    if (cachedMsgs && cachedMsgs.length > 0) {
+      messagesList = cachedMsgs;
+    } else {
+      const msgs: any[] = await AiMessage.find({ conversation_id: id }).sort({ created_at: 1 }).lean();
+      messagesList = msgs.map(m => ({
+        id: m._id.toString(),
+        conversation_id: m.conversation_id,
+        role: m.role,
+        content: m.content,
+        provider: m.provider,
+        model: m.model,
+        tokens_used: m.tokens_used,
+        created_at: m.created_at ? new Date(m.created_at).toISOString() : undefined
+      }));
+      // Warm Redis cache
+      await setCachedChatMessages(id, messagesList);
+    }
 
     return {
       conversation: {
@@ -115,16 +141,7 @@ export async function getConversation(id: string, userId: string): Promise<{ con
         created_at: conv.created_at ? new Date(conv.created_at).toISOString() : undefined,
         updated_at: conv.updated_at ? new Date(conv.updated_at).toISOString() : undefined
       },
-      messages: msgs.map(m => ({
-        id: m._id.toString(),
-        conversation_id: m.conversation_id,
-        role: m.role,
-        content: m.content,
-        provider: m.provider,
-        model: m.model,
-        tokens_used: m.tokens_used,
-        created_at: m.created_at ? new Date(m.created_at).toISOString() : undefined
-      }))
+      messages: messagesList
     };
   } catch {
     return null;
@@ -165,6 +182,8 @@ export async function deleteConversation(id: string, userId: string): Promise<bo
   try {
     const res = await AiConversation.deleteOne({ _id: id, user_id: userId });
     await AiMessage.deleteMany({ conversation_id: id });
+    // Invalidate Redis hot cache
+    await invalidateConversationCache(id);
     return (res.deletedCount || 0) > 0;
   } catch {
     return false;
@@ -178,6 +197,8 @@ export async function clearConversations(userId: string): Promise<number> {
     const res = await AiConversation.deleteMany({ user_id: userId });
     if (ids.length > 0) {
       await AiMessage.deleteMany({ conversation_id: { $in: ids } });
+      // Invalidate Redis hot cache for all user conversations
+      await invalidateManyConversationsCache(ids);
     }
     return res.deletedCount || 0;
   } catch {
@@ -210,7 +231,7 @@ export async function addMessage(
       { $inc: { message_count: 1 }, $set: { updated_at: new Date() } }
     );
 
-    return {
+    const formattedMsg = {
       id: msg._id ? msg._id.toString() : randomUUID(),
       conversation_id: msg.conversation_id,
       role: msg.role,
@@ -220,8 +241,13 @@ export async function addMessage(
       tokens_used: msg.tokens_used,
       created_at: msg.created_at ? new Date(msg.created_at).toISOString() : new Date().toISOString()
     };
+
+    // Append to Redis hot cache
+    await appendCachedChatMessage(conversationId, formattedMsg);
+
+    return formattedMsg;
   } catch {
-    return {
+    const fallbackMsg = {
       id: randomUUID(),
       conversation_id: conversationId,
       role,
@@ -231,6 +257,9 @@ export async function addMessage(
       tokens_used: tokensUsed,
       created_at: new Date().toISOString()
     };
+    // Append to Redis hot cache
+    await appendCachedChatMessage(conversationId, fallbackMsg);
+    return fallbackMsg;
   }
 }
 
@@ -270,9 +299,26 @@ export async function* streamChat(
 
   let messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
 
+  // Fast context loading: check Redis Hot Cache first, fallback to MongoDB
   try {
-    const history: any[] = await AiMessage.find({ conversation_id: validConvId }).sort({ created_at: 1 }).lean();
-    messages = history.map(m => ({ role: m.role, content: m.content }));
+    const cachedHistory = await getCachedChatMessages(validConvId);
+    if (cachedHistory && cachedHistory.length > 0) {
+      messages = cachedHistory.map(m => ({ role: m.role, content: m.content }));
+    } else {
+      const history: any[] = await AiMessage.find({ conversation_id: validConvId }).sort({ created_at: 1 }).lean();
+      const formattedHistory = history.map(m => ({
+        id: m._id.toString(),
+        conversation_id: m.conversation_id,
+        role: m.role,
+        content: m.content,
+        provider: m.provider,
+        model: m.model,
+        tokens_used: m.tokens_used,
+        created_at: m.created_at ? new Date(m.created_at).toISOString() : undefined
+      }));
+      await setCachedChatMessages(validConvId, formattedHistory);
+      messages = formattedHistory.map(m => ({ role: m.role, content: m.content }));
+    }
   } catch {
     messages = [{ role: 'user', content: request.message }];
   }

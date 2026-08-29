@@ -124,6 +124,7 @@ const navLinks = [
   { label: 'About', to: '/about', icon: 'ℹ️', restricted: false },
   { label: 'Global Tools', action: 'openTools', icon: '🛠️', restricted: false },
   { label: 'Dashboard', to: '/dashboard', icon: '👤', restricted: true },
+  { label: '1-on-1 Chat', to: '/chat', icon: '💬', restricted: true },
   { label: 'Docs', to: '/documents', icon: '📄', restricted: true },
   { label: 'Financial Management', to: '/accounting/ledger', icon: '💵', restricted: true },
   { label: 'Inventory', to: '/inventory', icon: '📦', restricted: true },

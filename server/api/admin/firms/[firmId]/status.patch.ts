@@ -2,6 +2,7 @@ import { defineEventHandler, createError, readBody } from 'h3';
 import { requireSuperAdmin } from '~~/server/utils/admin-guard';
 import Firm from '~~/server/models/Firm';
 import { connectDB } from '~~/server/utils/db';
+import { invalidateCachePrefix } from '~~/server/utils/cache';
 
 export default defineEventHandler(async (event) => {
   await requireSuperAdmin(event);
@@ -22,6 +23,9 @@ export default defineEventHandler(async (event) => {
     if (!firm) {
       throw createError({ statusCode: 404, statusMessage: 'Firm not found' });
     }
+
+    // Invalidate cached firms list in Nitro / Redis
+    await invalidateCachePrefix('nitro:handlers:_:api:firms');
 
     return {
       success: true,

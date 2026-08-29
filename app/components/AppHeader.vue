@@ -29,6 +29,10 @@
         </button>
 
         <template v-if="isAuthenticated">
+          <NuxtLink to="/chat" class="text-white hover:text-teal-100 font-medium bg-white/15 hover:bg-white/25 px-2.5 py-1 rounded transition duration-300 no-underline text-sm flex items-center gap-1.5">
+            💬 Chat
+          </NuxtLink>
+
           <NuxtLink v-if="user?.role === 'superadmin'" to="/superadmin" class="text-yellow-200 hover:text-white font-bold bg-white/20 px-2.5 py-1 rounded transition duration-300 no-underline text-sm">
             👑 Admin
           </NuxtLink>
@@ -74,6 +78,7 @@
         </div>
 
         <NuxtLink v-if="user?.role === 'superadmin'" to="/superadmin" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-yellow-200 font-bold bg-white/20 no-underline text-sm">👑 Admin Panel</NuxtLink>
+        <NuxtLink to="/chat" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-white hover:bg-white/20 no-underline text-sm font-semibold">💬 1-on-1 Chat</NuxtLink>
         <NuxtLink to="/dashboard" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-white hover:bg-white/20 no-underline text-sm">Dashboard</NuxtLink>
         <NuxtLink to="/documents" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-white hover:bg-white/20 no-underline text-sm">Docs</NuxtLink>
         <NuxtLink to="/accounting/ledger" @click="isMobileMenuOpen = false" class="block px-3 py-1.5 rounded text-white hover:bg-white/20 no-underline text-sm">Cash & Ledger</NuxtLink>

@@ -1,3 +1,5 @@
+import redisCache from './modules/redis-cache';
+
 export default defineNuxtConfig({
   ssr: true,
   compatibilityDate: '2025-07-15',
@@ -13,7 +15,10 @@ export default defineNuxtConfig({
       ]
     }
   },
-  modules: ['@nuxt/ui'],
+  modules: [
+    '@nuxt/ui',
+    redisCache
+  ],
   css: ['~/assets/css/main.css'],
   future: {
     compatibilityVersion: 4
@@ -37,6 +42,8 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
+      upstashRedisRestUrl: process.env.NUXT_PUBLIC_UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_URL || '',
+      upstashRedisRestReadToken: process.env.NUXT_PUBLIC_UPSTASH_REDIS_REST_READ_TOKEN || '',
       firebase: {
         apiKey: process.env.NUXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyCKMWfNfD4fuCknFhceuhcYA3fJGgw5suU',
         authDomain: process.env.NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'work-vs-payment.firebaseapp.com',
@@ -49,23 +56,18 @@ export default defineNuxtConfig({
     }
   },
 
-  // Fix #19: Body size limit for API routes (10 MB max)
   nitro: {
     externals: {
       inline: [],
-      external: ['pdfmake']
-    },
-    routeRules: {
-      '/api/**': {
-        headers: {
-          'X-Content-Type-Options': 'nosniff'
-        }
-      }
+      external: ['pdfmake', 'couchbase']
     }
   },
+
   routeRules: {
     '/api/**': {
-      // 10 MB limit prevents DoS via large payloads
+      headers: {
+        'X-Content-Type-Options': 'nosniff'
+      }
     }
   }
-})
+})

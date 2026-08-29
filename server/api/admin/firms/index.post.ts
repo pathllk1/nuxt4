@@ -4,6 +4,7 @@ import Firm from '~~/server/models/Firm';
 import User from '~~/server/models/User';
 import { connectDB } from '~~/server/utils/db';
 import { hashPassword } from '~~/server/utils/crypto-hash';
+import { invalidateCachePrefix } from '~~/server/utils/cache';
 
 function processLocations(locations: any[]) {
   let locs = Array.isArray(locations) ? [...locations] : [];
@@ -119,6 +120,9 @@ export default defineEventHandler(async (event) => {
         });
       }
     }
+
+    // Invalidate cached firms list in Nitro / Redis
+    await invalidateCachePrefix('nitro:handlers:_:api:firms');
 
     return {
       success: true,
