@@ -1,5 +1,8 @@
 <template>
-  <footer class="fixed inset-x-0 bottom-0 w-full bg-gradient-to-r from-teal-400 via-indigo-500 to-teal-400 shadow-lg py-1 px-6 z-50 flex items-center justify-between text-white">
+  <footer 
+    v-if="!isChatPage"
+    class="fixed inset-x-0 bottom-0 w-full bg-gradient-to-r from-teal-400 via-indigo-500 to-teal-400 shadow-lg py-1 px-6 z-50 flex items-center justify-between text-white"
+  >
     <!-- Left-Aligned Links -->
     <div class="space-x-4">
       <NuxtLink to="/privacy" class="text-white hover:text-teal-200 transition duration-300 no-underline text-xs font-medium">
@@ -35,8 +38,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 
+const route = useRoute();
 const currentYear = computed(() => new Date().getFullYear());
+const isChatPage = computed(() => route.path.startsWith('/chat'));
 
 function openGuidelines() {
   if (import.meta.client) {

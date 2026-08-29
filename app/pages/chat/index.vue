@@ -116,7 +116,7 @@ const handleConfirmForward = async (targetUserIds: string[]) => {
 </script>
 
 <template>
-  <div class="h-[calc(100vh-5rem)] h-[calc(100dvh-5rem)] w-full flex overflow-hidden bg-white dark:bg-gray-900">
+  <div class="h-[calc(100vh-3rem)] h-[calc(100dvh-3rem)] -mb-8 w-full flex overflow-hidden bg-white dark:bg-gray-900">
     <!-- Left Contacts Sidebar (Full height, full width on mobile, w-80/w-96 on desktop) -->
     <div 
       class="h-full w-full md:w-80 lg:w-96 shrink-0 transition-all flex flex-col min-h-0"

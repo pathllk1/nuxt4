@@ -255,14 +255,14 @@ const emojis = ['👍', '❤️', '😊', '🎉', '🔥', '🙏', '👏', '✅',
       </UPopover>
 
       <!-- Auto-resizing Text Input with Paste listener -->
-      <div class="flex-1">
+      <div class="flex-1 min-w-0">
         <UTextarea
           ref="textareaRef"
           v-model="messageText"
           :rows="1"
           autoresize
           :maxrows="5"
-          placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+          placeholder="Type a message..."
           variant="subtle"
           size="md"
           class="w-full"
