@@ -70,9 +70,9 @@ const formatLastSeen = (lastSeenAt?: number) => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800">
+  <div class="flex flex-col h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
     <!-- Header Section -->
-    <div class="p-4 border-b border-gray-200 dark:border-gray-800 space-y-3">
+    <div class="p-4 border-b border-gray-200 dark:border-gray-800 space-y-3 shrink-0">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <UIcon name="i-lucide-messages-square" class="w-5 h-5 text-teal-600 dark:text-teal-400" />
@@ -132,7 +132,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
     </div>
 
     <!-- Contact Stream List -->
-    <div class="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800/40 p-2 space-y-1">
+    <div class="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800/40 p-2 space-y-1 overscroll-contain">
       <!-- Loading Skeleton -->
       <div v-if="loading && contacts.length === 0" class="space-y-3 p-3">
         <div v-for="i in 5" :key="i" class="flex items-center gap-3 animate-pulse">

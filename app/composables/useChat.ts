@@ -1,6 +1,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useAuth } from './useAuth';
-import type { ChatMessage, ChatContact, ChatReplyContext } from '../types/chat';
+import type { ChatMessage, ChatContact, ChatReplyContext, ChatAttachment } from '../types/chat';
+import { processFileForUpload } from '../utils/imageCompressor';
 
 export function useChat() {
   const { user, apiFetch } = useAuth();
@@ -136,10 +137,12 @@ export function useChat() {
   };
 
   /**
-   * Send a text message with optional reply
+   * Send a text message with optional reply and attachments
    */
-  const sendMessage = async (content: string) => {
-    if (!content.trim() || !activeContact.value || !currentUserId.value) return;
+  const sendMessage = async (content: string, attachments?: ChatAttachment[]) => {
+    const trimmed = (content || '').trim();
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if ((!trimmed && !hasAttachments) || !activeContact.value || !currentUserId.value) return;
 
     sending.value = true;
 
@@ -161,15 +164,15 @@ export function useChat() {
       senderId: currentUserId.value,
       recipientId: activeContact.value.id,
       senderName: user.value?.name || 'Me',
-      content: content.trim(),
+      content: trimmed,
       timestamp: Date.now(),
       replyTo: replyContext,
       status: 'sending',
-      reactions: {}
+      reactions: {},
+      attachments: hasAttachments ? attachments : undefined
     };
 
     messages.value.push(optimisticMessage);
-    const textToSend = content.trim();
     replyingTo.value = null;
 
     try {
@@ -177,8 +180,9 @@ export function useChat() {
         method: 'POST',
         body: {
           recipientId: activeContact.value.id,
-          content: textToSend,
-          replyTo: replyContext
+          content: trimmed,
+          replyTo: replyContext,
+          attachments: hasAttachments ? attachments : undefined
         }
       });
 
@@ -199,6 +203,37 @@ export function useChat() {
       sending.value = false;
       pollActiveChat();
     }
+  };
+
+  /**
+   * Upload an attachment to Backblaze B2 via server gate
+   * Compresses images in-memory on client before uploading
+   */
+  const uploadAttachment = async (file: File): Promise<ChatAttachment> => {
+    if (!activeChatId.value) {
+      throw new Error('No active chat selected');
+    }
+
+    // 1. In-memory client-side compression (0 external dependencies, 0 credentials)
+    const processed = await processFileForUpload(file);
+
+    // 2. Upload to server-gated endpoint with HttpOnly cookie
+    const formData = new FormData();
+    formData.append('file', processed.file);
+    formData.append('chatId', activeChatId.value);
+    if (processed.width) formData.append('width', processed.width.toString());
+    if (processed.height) formData.append('height', processed.height.toString());
+
+    const res: any = await $fetch('/api/chat/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.success || !res.data) {
+      throw new Error(res.statusMessage || 'Upload failed');
+    }
+
+    return res.data;
   };
 
   /**
@@ -324,6 +359,37 @@ export function useChat() {
     }
   });
 
+  /**
+   * Delete a message
+   */
+  const deleteMessage = async (message: ChatMessage): Promise<boolean> => {
+    if (!message || !message.messageId || !activeChatId.value) return false;
+
+    // Optimistic local update
+    const targetMsg = messages.value.find(m => m.messageId === message.messageId);
+    if (targetMsg) {
+      targetMsg.isDeleted = true;
+      targetMsg.content = 'This message was deleted';
+      targetMsg.reactions = {};
+      targetMsg.deletedAt = Date.now();
+    }
+
+    try {
+      const res: any = await $fetch('/api/chat/delete', {
+        method: 'POST',
+        body: {
+          chatId: activeChatId.value,
+          messageId: message.messageId
+        }
+      });
+      return Boolean(res?.success);
+    } catch (err) {
+      console.error('[useChat] Failed to delete message:', err);
+      pollActiveChat();
+      throw err;
+    }
+  };
+
   return {
     contacts,
     activeContact,
@@ -339,6 +405,8 @@ export function useChat() {
     fetchContacts,
     selectContact,
     sendMessage,
+    uploadAttachment,
+    deleteMessage,
     toggleReaction,
     forwardMessage,
     loadOlderMessages

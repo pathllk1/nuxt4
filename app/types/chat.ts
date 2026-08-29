@@ -12,6 +12,16 @@ export interface ChatForwardContext {
   originalTimestamp: number;
 }
 
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  url: string;
+  size: number;
+  mimeType: string;
+  width?: number;
+  height?: number;
+}
+
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read';
 
 export interface ChatMessage {
@@ -29,6 +39,9 @@ export interface ChatMessage {
   status?: MessageStatus;
   deliveredAt?: number | null;
   readAt?: number | null;
+  isDeleted?: boolean;
+  deletedAt?: number | null;
+  attachments?: ChatAttachment[];
 }
 
 export interface ContactFirmInfo {

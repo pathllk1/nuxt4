@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted } from 'vue';
-import type { ChatMessage, ChatContact } from '../../types/chat';
+import type { ChatMessage, ChatContact, ChatAttachment } from '../../types/chat';
 import ChatMessageBubble from './ChatMessageBubble.vue';
 import ChatInputBar from './ChatInputBar.vue';
 
@@ -12,13 +12,15 @@ const props = defineProps<{
   hasMoreHistory?: boolean;
   sending?: boolean;
   replyingTo?: ChatMessage | null;
+  uploadAttachment?: (file: File) => Promise<ChatAttachment>;
 }>();
 
 const emit = defineEmits<{
-  (e: 'send', content: string): void;
+  (e: 'send', content: string, attachments?: ChatAttachment[]): void;
   (e: 'reply', message: ChatMessage): void;
   (e: 'cancel-reply'): void;
   (e: 'forward', message: ChatMessage): void;
+  (e: 'delete', message: ChatMessage): void;
   (e: 'react', message: ChatMessage, emoji: string): void;
   (e: 'load-older'): void;
   (e: 'back'): void;
@@ -81,11 +83,11 @@ const formatLastSeen = (lastSeenAt?: number) => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-50/50 dark:bg-gray-950">
+  <div class="flex flex-col h-full bg-gray-50/50 dark:bg-gray-950 overflow-hidden">
     <!-- Active Contact Header -->
     <div 
       v-if="activeContact"
-      class="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-2xs z-10"
+      class="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-2xs z-10 shrink-0"
     >
       <div class="flex items-center gap-3 min-w-0">
         <!-- Mobile Back Button -->
@@ -154,7 +156,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
     <div 
       v-if="activeContact"
       ref="messagesContainer"
-      class="flex-1 overflow-y-auto p-4 space-y-2"
+      class="flex-1 min-h-0 overflow-y-auto p-4 space-y-2 overscroll-contain"
     >
       <!-- Load Older History Button (Couchbase Capella) -->
       <div v-if="hasMoreHistory && messages.length >= 20" class="text-center py-2">
@@ -192,6 +194,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
           :current-user-id="currentUserId"
           @reply="emit('reply', msg)"
           @forward="emit('forward', msg)"
+          @delete="emit('delete', msg)"
           @react="(m, emoji) => emit('react', m, emoji)"
         />
       </template>
@@ -200,7 +203,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
     <!-- No Active Contact Selected State -->
     <div 
       v-else 
-      class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400 bg-gray-50/50 dark:bg-gray-950"
+      class="flex-1 min-h-0 flex flex-col items-center justify-center p-8 text-center text-gray-400 bg-gray-50/50 dark:bg-gray-950 overflow-y-auto"
     >
       <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-teal-500/10 to-indigo-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-4 border border-teal-500/20">
         <UIcon name="i-lucide-messages-square" class="w-8 h-8" />
@@ -216,9 +219,11 @@ const formatLastSeen = (lastSeenAt?: number) => {
     <!-- Docked Input Bar -->
     <ChatInputBar 
       v-if="activeContact"
+      class="shrink-0"
       :replying-to="replyingTo"
       :sending="sending"
-      @send="emit('send', $event)"
+      :upload-attachment="uploadAttachment"
+      @send="(content, attachments) => emit('send', content, attachments)"
       @cancel-reply="emit('cancel-reply')"
     />
   </div>

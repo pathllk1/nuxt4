@@ -4,6 +4,7 @@ export interface B2UploadResult {
   fileUrl: string;
   fileName: string;
   fileSize: number;
+  targetPath?: string;
 }
 
 /**
@@ -67,12 +68,17 @@ export async function getB2DownloadToken(): Promise<string | null> {
 /**
  * Uploads a file buffer to Backblaze B2 using the native B2 API v2.
  */
-export async function uploadToBackblazeB2(buffer: Buffer, originalName: string): Promise<B2UploadResult> {
+export async function uploadToBackblazeB2(
+  buffer: Buffer,
+  originalName: string,
+  customPrefix?: string
+): Promise<B2UploadResult> {
   const keyId = String(process.env.B2_APPLICATION_KEY_ID || '').trim();
   const appKey = String(process.env.B2_APPLICATION_KEY || '').trim();
   const bucketId = String(process.env.B2_BUCKET_ID || '').trim();
   const bucketNameConfig = String(process.env.B2_BUCKET_NAME || '').trim();
-  const prefix = String(process.env.B2_BUCKET_PREFIX || 'documents').trim().replace(/^\/+|\/+$/g, '');
+  const defaultPrefix = String(process.env.B2_BUCKET_PREFIX || 'documents').trim().replace(/^\/+|\/+$/g, '');
+  const prefix = (customPrefix !== undefined ? customPrefix : defaultPrefix).trim().replace(/^\/+|\/+$/g, '');
 
   if (!keyId || !appKey) {
     throw new Error('B2_APPLICATION_KEY_ID / B2_APPLICATION_KEY not configured');
@@ -118,11 +124,14 @@ export async function uploadToBackblazeB2(buffer: Buffer, originalName: string):
   const targetName = prefix ? `${prefix}/${Date.now()}-${safeOriginalName}` : `${Date.now()}-${safeOriginalName}`;
   const sha1 = createHash('sha1').update(buffer).digest('hex');
 
+  // B2 expects slashes to remain slashes in X-Bz-File-Name so it creates folders
+  const encodedB2FileName = targetName.split('/').map(encodeURIComponent).join('/');
+
   const uploadResp = await fetch(uploadInfo.uploadUrl, {
     method: 'POST',
     headers: {
       Authorization: uploadInfo.authorizationToken,
-      'X-Bz-File-Name': encodeURIComponent(targetName),
+      'X-Bz-File-Name': encodedB2FileName,
       'Content-Type': 'application/octet-stream',
       'Content-Length': String(buffer.length),
       'X-Bz-Content-Sha1': sha1,
@@ -137,11 +146,85 @@ export async function uploadToBackblazeB2(buffer: Buffer, originalName: string):
 
   const fileInfo: any = await uploadResp.json();
   const resolvedBucketName = fileInfo.bucketName || bucketNameConfig || '';
-  const fileUrl = `${auth.downloadUrl}/file/${resolvedBucketName}/${encodeURIComponent(targetName)}`;
+  const fileUrl = `${auth.downloadUrl}/file/${resolvedBucketName}/${encodedB2FileName}`;
 
   return {
     fileUrl,
     fileName: safeOriginalName,
     fileSize: buffer.length,
+    targetPath: targetName
   };
+}
+
+/**
+ * Download a file buffer from Backblaze B2 using server-side master credentials
+ */
+export async function downloadFromBackblazeB2(pathOrUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const keyId = String(process.env.B2_APPLICATION_KEY_ID || '').trim();
+  const appKey = String(process.env.B2_APPLICATION_KEY || '').trim();
+  const bucketNameConfig = String(process.env.B2_BUCKET_NAME || '').trim();
+
+  if (!keyId || !appKey) {
+    return null;
+  }
+
+  try {
+    // 1. Authorize Account
+    const basicAuth = Buffer.from(`${keyId}:${appKey}`).toString('base64');
+    const authResp = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+      headers: { Authorization: `Basic ${basicAuth}` }
+    });
+
+    if (!authResp.ok) return null;
+    const auth: any = await authResp.json();
+
+    // 2. Resolve URL
+    let downloadUrl = pathOrUrl;
+    if (!downloadUrl.startsWith('http://') && !downloadUrl.startsWith('https://')) {
+      const cleanPath = pathOrUrl.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+      downloadUrl = `${auth.downloadUrl}/file/${bucketNameConfig}/${cleanPath}`;
+    }
+
+    // 3. Fetch with server authorization token
+    let fileResp = await fetch(downloadUrl, {
+      headers: {
+        Authorization: auth.authorizationToken
+      }
+    });
+
+    // Fallback: If 404/400 and URL contains %2F, try replacing with slash
+    if (!fileResp.ok && downloadUrl.includes('%2F')) {
+      const altUrl = downloadUrl.split('%2F').join('/');
+      fileResp = await fetch(altUrl, {
+        headers: { Authorization: auth.authorizationToken }
+      });
+    }
+
+    // Fallback 2: Try encoded %2F if slash failed
+    if (!fileResp.ok && !downloadUrl.includes('%2F')) {
+      const filePart = downloadUrl.split(`/file/${bucketNameConfig}/`)[1];
+      if (filePart) {
+        const altUrl = `${auth.downloadUrl}/file/${bucketNameConfig}/${encodeURIComponent(filePart)}`;
+        fileResp = await fetch(altUrl, {
+          headers: { Authorization: auth.authorizationToken }
+        });
+      }
+    }
+
+    if (!fileResp.ok) {
+      console.warn('[B2Download] File not found or inaccessible in B2:', downloadUrl);
+      return null;
+    }
+
+    const arrayBuffer = await fileResp.arrayBuffer();
+    const contentType = fileResp.headers.get('content-type') || 'application/octet-stream';
+
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType
+    };
+  } catch (err: any) {
+    console.error('[B2Download] Error downloading from B2:', err.message);
+    return null;
+  }
 }

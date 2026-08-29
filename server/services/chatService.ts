@@ -1,6 +1,6 @@
 import { useRedis } from '../utils/redis';
 import { CouchbaseService } from '../utils/couchbase';
-import type { ChatMessage, ChatReplyContext, ChatForwardContext } from '../../app/types/chat';
+import type { ChatMessage, ChatReplyContext, ChatForwardContext, ChatAttachment } from '../../app/types/chat';
 
 export class ChatService {
   /**
@@ -47,11 +47,12 @@ export class ChatService {
     senderId: string;
     senderName: string;
     recipientId: string;
-    content: string;
+    content?: string;
     replyTo?: ChatReplyContext | null;
     forwardedFrom?: ChatForwardContext | null;
+    attachments?: ChatAttachment[];
   }): Promise<ChatMessage> {
-    const { senderId, senderName, recipientId, content, replyTo, forwardedFrom } = params;
+    const { senderId, senderName, recipientId, content = '', replyTo, forwardedFrom, attachments } = params;
 
     // Record sender activity
     this.recordActivity(senderId);
@@ -67,12 +68,13 @@ export class ChatService {
       senderId,
       recipientId,
       senderName,
-      content: content.trim(),
+      content: (content || '').trim(),
       timestamp,
       replyTo: replyTo || null,
       forwardedFrom: forwardedFrom || null,
       reactions: {},
-      status: 'delivered'
+      status: 'delivered',
+      attachments: attachments && attachments.length > 0 ? attachments : undefined
     };
 
     // 1. Push to Upstash Redis hot-cache list (last 50 messages)
@@ -139,6 +141,52 @@ export class ChatService {
     }
 
     return updatedReactions;
+  }
+
+  /**
+   * Delete a message: updates Couchbase archive and Upstash Redis hot cache
+   */
+  static async deleteMessage(params: {
+    chatId: string;
+    messageId: string;
+    userId: string;
+  }): Promise<{ success: boolean; messageId: string }> {
+    const { chatId, messageId, userId } = params;
+
+    // Record user activity
+    this.recordActivity(userId);
+
+    // 1. Update in Upstash Redis rolling list
+    const redis = useRedis();
+    if (redis) {
+      const cacheKey = `chat:${chatId}`;
+      const rawMessages: any[] = await redis.lrange(cacheKey, 0, 49);
+
+      for (let i = 0; i < rawMessages.length; i++) {
+        const item = typeof rawMessages[i] === 'string' ? JSON.parse(rawMessages[i]) : rawMessages[i];
+        if (item && item.messageId === messageId) {
+          // Security check: only the original sender can delete the message
+          if (item.senderId !== userId) {
+            throw new Error('Unauthorized: You can only delete your own messages');
+          }
+          item.isDeleted = true;
+          item.content = 'This message was deleted';
+          item.reactions = {};
+          item.deletedAt = Date.now();
+          await redis.lset(cacheKey, i, JSON.stringify(item));
+          break;
+        }
+      }
+    }
+
+    // 2. Mark as deleted in Couchbase Capella archive
+    try {
+      await CouchbaseService.deleteMessage(messageId);
+    } catch (cbErr: any) {
+      console.warn('[Chat] Couchbase deleteMessage notice:', cbErr.message);
+    }
+
+    return { success: true, messageId };
   }
 
   /**

@@ -198,6 +198,27 @@ export class CouchbaseService {
   }
 
   /**
+   * Mark message as deleted in Couchbase Capella
+   */
+  static async deleteMessage(messageId: string): Promise<boolean> {
+    const cfg = this.getEndpoint();
+    if (!cfg) return false;
+
+    const statement = `
+      UPDATE \`${cfg.bucket}\`.\`${cfg.scope}\`.\`${cfg.collection}\`
+      SET isDeleted = true, content = 'This message was deleted', reactions = {}, deletedAt = $now
+      WHERE type = 'message' AND messageId = $messageId
+    `;
+
+    const res = await this.query(statement, {
+      $messageId: messageId,
+      $now: Date.now()
+    });
+
+    return res.status === 'success';
+  }
+
+  /**
    * Deep historical pagination query using Couchbase SQL++
    */
   static async getHistory(chatId: string, beforeTimestamp: number, limit = 30): Promise<any[]> {

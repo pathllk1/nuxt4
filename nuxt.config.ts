@@ -10,7 +10,7 @@ export default defineNuxtConfig({
       title: 'BusinessPro Suite - Enterprise Management Portal',
       meta: [
         { charset: 'utf-8' },
-        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, interactive-widget=resizes-content' },
         { name: 'description', content: 'Enterprise Management Portal for Wages, Inventory, Accounting, and Business Operations.' }
       ]
     }

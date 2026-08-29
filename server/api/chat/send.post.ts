@@ -10,11 +10,17 @@ export default defineEventHandler(async (event) => {
   const senderId = (user.id || user._id).toString();
   const senderName = user.name || user.username || user.email?.split('@')[0] || 'User';
 
-  const body = await readBody(event);
-  const { recipientId, content, replyTo, forwardedFrom } = body;
+  const body = await readBody(event).catch(() => ({}));
+  const { recipientId, replyTo, forwardedFrom } = body;
+  const content = typeof body.content === 'string' ? body.content.trim() : '';
+  const attachments = Array.isArray(body.attachments) ? body.attachments : [];
 
-  if (!recipientId || !content || !content.trim()) {
-    throw createError({ statusCode: 400, statusMessage: 'Recipient and message content are required' });
+  if (!recipientId) {
+    throw createError({ statusCode: 400, statusMessage: 'Recipient is required' });
+  }
+
+  if (!content && attachments.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: 'Either message text or an attachment is required' });
   }
 
   try {
@@ -22,9 +28,10 @@ export default defineEventHandler(async (event) => {
       senderId,
       senderName,
       recipientId: recipientId.toString(),
-      content: content.trim(),
+      content,
       replyTo: replyTo || null,
-      forwardedFrom: forwardedFrom || null
+      forwardedFrom: forwardedFrom || null,
+      attachments: attachments.length > 0 ? attachments : undefined
     });
 
     return {
