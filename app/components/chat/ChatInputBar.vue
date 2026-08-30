@@ -140,11 +140,31 @@ const handleKeyDown = (e: KeyboardEvent) => {
   }
 };
 
-const addEmoji = (emoji: string) => {
-  messageText.value += emoji;
-};
+const chatEmojis = [
+  '👍', '❤️', '😊', '😂', '🔥', '🎉', '🙏',
+  '👏', '✅', '🚀', '💼', '😍', '✨', '💯',
+  '🤝', '🙌', '😢', '😮', '💪', '👌', '⭐',
+  '🤣', '🥰', '😘', '😉', '😎', '🥳', '🤔',
+  '🫡', '🤫', '🥺', '😭', '🤯', '😤', '👎',
+  '❌', '⚠️', '💰', '📅', '☕', '👀', '📦'
+];
 
-const emojis = ['👍', '❤️', '😊', '🎉', '🔥', '🙏', '👏', '✅', '🚀', '💼'];
+const addEmoji = (emoji: string) => {
+  const textarea = textareaRef.value?.$el?.querySelector('textarea') || textareaRef.value;
+  if (textarea && typeof textarea.selectionStart === 'number') {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = messageText.value;
+    messageText.value = current.slice(0, start) + emoji + current.slice(end);
+    nextTick(() => {
+      textarea.focus();
+      const newPos = start + emoji.length;
+      textarea.setSelectionRange(newPos, newPos);
+    });
+  } else {
+    messageText.value += emoji;
+  }
+};
 </script>
 
 <template>
@@ -230,26 +250,30 @@ const emojis = ['👍', '❤️', '😊', '🎉', '🔥', '🙏', '👏', '✅',
         @click="triggerFilePicker"
       />
 
-      <!-- Emoji Quick Popover Trigger -->
+      <!-- Emoji Quick Popover -->
       <UPopover>
         <UButton 
           icon="i-lucide-smile" 
           color="neutral" 
           variant="ghost" 
           size="sm"
-          class="text-gray-500 hover:text-teal-600 dark:hover:text-teal-400 mb-0.5"
+          class="text-gray-500 hover:text-teal-600 dark:hover:text-teal-400 mb-0.5 cursor-pointer"
           title="Add emoji"
         />
         <template #content>
-          <div class="grid grid-cols-5 gap-1.5 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-            <button
-              v-for="emoji in emojis"
-              :key="emoji"
-              @click="addEmoji(emoji)"
-              class="text-base p-1.5 hover:scale-125 transition-transform cursor-pointer bg-transparent border-0"
-            >
-              {{ emoji }}
-            </button>
+          <div class="p-2 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200/90 dark:border-gray-800 select-none overflow-hidden">
+            <!-- 7 columns × 6 rows = 42 emojis, perfectly sized with zero scrollbars -->
+            <div class="grid grid-cols-7 gap-1">
+              <button
+                v-for="emoji in chatEmojis"
+                :key="emoji"
+                type="button"
+                @click="addEmoji(emoji)"
+                class="w-8 h-8 text-lg rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 active:bg-teal-100 dark:active:bg-teal-950/80 cursor-pointer bg-transparent border-0 flex items-center justify-center transition-colors shrink-0"
+              >
+                {{ emoji }}
+              </button>
+            </div>
           </div>
         </template>
       </UPopover>

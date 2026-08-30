@@ -6,6 +6,8 @@ import { formatFileSize } from '../../utils/imageCompressor';
 const props = defineProps<{
   message: ChatMessage;
   currentUserId: string;
+  highlightQuery?: string;
+  isCurrentMatch?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -21,6 +23,44 @@ const quickEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const isPreviewModalOpen = ref(false);
 const previewUrl = ref('');
 const previewName = ref('');
+const showMobileActions = ref(false);
+
+const splitByQuery = (text: string, q?: string) => {
+  if (!q || !q.trim()) return [{ text, highlight: false }];
+  const trimmed = q.trim();
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  return parts.filter(Boolean).map(part => ({
+    text: part,
+    highlight: part.toLowerCase() === trimmed.toLowerCase()
+  }));
+};
+
+const toggleActions = () => {
+  if (props.message.isDeleted) return;
+  showMobileActions.value = !showMobileActions.value;
+};
+
+const handleReact = (emoji: string) => {
+  emit('react', props.message, emoji);
+  showMobileActions.value = false;
+};
+
+const handleReply = () => {
+  emit('reply', props.message);
+  showMobileActions.value = false;
+};
+
+const handleForward = () => {
+  emit('forward', props.message);
+  showMobileActions.value = false;
+};
+
+const handleDelete = () => {
+  emit('delete', props.message);
+  showMobileActions.value = false;
+};
 
 /**
  * Route B2 private bucket attachments through the authenticated streaming proxy
@@ -71,7 +111,14 @@ const formatTime = (ts: number) => {
 </script>
 
 <template>
-  <div class="group flex flex-col mb-3 transition-all" :class="isMe ? 'items-end' : 'items-start'">
+  <div class="group flex flex-col mb-3 transition-all relative" :class="isMe ? 'items-end' : 'items-start'">
+    <!-- Mobile Dismiss Backdrop when Actions are open -->
+    <div 
+      v-if="showMobileActions" 
+      class="fixed inset-0 z-20 bg-black/5 dark:bg-black/20" 
+      @click="showMobileActions = false" 
+    />
+
     <!-- Forwarded Badge Banner -->
     <div 
       v-if="message.forwardedFrom && !message.isDeleted" 
@@ -82,41 +129,46 @@ const formatTime = (ts: number) => {
     </div>
 
     <!-- Bubble Wrapper with Floating Action Bar -->
-    <div class="relative max-w-[85%] sm:max-w-md">
-      <!-- Floating Action Menu on Hover (only for non-deleted messages) -->
+    <div class="relative max-w-[85%] sm:max-w-md" :class="showMobileActions ? 'z-30' : ''">
+      <!-- Floating Action Menu: Shows on Hover (Desktop) OR on Tap/Toggle (Mobile) -->
       <div 
         v-if="!message.isDeleted"
-        class="opacity-0 group-hover:opacity-100 transition-all duration-200 absolute -top-8 flex items-center gap-1 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xs shadow-md border border-gray-200/80 dark:border-gray-700/80 rounded-full px-2 py-0.5 z-10"
-        :class="isMe ? 'right-0' : 'left-0'"
+        class="transition-all duration-200 absolute -top-8.5 flex items-center gap-1 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xs shadow-lg border border-gray-200/90 dark:border-gray-700/90 rounded-full px-2 py-0.5 z-30"
+        :class="[
+          isMe ? 'right-0' : 'left-0',
+          showMobileActions 
+            ? 'opacity-100 pointer-events-auto scale-100' 
+            : 'opacity-0 pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto scale-95 md:group-hover:scale-100'
+        ]"
       >
         <button 
           v-for="emoji in quickEmojis" 
           :key="emoji" 
-          @click="emit('react', message, emoji)"
-          class="hover:scale-130 transition-transform text-xs p-0.5 cursor-pointer bg-transparent border-0"
+          @click.stop="handleReact(emoji)"
+          class="hover:scale-130 active:scale-125 transition-transform text-xs p-0.5 cursor-pointer bg-transparent border-0"
           :title="`React ${emoji}`"
         >
           {{ emoji }}
         </button>
         <div class="w-[1px] h-3 bg-gray-200 dark:bg-gray-700 mx-0.5"></div>
         <button 
-          @click="emit('reply', message)" 
-          class="text-gray-500 hover:text-teal-600 dark:hover:text-teal-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
+          @click.stop="handleReply" 
+          class="text-gray-500 hover:text-teal-600 active:text-teal-600 dark:hover:text-teal-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
           title="Reply"
         >
           <UIcon name="i-lucide-reply" class="w-3.5 h-3.5" />
         </button>
         <button 
-          @click="emit('forward', message)" 
-          class="text-gray-500 hover:text-teal-600 dark:hover:text-teal-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
+          @click.stop="handleForward" 
+          class="text-gray-500 hover:text-teal-600 active:text-teal-600 dark:hover:text-teal-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
           title="Forward"
         >
           <UIcon name="i-lucide-forward" class="w-3.5 h-3.5" />
         </button>
         <button 
           v-if="isMe"
-          @click="emit('delete', message)" 
-          class="text-gray-400 hover:text-red-500 dark:hover:text-red-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
+          @click.stop="handleDelete" 
+          class="text-gray-400 hover:text-red-500 active:text-red-500 dark:hover:text-red-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
           title="Delete message"
         >
           <UIcon name="i-lucide-trash-2" class="w-3.5 h-3.5" />
@@ -136,8 +188,9 @@ const formatTime = (ts: number) => {
 
       <!-- Main Message Bubble Content -->
       <div 
-        class="px-3.5 py-2 rounded-2xl text-sm shadow-xs transition-shadow overflow-hidden"
+        class="px-3.5 py-2 rounded-2xl text-sm shadow-xs transition-all overflow-hidden"
         :class="[
+          isCurrentMatch ? 'ring-2 ring-amber-400 dark:ring-amber-300 ring-offset-2 dark:ring-offset-gray-900 shadow-md' : '',
           message.isDeleted
             ? 'bg-gray-100 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 border border-dashed border-gray-200 dark:border-gray-700'
             : (isMe 
@@ -163,7 +216,7 @@ const formatTime = (ts: number) => {
             >
               <img 
                 :src="getAttachmentUrl(att.url)" 
-                :alt="att.name"
+                :alt="att.name" 
                 loading="lazy" 
                 class="w-full h-auto max-h-80 object-cover rounded-xl transition-transform duration-200 hover:scale-[1.01] block" 
               />
@@ -204,10 +257,21 @@ const formatTime = (ts: number) => {
           </div>
 
           <!-- Text Message Body (if present) -->
-          <p v-if="message.content" class="whitespace-pre-wrap break-words leading-relaxed select-text px-0.5">{{ message.content }}</p>
+          <p v-if="message.content" class="whitespace-pre-wrap break-words leading-relaxed select-text px-0.5" @click="toggleActions">
+            <template v-if="highlightQuery && highlightQuery.trim()">
+              <span 
+                v-for="(part, idx) in splitByQuery(message.content, highlightQuery)" 
+                :key="idx"
+                :class="part.highlight ? 'bg-amber-300 text-gray-950 font-bold rounded-xs px-0.5 shadow-2xs' : ''"
+              >{{ part.text }}</span>
+            </template>
+            <template v-else>
+              {{ message.content }}
+            </template>
+          </p>
         </template>
 
-        <!-- Time & Delivery Status -->
+        <!-- Time & Delivery Status with Mobile Action Trigger -->
         <div 
           class="flex items-center justify-end gap-1.5 mt-1 text-[10px]" 
           :class="isMe ? 'text-white/80' : 'text-gray-400'"
@@ -239,6 +303,19 @@ const formatTime = (ts: number) => {
               title="Sent" 
             />
           </template>
+
+          <!-- Subtle Mobile Action Menu Trigger (3 dots) -->
+          <button 
+            v-if="!message.isDeleted"
+            type="button" 
+            class="opacity-60 hover:opacity-100 p-0.5 rounded transition-opacity cursor-pointer bg-transparent border-0 inline-flex items-center -mr-0.5" 
+            :class="isMe ? 'text-white hover:text-white' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
+            @click.stop="toggleActions"
+            title="Actions (Reply, Forward, React)"
+            aria-label="Actions"
+          >
+            <UIcon name="i-lucide-more-horizontal" class="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

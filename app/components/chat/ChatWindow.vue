@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import type { ChatMessage, ChatContact, ChatAttachment } from '../../types/chat';
 import ChatMessageBubble from './ChatMessageBubble.vue';
 import ChatInputBar from './ChatInputBar.vue';
@@ -27,6 +27,19 @@ const emit = defineEmits<{
 }>();
 
 const messagesContainer = ref<HTMLElement | null>(null);
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+// In-chat message search state
+const isSearchOpen = ref(false);
+const searchQuery = ref('');
+const currentMatchIndex = ref(0);
+
+// Filter matching messages in current conversation
+const searchMatches = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return [];
+  return props.messages.filter(m => !m.isDeleted && m.content && m.content.toLowerCase().includes(q));
+});
 
 const scrollToBottom = (smooth = true) => {
   nextTick(() => {
@@ -39,26 +52,99 @@ const scrollToBottom = (smooth = true) => {
   });
 };
 
-// Scroll down when new messages arrive
+const scrollToCurrentMatch = () => {
+  nextTick(() => {
+    const match = searchMatches.value[currentMatchIndex.value];
+    if (!match) return;
+    const el = document.getElementById(`msg-${match.messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+};
+
+const openSearch = () => {
+  isSearchOpen.value = true;
+  nextTick(() => {
+    searchInputRef.value?.focus();
+  });
+};
+
+const closeSearch = () => {
+  isSearchOpen.value = false;
+  searchQuery.value = '';
+  currentMatchIndex.value = 0;
+};
+
+const goToPreviousMatch = () => {
+  if (searchMatches.value.length === 0) return;
+  if (currentMatchIndex.value > 0) {
+    currentMatchIndex.value--;
+  } else {
+    currentMatchIndex.value = searchMatches.value.length - 1;
+  }
+  scrollToCurrentMatch();
+};
+
+const goToNextMatch = () => {
+  if (searchMatches.value.length === 0) return;
+  if (currentMatchIndex.value < searchMatches.value.length - 1) {
+    currentMatchIndex.value++;
+  } else {
+    currentMatchIndex.value = 0;
+  }
+  scrollToCurrentMatch();
+};
+
+// When query changes, navigate to the most recent match
+watch(searchQuery, () => {
+  if (searchMatches.value.length > 0) {
+    currentMatchIndex.value = searchMatches.value.length - 1;
+    scrollToCurrentMatch();
+  } else {
+    currentMatchIndex.value = 0;
+  }
+});
+
+// Scroll down when new messages arrive (unless actively searching)
 watch(
   () => props.messages.length,
   (newLen, oldLen) => {
-    if (newLen > (oldLen || 0)) {
+    if (newLen > (oldLen || 0) && !isSearchOpen.value) {
       scrollToBottom(true);
     }
   }
 );
 
-// Initial scroll when switching conversation
+// Initial scroll and close search when switching conversation
 watch(
   () => props.activeContact?.id,
   () => {
+    closeSearch();
     scrollToBottom(false);
   }
 );
 
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    if (props.activeContact) {
+      e.preventDefault();
+      openSearch();
+    }
+  }
+};
+
 onMounted(() => {
   scrollToBottom(false);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', handleGlobalKeydown);
+  }
+});
+
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleGlobalKeydown);
+  }
 });
 
 // Check if user performed any action within the last 5 minutes
@@ -133,7 +219,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
       </div>
 
       <!-- Header Action Controls -->
-      <div class="flex items-center gap-1">
+      <div class="flex items-center gap-1.5">
         <UBadge 
           v-if="isRecentlyActive(activeContact.lastSeenAt)" 
           color="success" 
@@ -149,6 +235,77 @@ const formatLastSeen = (lastSeenAt?: number) => {
         >
           {{ formatLastSeen(activeContact.lastSeenAt) }}
         </span>
+
+        <!-- Search in Conversation Trigger Button -->
+        <UButton 
+          icon="i-lucide-search" 
+          color="neutral" 
+          variant="ghost" 
+          size="sm"
+          class="text-gray-500 hover:text-teal-600 dark:hover:text-teal-400 cursor-pointer"
+          :class="isSearchOpen ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400' : ''"
+          title="Search in conversation (Ctrl+F)"
+          @click="isSearchOpen ? closeSearch() : openSearch()"
+        />
+      </div>
+    </div>
+
+    <!-- Collapsible In-Chat Search Bar Toolbar -->
+    <div 
+      v-if="activeContact && isSearchOpen"
+      class="flex items-center gap-2 px-3.5 py-2 bg-gray-50 dark:bg-gray-850 border-b border-gray-200 dark:border-gray-800 shrink-0 shadow-2xs transition-all"
+    >
+      <UIcon name="i-lucide-search" class="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+      <div class="flex-1 min-w-0">
+        <input 
+          ref="searchInputRef"
+          v-model="searchQuery" 
+          type="text" 
+          placeholder="Search in conversation..."
+          class="w-full bg-transparent text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none"
+          @keydown.enter.exact.prevent="goToNextMatch"
+          @keydown.shift.enter.prevent="goToPreviousMatch"
+          @keydown.esc="closeSearch"
+        />
+      </div>
+
+      <!-- Match Counter & Up/Down Navigation Buttons -->
+      <div class="flex items-center gap-1 shrink-0">
+        <span v-if="searchQuery.trim()" class="text-[11px] text-gray-500 dark:text-gray-400 mr-1 select-none font-medium">
+          <template v-if="searchMatches.length > 0">
+            {{ currentMatchIndex + 1 }} of {{ searchMatches.length }}
+          </template>
+          <template v-else>
+            No matches
+          </template>
+        </span>
+
+        <button 
+          type="button" 
+          :disabled="searchMatches.length <= 1"
+          @click="goToPreviousMatch"
+          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-gray-600 dark:text-gray-300 cursor-pointer bg-transparent border-0 flex items-center"
+          title="Previous match (Shift+Enter)"
+        >
+          <UIcon name="i-lucide-chevron-up" class="w-4 h-4" />
+        </button>
+        <button 
+          type="button" 
+          :disabled="searchMatches.length <= 1"
+          @click="goToNextMatch"
+          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-gray-600 dark:text-gray-300 cursor-pointer bg-transparent border-0 flex items-center"
+          title="Next match (Enter)"
+        >
+          <UIcon name="i-lucide-chevron-down" class="w-4 h-4" />
+        </button>
+        <button 
+          type="button" 
+          @click="closeSearch"
+          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-gray-500 hover:text-red-500 dark:text-gray-400 cursor-pointer bg-transparent border-0 flex items-center ml-1"
+          title="Close search (Esc)"
+        >
+          <UIcon name="i-lucide-x" class="w-4 h-4" />
+        </button>
       </div>
     </div>
 
@@ -189,9 +346,12 @@ const formatLastSeen = (lastSeenAt?: number) => {
       <template v-else>
         <ChatMessageBubble
           v-for="msg in messages"
+          :id="`msg-${msg.messageId}`"
           :key="msg.messageId"
           :message="msg"
           :current-user-id="currentUserId"
+          :highlight-query="searchQuery"
+          :is-current-match="searchMatches[currentMatchIndex]?.messageId === msg.messageId"
           @reply="emit('reply', msg)"
           @forward="emit('forward', msg)"
           @delete="emit('delete', msg)"

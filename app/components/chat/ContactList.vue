@@ -31,7 +31,8 @@ const filteredContacts = computed(() => {
   return list.filter(c => 
     c.name.toLowerCase().includes(query) ||
     c.email.toLowerCase().includes(query) ||
-    (c.primaryFirmName && c.primaryFirmName.toLowerCase().includes(query))
+    (c.primaryFirmName && c.primaryFirmName.toLowerCase().includes(query)) ||
+    (c.lastMessage && c.lastMessage.toLowerCase().includes(query))
   );
 });
 
