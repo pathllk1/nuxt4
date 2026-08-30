@@ -116,7 +116,7 @@ const handleConfirmForward = async (targetUserIds: string[]) => {
 </script>
 
 <template>
-  <div class="h-full w-full flex overflow-hidden bg-white dark:bg-gray-900">
+  <div class="chat-page-container -mb-8 w-full flex overflow-hidden bg-white dark:bg-gray-900">
     <!-- Left Contacts Sidebar (Full height, full width on mobile, w-80/w-96 on desktop) -->
     <div 
       class="h-full w-full md:w-80 lg:w-96 shrink-0 transition-all flex flex-col min-h-0"
@@ -205,3 +205,20 @@ const handleConfirmForward = async (targetUserIds: string[]) => {
     </UModal>
   </div>
 </template>
+
+<style scoped>
+/*
+ * Mobile 100vh fix: On real mobile devices, 100vh includes the area behind
+ * the browser's address bar and bottom toolbar, making containers taller than
+ * the visible viewport. Using CSS progressive enhancement: the browser picks
+ * the last 'height' declaration it understands.
+ *   - 100vh: fallback for older browsers
+ *   - 100svh: "small viewport height" = viewport with all browser chrome visible (safest)
+ *   - 100dvh: "dynamic viewport height" = adjusts as browser chrome shows/hides
+ */
+.chat-page-container {
+  height: calc(100vh - 3rem);
+  height: calc(100svh - 3rem);
+  height: calc(100dvh - 3rem);
+}
+</style>
