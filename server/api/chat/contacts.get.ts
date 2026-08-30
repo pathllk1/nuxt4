@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
       ).filter(Boolean)
     );
 
-    // 2. Fetch all other active users with populated firm data
+    // 2. Fetch all other users with populated firm data
     const allUsers: any[] = await User.find({ _id: { $ne: currentUserId } })
       .select('name email role status firms createdAt')
       .populate({ path: 'firms.firm', model: Firm, select: 'name code' })

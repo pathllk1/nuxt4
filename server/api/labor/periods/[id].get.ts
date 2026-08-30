@@ -4,7 +4,7 @@ import { getSql, connectPostgres } from '../../../utils/pg.config';
 
 export default defineEventHandler(async (event) => {
   try {
-    await requireAuthSession(event);
+    const session = await requireAuthSession(event);
     let sql = getSql();
     if (!sql) sql = await connectPostgres();
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
         l.ifsc_code as leader_ifsc_code
       FROM labor_periods p
       JOIN labor_leaders l ON p.leader_id = l.id
-      WHERE p.id = ${id}
+      WHERE p.id = ${id} AND p.firm_id = ${String(session.firm_id)}
     `;
 
     if (!period) {

@@ -11,7 +11,7 @@ export interface AuthSession {
 
 export async function requireAuthSession(event: H3Event): Promise<AuthSession> {
   const userPayload = event.context.user;
-  const userId = userPayload?.id || userPayload?._id || getHeader(event, 'x-user-id');
+  const userId = userPayload?.id || userPayload?._id;
 
   if (!userId) {
     throw createError({ 

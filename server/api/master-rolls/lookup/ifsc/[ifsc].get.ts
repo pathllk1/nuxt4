@@ -9,7 +9,11 @@ const handler = defineEventHandler(async (event: H3Event): Promise<any> => {
     }
 
     // Use Razorpay IFSC API
-    const res = await $fetch<any>(`https://ifsc.razorpay.com/${ifsc.toUpperCase()}`);
+    const response = await fetch(`https://ifsc.razorpay.com/${ifsc.toUpperCase()}`);
+    if (!response.ok) {
+      throw createError({ statusCode: response.status, statusMessage: 'IFSC not found' });
+    }
+    const res = await response.json();
     
     return {
       success: true,

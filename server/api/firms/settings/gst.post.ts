@@ -1,5 +1,6 @@
 import { defineEventHandler, readBody, createError } from 'h3';
 import FirmSettings from '../../../models/FirmSettings';
+import User from '../../../models/User';
 import { requireAuthSession } from '../../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -7,6 +8,19 @@ export default defineEventHandler(async (event) => {
     // Fix #7: Use requireAuthSession instead of raw x-firm-id header
     const user = await requireAuthSession(event);
     const firmId = user.firm_id.toString();
+
+    // Security: Only Owner, Admin, or Superadmin can change firm tax settings
+    const currentUser: any = event.context.userDoc || await User.findById(user._id).lean();
+    const isSuperAdmin = currentUser?.role === 'superadmin';
+    const assignment = (currentUser?.firms || []).find((f: any) => String(f.firm?._id || f.firm) === firmId);
+    const grade = assignment?.grade;
+
+    if (!isSuperAdmin && !['Owner', 'Admin'].includes(grade)) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Forbidden: Only Firm Owners or Admins can modify GST configuration'
+      });
+    }
 
     const { enabled } = await readBody(event);
     if (enabled === undefined) {

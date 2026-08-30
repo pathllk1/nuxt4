@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
 
     const query = getQuery(event);
-    const firmId = (query.firm_id as string) || session.firm_id;
+    const firmId = String(session.firm_id);
     const status = query.status ? String(query.status) : null;
     const leaderName = query.leader_name ? String(query.leader_name).trim() : null;
     const leaderId = query.leader_id ? String(query.leader_id) : null;

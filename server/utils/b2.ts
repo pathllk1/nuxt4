@@ -178,14 +178,27 @@ export async function downloadFromBackblazeB2(pathOrUrl: string): Promise<{ buff
     if (!authResp.ok) return null;
     const auth: any = await authResp.json();
 
-    // 2. Resolve URL
-    let downloadUrl = pathOrUrl;
-    if (!downloadUrl.startsWith('http://') && !downloadUrl.startsWith('https://')) {
-      const cleanPath = pathOrUrl.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
-      downloadUrl = `${auth.downloadUrl}/file/${bucketNameConfig}/${cleanPath}`;
+    // 2. Resolve URL strictly under designated bucket
+    let cleanPath = pathOrUrl.trim();
+    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+      try {
+        const parsed = new URL(cleanPath);
+        const match = parsed.pathname.match(/\/file\/[^/]+\/(.+)$/);
+        if (match && match[1]) {
+          cleanPath = decodeURIComponent(match[1]);
+        } else {
+          console.warn('[B2Download] External URL rejected for B2 download:', pathOrUrl);
+          return null; // External URL rejected to prevent SSRF and token leakage
+        }
+      } catch {
+        return null;
+      }
     }
 
-    // 3. Fetch with server authorization token
+    cleanPath = cleanPath.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+    const downloadUrl = `${auth.downloadUrl}/file/${bucketNameConfig}/${cleanPath}`;
+
+    // 3. Fetch with server authorization token strictly from authenticated B2 endpoint
     let fileResp = await fetch(downloadUrl, {
       headers: {
         Authorization: auth.authorizationToken

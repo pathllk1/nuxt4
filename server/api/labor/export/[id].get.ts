@@ -5,7 +5,7 @@ import { getSql, connectPostgres } from '../../../utils/pg.config';
 
 export default defineEventHandler(async (event) => {
   try {
-    await requireAuthSession(event);
+    const session = await requireAuthSession(event);
     let sql = getSql();
     if (!sql) sql = await connectPostgres();
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
     const id = event.context.params?.id;
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Period ID is required' });
 
-    // 1. Fetch Header
+    // 1. Fetch Header strictly scoped to active firm
     const [period] = await sql`
       SELECT 
         p.*,
@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
         l.phone as leader_phone
       FROM labor_periods p
       JOIN labor_leaders l ON p.leader_id = l.id
-      WHERE p.id = ${id}
+      WHERE p.id = ${id} AND p.firm_id = ${String(session.firm_id)}
     `;
 
     if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found' });

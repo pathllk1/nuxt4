@@ -1,4 +1,5 @@
 import { defineEventHandler, createError, readBody } from 'h3';
+import crypto from 'crypto';
 import User from '../../../models/User';
 
 export default defineEventHandler(async (event) => {
@@ -25,14 +26,15 @@ export default defineEventHandler(async (event) => {
     const currentGrade = currentFirmAssignment?.grade;
     const currentRole = currentUser?.role;
 
-    if (!['Owner', 'Admin'].includes(currentGrade || '')) {
+    const isSuperAdmin = currentRole === 'superadmin';
+    if (!isSuperAdmin && !['Owner', 'Admin'].includes(currentGrade || '')) {
       throw createError({
         statusCode: 403,
-        statusMessage: 'Insufficient permissions'
+        statusMessage: 'Insufficient permissions: Firm Owner, Admin, or Superadmin privileges required'
       });
     }
 
-    const { email, grade, name, password, status, role } = await readBody(event) || {};
+    const { email, grade, name, password } = await readBody(event) || {};
     if (!email || !grade) {
       throw createError({
         statusCode: 400,
@@ -47,23 +49,19 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    if (role === 'superadmin' && currentRole !== 'superadmin') {
-      throw createError({
-        statusCode: 403,
-        statusMessage: 'Only system superadmins can assign the superadmin role'
-      });
-    }
-
     let user = await User.findOne({ email: email.toLowerCase() });
     let isNewUser = false;
 
     if (!user) {
+      // Security: Generate a secure cryptographic temporary password instead of static default
+      const tempPassword = password || crypto.randomBytes(16).toString('hex');
+
       user = new User({
         name: name || email.split('@')[0],
         email: email.toLowerCase(),
-        password: password || 'Welcome@123',
-        role: role || 'standard',
-        status: status || 'active',
+        password: tempPassword,
+        role: 'standard', // Firm invitation can only create standard users
+        status: 'active',
         firms: [{ firm: firmId, grade }],
         securitySettings: {
           failedLoginAttempts: 0,
@@ -86,9 +84,7 @@ export default defineEventHandler(async (event) => {
         firm: firmId as any,
         grade: grade as any
       });
-      if (status) {
-        user.status = status as any;
-      }
+      // Security: Do NOT mutate global account status (e.g. un-suspending suspended users)
       await user.save();
     }
 

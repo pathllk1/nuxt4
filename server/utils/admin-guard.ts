@@ -12,14 +12,17 @@ export async function requireSuperAdmin(event: H3Event): Promise<{ id: string; e
     });
   }
 
-  // Double check role from DB or token
-  let role = userPayload?.role;
+  // Double check role from fresh DB doc or context userDoc to prevent stale privilege retention
+  let role = event.context.userDoc?.role;
+  let status = event.context.userDoc?.status;
+
   if (!role) {
-    const userDoc = await User.findById(userId).select('role').lean();
+    const userDoc: any = await User.findById(userId).select('role status').lean();
     role = userDoc?.role;
+    status = userDoc?.status;
   }
 
-  if (role !== 'superadmin') {
+  if (role !== 'superadmin' || status === 'suspended') {
     throw createError({
       statusCode: 403,
       statusMessage: 'Forbidden: Superadmin access required'

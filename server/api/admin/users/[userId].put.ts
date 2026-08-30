@@ -2,6 +2,7 @@ import { defineEventHandler, createError, readBody } from 'h3';
 import { requireSuperAdmin } from '~~/server/utils/admin-guard';
 import User from '~~/server/models/User';
 import { connectDB } from '~~/server/utils/db';
+import { revokeAllSessions } from '~~/server/utils/security';
 
 export default defineEventHandler(async (event) => {
   const currentAdmin = await requireSuperAdmin(event);
@@ -44,6 +45,9 @@ export default defineEventHandler(async (event) => {
 
     if (status && ['active', 'pending', 'suspended'].includes(status)) {
       user.status = status;
+      if (status === 'suspended') {
+        await revokeAllSessions(userId, 'Account suspended by administrator');
+      }
     }
 
     if (Array.isArray(firmAssignments)) {

@@ -1,6 +1,6 @@
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
-import { getFirestore, Firestore, CollectionReference } from 'firebase-admin/firestore';
-import { getAuth, Auth, DecodedIdToken } from 'firebase-admin/auth';
+import { getFirestore, type Firestore, type CollectionReference } from 'firebase-admin/firestore';
+import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth';
 import { getHeader, createError, type H3Event } from 'h3';
 import User from '../models/User';
 

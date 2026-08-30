@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
         l.ifsc_code as leader_ifsc_code
       FROM labor_periods p
       JOIN labor_leaders l ON p.leader_id = l.id
-      WHERE p.id = ${id}
+      WHERE p.id = ${id} AND p.firm_id = ${String(session.firm_id)}
     `;
 
     if (!period) {

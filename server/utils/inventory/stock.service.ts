@@ -430,4 +430,85 @@ export class StockService {
 
     return updatedStock;
   }
+
+  /**
+   * Reverses an individual stock movement from StockReg
+   */
+  static async reverseMovement(
+    stockRegId: mongoose.Types.ObjectId,
+    user: string,
+    session?: mongoose.ClientSession
+  ): Promise<void> {
+    const reg = await StockRegModel.findById(stockRegId).session(session || null);
+    if (!reg || !reg.stock_id) return;
+
+    const stock = await StockModel.findById(reg.stock_id).session(session || null);
+    if (!stock) return;
+
+    const reverseQty = -reg.qty;
+    const newQty = stock.qty + reverseQty;
+    let newTotal = stock.total;
+
+    if (reg.qty > 0) {
+      const inwardVal = reg.qty * (reg.rate || stock.rate || 0);
+      newTotal = Math.max(0, stock.total - inwardVal);
+    } else {
+      const outwardVal = Math.abs(reg.qty) * (reg.cost_rate || stock.rate || 0);
+      newTotal = stock.total + outwardVal;
+    }
+
+    const newRate = newQty > 0 ? this.roundRate(newTotal / newQty) : stock.rate;
+
+    await StockModel.findByIdAndUpdate(
+      stock._id,
+      {
+        $set: {
+          qty: newQty,
+          rate: newRate,
+          total: newTotal,
+          user
+        }
+      },
+      { session: session || null }
+    );
+
+    await StockRegModel.findByIdAndDelete(stockRegId, { session: session || null });
+  }
+
+  /**
+   * Rollback stock movement for edited sales or deliveries
+   */
+  static async rollbackStockMovement(params: {
+    firmId: mongoose.Types.ObjectId;
+    movementType: string;
+    itemData: {
+      stockId?: mongoose.Types.ObjectId;
+      qty: number;
+      rate?: number;
+      batch?: string;
+    };
+    session?: mongoose.ClientSession;
+  }): Promise<void> {
+    if (!params.itemData.stockId) return;
+    const stock = await StockModel.findById(params.itemData.stockId).session(params.session || null);
+    if (!stock) return;
+
+    const absQty = Math.abs(params.itemData.qty);
+    const newQty = stock.qty + absQty;
+    const addedVal = absQty * (stock.rate || params.itemData.rate || 0);
+    const newTotal = stock.total + addedVal;
+    const newRate = newQty > 0 ? this.roundRate(newTotal / newQty) : stock.rate;
+
+    await StockModel.findByIdAndUpdate(
+      stock._id,
+      {
+        $set: {
+          qty: newQty,
+          rate: newRate,
+          total: newTotal
+        }
+      },
+      { session: params.session || null }
+    );
+  }
 }

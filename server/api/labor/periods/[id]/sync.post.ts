@@ -4,7 +4,7 @@ import { getSql, connectPostgres } from '../../../../utils/pg.config';
 
 export default defineEventHandler(async (event) => {
   try {
-    await requireAuthSession(event);
+    const session = await requireAuthSession(event);
     let sql = getSql();
     if (!sql) sql = await connectPostgres();
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
@@ -12,7 +12,8 @@ export default defineEventHandler(async (event) => {
     const periodId = event.context.params?.id;
     if (!periodId) throw createError({ statusCode: 400, statusMessage: 'Period ID is required' });
 
-    const [period] = await sql`SELECT status FROM labor_periods WHERE id = ${periodId}`;
+    const firmId = String(session.firm_id);
+    const [period] = await sql`SELECT status FROM labor_periods WHERE id = ${periodId} AND firm_id = ${firmId}`;
     if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found' });
 
     if (period.status === 'Settled') {

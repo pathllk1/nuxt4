@@ -10,11 +10,17 @@ export default defineEventHandler(async (event) => {
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
 
     const body = await readBody(event);
-    const firmId = body.firm_id || session.firm_id;
+    const firmId = String(session.firm_id);
     const { leader_id, start_date, end_date } = body;
 
     if (!leader_id || !start_date || !end_date) {
       throw createError({ statusCode: 400, statusMessage: 'Leader ID, start date, and end date are required' });
+    }
+
+    // Security: Verify leader_id belongs to the authenticated firm
+    const [leader] = await sql`SELECT id FROM labor_leaders WHERE id = ${leader_id} AND firm_id = ${firmId}`;
+    if (!leader) {
+      throw createError({ statusCode: 404, statusMessage: 'Labor leader not found in this firm' });
     }
 
     const [period] = await sql`

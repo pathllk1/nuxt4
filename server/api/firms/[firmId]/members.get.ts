@@ -11,6 +11,28 @@ export default defineEventHandler(async (event) => {
       });
     }
 
+    const currentUserId = event.context.user?.id;
+    if (!currentUserId) {
+      throw createError({ statusCode: 401, statusMessage: 'Unauthorized' });
+    }
+
+    const currentUser: any = event.context.userDoc || await User.findById(currentUserId).lean();
+    if (!currentUser) {
+      throw createError({ statusCode: 401, statusMessage: 'Unauthorized' });
+    }
+
+    const isSuperAdmin = currentUser.role === 'superadmin';
+    const hasFirmAccess = (currentUser.firms || []).some((f: any) => 
+      String(f.firm?._id || f.firm) === String(firmId)
+    );
+
+    if (!isSuperAdmin && !hasFirmAccess) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Forbidden: You do not have access to view members of this firm'
+      });
+    }
+
     const users = await User.find({
       'firms.firm': firmId
     }).select('_id name email role status firms');

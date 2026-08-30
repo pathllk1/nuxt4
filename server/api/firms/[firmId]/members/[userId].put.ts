@@ -26,10 +26,11 @@ export default defineEventHandler(async (event) => {
     const currentGrade = currentFirmAssignment?.grade;
     const currentRole = currentUser?.role;
 
-    if (!['Owner', 'Admin'].includes(currentGrade || '')) {
+    const isSuperAdmin = currentRole === 'superadmin';
+    if (!isSuperAdmin && !['Owner', 'Admin'].includes(currentGrade || '')) {
       throw createError({
         statusCode: 403,
-        statusMessage: 'Insufficient permissions'
+        statusMessage: 'Insufficient permissions: Firm Owner, Admin, or Superadmin privileges required'
       });
     }
 
@@ -41,7 +42,7 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    if (targetUser.role === 'superadmin' && currentRole !== 'superadmin') {
+    if (targetUser.role === 'superadmin' && !isSuperAdmin) {
       throw createError({
         statusCode: 403,
         statusMessage: 'Cannot modify system superadmin users'
@@ -56,24 +57,18 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    if (targetFirmAssignment.grade === 'Owner' && currentGrade !== 'Owner') {
+    if (targetFirmAssignment.grade === 'Owner' && currentGrade !== 'Owner' && !isSuperAdmin) {
       throw createError({
         statusCode: 403,
         statusMessage: 'Admins cannot modify the Owner of the firm'
       });
     }
 
-    const { grade, status, name, email, role } = await readBody(event) || {};
+    const { grade } = await readBody(event) || {};
 
     if (targetUserId === currentUserId) {
-      if (status && status !== targetUser.status) {
-        throw createError({ statusCode: 400, statusMessage: 'You cannot change your own status' });
-      }
       if (grade && grade !== targetFirmAssignment.grade) {
         throw createError({ statusCode: 400, statusMessage: 'You cannot change your own grade' });
-      }
-      if (role && role !== targetUser.role) {
-        throw createError({ statusCode: 400, statusMessage: 'You cannot change your own system role' });
       }
     }
 
@@ -84,38 +79,12 @@ export default defineEventHandler(async (event) => {
       targetFirmAssignment.grade = grade as any;
     }
 
-    if (status) {
-      if (!['pending', 'active', 'suspended'].includes(status)) {
-        throw createError({ statusCode: 400, statusMessage: 'Invalid status' });
-      }
-      targetUser.status = status as any;
-    }
-
-    if (role) {
-      if (!['superadmin', 'standard'].includes(role)) {
-        throw createError({ statusCode: 400, statusMessage: 'Invalid role' });
-      }
-      if (role === 'superadmin' && currentRole !== 'superadmin') {
-        throw createError({ statusCode: 403, statusMessage: 'Only system superadmins can assign the superadmin role' });
-      }
-      targetUser.role = role as any;
-    }
-
-    if (name) targetUser.name = name;
-    if (email) {
-      const emailClash = await User.findOne({ email: email.toLowerCase(), _id: { $ne: targetUserId } });
-      if (emailClash) {
-        throw createError({ statusCode: 409, statusMessage: 'Email already in use by another user' });
-      }
-      targetUser.email = email.toLowerCase();
-    }
-
     await targetUser.save();
 
     return {
       success: true,
       statusCode: 200,
-      message: 'Member updated successfully',
+      message: 'Member grade updated successfully',
       member: {
         userId: targetUser._id,
         email: targetUser.email,

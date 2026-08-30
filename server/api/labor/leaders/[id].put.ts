@@ -4,7 +4,7 @@ import { getSql, connectPostgres } from '../../../utils/pg.config';
 
 export default defineEventHandler(async (event) => {
   try {
-    await requireAuthSession(event);
+    const session = await requireAuthSession(event);
     let sql = getSql();
     if (!sql) sql = await connectPostgres();
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
@@ -22,10 +22,16 @@ export default defineEventHandler(async (event) => {
     const a_aadhaar = aadhaar_number !== undefined ? (aadhaar_number && String(aadhaar_number).trim()) || null : undefined;
     const g_num = gst_number !== undefined ? (gst_number && String(gst_number).trim().toUpperCase()) || null : undefined;
 
+    const firmId = String(session.firm_id);
+
     // Get previous leader name to update COA if name changed
     const [existingLeader] = await sql`
-      SELECT name FROM labor_leaders WHERE id = ${id}
+      SELECT name FROM labor_leaders WHERE id = ${id} AND firm_id = ${firmId}
     `;
+
+    if (!existingLeader) {
+      throw createError({ statusCode: 404, statusMessage: 'Labor leader not found' });
+    }
 
     const [leader] = await sql`
       UPDATE labor_leaders 
@@ -40,7 +46,7 @@ export default defineEventHandler(async (event) => {
         ifsc_code = ${i_code !== undefined ? i_code : sql`ifsc_code`},
         status = ${status || sql`status`},
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id}
+      WHERE id = ${id} AND firm_id = ${firmId}
       RETURNING *
     `;
 

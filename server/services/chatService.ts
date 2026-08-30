@@ -212,6 +212,11 @@ export class ChatService {
       throw new Error('Original message not found');
     }
 
+    // Security: Caller must have been either sender or recipient of original message
+    if (original.senderId !== senderId && original.recipientId !== senderId) {
+      throw new Error('Unauthorized: You do not have permission to forward this message');
+    }
+
     const forwardedMessages: ChatMessage[] = [];
 
     // 2. Dispatch to each target recipient

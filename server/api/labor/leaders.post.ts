@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
 
     const body = await readBody(event);
-    const firmId = body.firm_id || session.firm_id;
+    const firmId = String(session.firm_id);
     const { name, phone, pan, aadhaar_number, gst_number, bank_name, account_number, ifsc_code } = body;
 
     if (!name || !name.trim()) {

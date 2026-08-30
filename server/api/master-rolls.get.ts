@@ -17,7 +17,8 @@ export default defineEventHandler(async (event) => {
     if (query.bank) filter.bank = query.bank;
 
     if (query.search) {
-      const searchRegex = new RegExp(String(query.search), 'i');
+      const escapedSearch = String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escapedSearch, 'i');
       filter.$or = [
         { employee_name: searchRegex },
         { aadhar: searchRegex },

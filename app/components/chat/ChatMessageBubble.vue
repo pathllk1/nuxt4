@@ -111,7 +111,7 @@ const formatTime = (ts: number) => {
 </script>
 
 <template>
-  <div class="group flex flex-col mb-3 transition-all relative" :class="isMe ? 'items-end' : 'items-start'">
+  <div class="group flex flex-col mb-3 transition-all relative pt-2 -mt-2" :class="isMe ? 'items-end' : 'items-start'">
     <!-- Mobile Dismiss Backdrop when Actions are open -->
     <div 
       v-if="showMobileActions" 
@@ -133,9 +133,9 @@ const formatTime = (ts: number) => {
       <!-- Floating Action Menu: Shows on Hover (Desktop) OR on Tap/Toggle (Mobile) -->
       <div 
         v-if="!message.isDeleted"
-        class="transition-all duration-200 absolute -top-8.5 flex items-center gap-1 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xs shadow-lg border border-gray-200/90 dark:border-gray-700/90 rounded-full px-2 py-0.5 z-30"
+        class="transition-all duration-150 absolute -top-4 flex items-center gap-0.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xs shadow-md border border-gray-200/90 dark:border-gray-700/90 rounded-full p-1 z-30 after:absolute after:-bottom-2.5 after:inset-x-0 after:h-3 after:content-['']"
         :class="[
-          isMe ? 'right-0' : 'left-0',
+          isMe ? 'right-1' : 'left-1',
           showMobileActions 
             ? 'opacity-100 pointer-events-auto scale-100' 
             : 'opacity-0 pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto scale-95 md:group-hover:scale-100'
@@ -145,22 +145,22 @@ const formatTime = (ts: number) => {
           v-for="emoji in quickEmojis" 
           :key="emoji" 
           @click.stop="handleReact(emoji)"
-          class="hover:scale-130 active:scale-125 transition-transform text-xs p-0.5 cursor-pointer bg-transparent border-0"
+          class="w-6 h-6 flex items-center justify-center text-xs rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 hover:scale-115 active:scale-95 transition-transform cursor-pointer bg-transparent border-0 select-none"
           :title="`React ${emoji}`"
         >
           {{ emoji }}
         </button>
-        <div class="w-[1px] h-3 bg-gray-200 dark:bg-gray-700 mx-0.5"></div>
+        <div class="w-[1px] h-3.5 bg-gray-200 dark:bg-gray-700 mx-0.5"></div>
         <button 
           @click.stop="handleReply" 
-          class="text-gray-500 hover:text-teal-600 active:text-teal-600 dark:hover:text-teal-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
+          class="w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-teal-600 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-teal-400 cursor-pointer bg-transparent border-0 transition-colors" 
           title="Reply"
         >
           <UIcon name="i-lucide-reply" class="w-3.5 h-3.5" />
         </button>
         <button 
           @click.stop="handleForward" 
-          class="text-gray-500 hover:text-teal-600 active:text-teal-600 dark:hover:text-teal-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
+          class="w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-teal-600 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-teal-400 cursor-pointer bg-transparent border-0 transition-colors" 
           title="Forward"
         >
           <UIcon name="i-lucide-forward" class="w-3.5 h-3.5" />
@@ -168,7 +168,7 @@ const formatTime = (ts: number) => {
         <button 
           v-if="isMe"
           @click.stop="handleDelete" 
-          class="text-gray-400 hover:text-red-500 active:text-red-500 dark:hover:text-red-400 p-0.5 cursor-pointer bg-transparent border-0 flex items-center" 
+          class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 cursor-pointer bg-transparent border-0 transition-colors" 
           title="Delete message"
         >
           <UIcon name="i-lucide-trash-2" class="w-3.5 h-3.5" />

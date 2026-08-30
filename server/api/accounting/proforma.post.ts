@@ -86,7 +86,7 @@ export default defineEventHandler(async (event) => {
       cgst: totals.cgst,
       sgst: totals.sgst,
       igst: totals.igst,
-      btype: 'PROFORMA',
+      btype: 'PROFORMA' as const,
       billSubtype: billType.toUpperCase(),
       items: processedItems,
       otherCharges: otherCharges || [],
@@ -106,8 +106,8 @@ export default defineEventHandler(async (event) => {
     };
 
     const newBill = session
-      ? (await Bill.create([billData], { session }))[0]!
-      : await Bill.create(billData);
+      ? (await (Bill as any).create([billData], { session }))[0]!
+      : await (Bill as any).create(billData);
 
     return newBill;
   };

@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
       SELECT p.*, l.name as leader_name
       FROM labor_periods p
       JOIN labor_leaders l ON p.leader_id = l.id
-      WHERE p.id = ${period_id}
+      WHERE p.id = ${period_id} AND p.firm_id = ${String(session.firm_id)}
     `;
 
     if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found' });

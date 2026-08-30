@@ -132,7 +132,7 @@ export default defineEventHandler(async (event) => {
       if (!item.stockId) throw new Error(`Stock ID is required for ${item.item}`);
       await StockService.updateStockOutward({
         firmId: firmIdObj,
-        itemData: { stockId: new mongoose.Types.ObjectId(item.stockId), qty, rate: item.rate, grate: item.grate, batch: item.batch, narration: item.narration },
+        itemData: { stockId: new mongoose.Types.ObjectId(item.stockId), item: item.item, qty, rate: item.rate, grate: item.grate, batch: item.batch, narration: item.narration },
         billData: { bno: existingBill.bno, bdate: meta?.billDate || existingBill.bdate, supply: partyDoc.name, billId: existingBill._id, btype: 'DELIVERY_NOTE' },
         user: username,
         session

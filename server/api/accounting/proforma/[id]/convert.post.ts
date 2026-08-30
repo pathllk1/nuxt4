@@ -128,6 +128,7 @@ export default defineEventHandler(async (event) => {
           firmId: firmIdObj,
           itemData: {
             stockId: new mongoose.Types.ObjectId(item.stockId),
+            item: item.item,
             qty,
             rate: item.rate,
             grate: item.grate,
