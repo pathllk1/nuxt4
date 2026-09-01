@@ -406,21 +406,21 @@ const onExportExcel = async () => {
     const wage = wageData.value[emp.master_roll_id] || {}
     return {
       employee_name: emp.employee_name,
-      project: emp.project || 'General',
-      site: emp.site || 'N/A',
-      bank: emp.bank || 'N/A',
-      account_no: emp.account_no || 'N/A',
-      p_day_wage: wage.p_day_wage || emp.p_day_wage || 0,
-      wage_days: wage.wage_days || 0,
-      gross_salary: wage.gross_salary || 0,
-      epf_deduction: wage.epf_deduction || 0,
-      esic_deduction: wage.esic_deduction || 0,
-      other_deduction: wage.other_deduction || 0,
-      other_benefit: wage.other_benefit || 0,
-      advance_deduction: wage.advance_deduction || 0,
-      net_salary: wage.net_salary || 0,
-      date_of_joining: emp.date_of_joining,
-      date_of_exit: emp.date_of_exit
+      project: emp.project || '',
+      site: emp.site || '',
+      bank: emp.bank || '',
+      account_no: emp.account_no || '',
+      p_day_wage: Number(wage.p_day_wage ?? emp.p_day_wage ?? 0),
+      wage_days: Number(wage.wage_days ?? 0),
+      gross_salary: Number(wage.gross_salary ?? 0),
+      epf_deduction: Number(wage.epf_deduction ?? 0),
+      esic_deduction: Number(wage.esic_deduction ?? 0),
+      other_deduction: Number(wage.other_deduction ?? 0),
+      other_benefit: Number(wage.other_benefit ?? 0),
+      advance_deduction: Number(wage.advance_deduction ?? 0),
+      net_salary: Number(wage.net_salary ?? 0),
+      date_of_joining: emp.date_of_joining || '',
+      date_of_exit: emp.date_of_exit || ''
     }
   })
 

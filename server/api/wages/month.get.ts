@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
     firm_id: user.firm_id,
     salary_month: month
   })
-    .populate('master_roll_id', 'employee_name aadhar bank account_no project site')
+    .populate('master_roll_id', 'employee_name aadhar bank account_no project site date_of_joining date_of_exit')
     .sort({ createdAt: -1 })
     .lean();
 
