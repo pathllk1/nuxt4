@@ -65,6 +65,9 @@ export interface DaybookVoucher {
     gstr1GrandTotal: number;
     taxVariance: number;
   };
+  gstinValid?: boolean;
+  gstinState?: string;
+  gstinMessage?: string;
 }
 
 export interface DaybookStockSummary {
@@ -133,6 +136,14 @@ export interface DaybookHsnSummary {
   totalMargin: number;
   marginPct: number;
   itemsCount: number;
+  cbicDescription?: string;
+  cbicRate?: number;
+  cbicNotificationRef?: string;
+  rateMismatch?: boolean;
+  rateVariance?: number;
+  conditionApplied?: string | null;
+  conditionWarning?: string | null;
+  cbicVerified?: boolean;
 }
 
 export interface Gstr1Reconciliation {
@@ -202,6 +213,17 @@ export interface DaybookParsedData {
   };
   reconciliation: Gstr1Reconciliation;
   rawRows: DaybookRawRow[];
+  gstAcceleratorVerification?: {
+    verifiedAt: string;
+    totalHsnsChecked: number;
+    hsnMatchedCount: number;
+    hsnMismatchCount: number;
+    totalGstinsChecked: number;
+    validGstinsCount: number;
+    invalidGstinsCount: number;
+    hasWarnings: boolean;
+    isLiveApiConfigured?: boolean;
+  };
 }
 
 export function parseExcelDate(val: any): string {
@@ -405,6 +427,8 @@ export function parseDaybookExcel(
         totalSgst: 0,
         totalIgst: 0,
         totalTax: 0,
+        unroundedGrandTotal: 0,
+        roundOff: 0,
         grandTotal: 0,
         totalCost: 0,
         totalMargin: 0,
@@ -414,18 +438,19 @@ export function parseDaybookExcel(
       };
       voucherMap.set(key, v);
     }
-    v.itemsCount += 1;
-    v.totalActualQty += row.actualQty;
-    v.totalBilledQty += row.billedQty;
-    v.totalAmount += row.amount;
-    v.totalCgst += row.cgst;
-    v.totalSgst += row.sgst;
-    v.totalIgst += row.igst;
-    v.totalTax += row.totalTax;
-    v.grandTotal += row.grandTotal;
-    v.totalCost += (row.billedQty * row.purchaseRate);
-    v.totalMargin += row.margin;
-    v.items.push(row);
+    const currentV = v;
+    currentV.itemsCount += 1;
+    currentV.totalActualQty += row.actualQty;
+    currentV.totalBilledQty += row.billedQty;
+    currentV.totalAmount += row.amount;
+    currentV.totalCgst += row.cgst;
+    currentV.totalSgst += row.sgst;
+    currentV.totalIgst += row.igst;
+    currentV.totalTax += row.totalTax;
+    currentV.grandTotal += row.grandTotal;
+    currentV.totalCost += (row.billedQty * row.purchaseRate);
+    currentV.totalMargin += row.margin;
+    currentV.items.push(row);
   });
 
   const vouchers = Array.from(voucherMap.values()).map((v) => {
@@ -799,6 +824,8 @@ export function exportDaybookAnalysisToExcel(data: DaybookParsedData): void {
     'Type': v.voucherType,
     'Party Name': v.partyName,
     'GSTIN': v.gstin,
+    'GSTIN State': v.gstinState || '',
+    'GSTIN Status': v.gstinValid === false ? 'INVALID' : (v.gstinValid === true ? 'VALID' : 'UNCHECKED'),
     'Supply Type': v.supplyType,
     'Taxable Turnover (₹)': v.totalAmount,
     'CGST (₹)': v.totalCgst,
@@ -872,6 +899,22 @@ export function exportDaybookAnalysisToExcel(data: DaybookParsedData): void {
   }));
   const wsHsn = XLSX.utils.json_to_sheet(hsnRows);
   XLSX.utils.book_append_sheet(wb, wsHsn, 'HSN & Tax Summary');
+
+  // Sheet 5: CBIC Statutory Audit Trail
+  const cbicRows = data.hsnSummary.map((h, idx) => ({
+    '#': idx + 1,
+    'HSN Code': h.hsn,
+    'DayBook Rate (%)': h.gstRate,
+    'CBIC Statutory Rate (%)': h.cbicRate ?? h.gstRate,
+    'Rate Compliance': h.rateMismatch ? 'RATE MISMATCH' : (h.cbicVerified ? 'VERIFIED MATCH' : 'UNINDEXED'),
+    'Variance (%)': h.rateVariance ?? 0,
+    'CBIC Notification Ref': h.cbicNotificationRef || '09/2025-CT(Rate)',
+    'Official CBIC Description': h.cbicDescription || '',
+    'Condition Applied': h.conditionApplied || '',
+    'Condition Warning': h.conditionWarning || ''
+  }));
+  const wsCbic = XLSX.utils.json_to_sheet(cbicRows);
+  XLSX.utils.book_append_sheet(wb, wsCbic, 'CBIC Statutory Audit');
 
   const outName = `${data.fileName.replace(/\.[^/.]+$/, '')}_Complete_Bill_Analysis.xlsx`;
   XLSX.writeFile(wb, outName);

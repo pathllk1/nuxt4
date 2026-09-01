@@ -271,16 +271,21 @@
 
                 <!-- GSTIN & Supply Type -->
                 <td class="py-2.5 px-2.5 font-mono text-[10px]">
-                  <div v-if="v.gstin" class="font-bold text-slate-700 dark:text-zinc-300">
-                    {{ v.gstin }}
+                  <div v-if="v.gstin" class="font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1">
+                    <span>{{ v.gstin }}</span>
+                    <span v-if="v.gstinValid === true" class="text-emerald-600 dark:text-emerald-400 font-black text-xs" title="Mod-36 Checksum Valid">✓</span>
+                    <span v-else-if="v.gstinValid === false" class="text-rose-600 dark:text-rose-400 font-bold text-xs" :title="v.gstinMessage || 'Invalid Checksum'">⚠️</span>
                   </div>
                   <div v-else class="text-slate-400 italic">Unregistered</div>
-                  <div class="mt-0.5">
+                  <div class="mt-0.5 flex items-center gap-1 flex-wrap">
                     <span
                       class="px-1.5 py-0.2 rounded text-[8px] font-black uppercase"
                       :class="v.supplyType === 'INTRA' ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300'"
                     >
                       {{ v.supplyType === 'INTRA' ? 'Intra (C+S)' : 'Inter (IGST)' }}
+                    </span>
+                    <span v-if="v.gstinState" class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 truncate max-w-[120px]" :title="v.gstinState">
+                      {{ v.gstinState }}
                     </span>
                   </div>
                 </td>

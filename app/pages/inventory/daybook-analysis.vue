@@ -17,7 +17,57 @@
       </div>
 
       <!-- Header Actions -->
-      <div v-if="parsedData" class="flex items-center gap-2">
+      <div v-if="parsedData" class="flex flex-wrap items-center gap-2">
+        <UButton
+          v-if="!parsedData.gstAcceleratorVerification"
+          color="warning"
+          variant="solid"
+          size="xs"
+          icon="i-heroicons-shield-check"
+          label="⚡ Verify with CBIC Master (GST Accelerator)"
+          class="font-black cursor-pointer shadow-xs"
+          :loading="isVerifying"
+          @click="verifyWithGstAccelerator"
+        />
+
+        <div
+          v-else-if="parsedData.gstAcceleratorVerification"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border"
+          :class="parsedData.gstAcceleratorVerification?.isLiveApiConfigured
+            ? ((parsedData.gstAcceleratorVerification?.hsnMismatchCount ?? 0) === 0 && (parsedData.gstAcceleratorVerification?.invalidGstinsCount ?? 0) === 0
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+              : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800')
+            : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-700'"
+        >
+          <UIcon
+            :name="parsedData.gstAcceleratorVerification?.isLiveApiConfigured
+              ? ((parsedData.gstAcceleratorVerification?.hsnMismatchCount ?? 0) === 0 ? 'i-heroicons-check-badge' : 'i-heroicons-exclamation-triangle')
+              : 'i-heroicons-shield-exclamation'"
+            class="w-4 h-4"
+          />
+          <span>
+            <template v-if="parsedData.gstAcceleratorVerification?.isLiveApiConfigured">
+              Live CBIC Verified
+              <span v-if="(parsedData.gstAcceleratorVerification?.hsnMismatchCount ?? 0) > 0" class="text-rose-600 font-mono">
+                ({{ parsedData.gstAcceleratorVerification.hsnMismatchCount }} Rate Mismatches)
+              </span>
+              <span v-else class="text-emerald-600">✓ 100% Match</span>
+            </template>
+            <template v-else>
+              <span class="text-amber-600 dark:text-amber-400 font-bold">⚠️ Live API Key Missing</span>
+              <span class="text-slate-500 font-normal text-[10px] ml-1">(Set GST_ACCELERATOR_API_KEY in .env)</span>
+            </template>
+          </span>
+          <button
+            type="button"
+            class="ml-1 hover:underline text-[10px] text-slate-500 cursor-pointer font-normal"
+            title="Re-run verification"
+            @click="verifyWithGstAccelerator"
+          >
+            ↺ Re-check
+          </button>
+        </div>
+
         <UButton
           color="neutral"
           variant="outline"
@@ -211,26 +261,118 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { exportDaybookAnalysisToExcel, type DaybookParsedData } from '@/utils/daybook-parser';
-import DaybookExcelUpload from '@/components/inventory/daybook/DaybookExcelUpload.vue';
-import DaybookKpiCards from '@/components/inventory/daybook/DaybookKpiCards.vue';
-import DaybookStockTable from '@/components/inventory/daybook/DaybookStockTable.vue';
-import DaybookVoucherTable from '@/components/inventory/daybook/DaybookVoucherTable.vue';
-import DaybookPartyTable from '@/components/inventory/daybook/DaybookPartyTable.vue';
-import DaybookHsnTable from '@/components/inventory/daybook/DaybookHsnTable.vue';
-import DaybookMarginWatchTable from '@/components/inventory/daybook/DaybookMarginWatchTable.vue';
-import DaybookTaxReconciliationTable from '@/components/inventory/daybook/DaybookTaxReconciliationTable.vue';
+import { exportDaybookAnalysisToExcel, type DaybookParsedData } from '~/utils/daybook-parser';
+import DaybookExcelUpload from '~/components/inventory/daybook/DaybookExcelUpload.vue';
+import DaybookKpiCards from '~/components/inventory/daybook/DaybookKpiCards.vue';
+import DaybookStockTable from '~/components/inventory/daybook/DaybookStockTable.vue';
+import DaybookVoucherTable from '~/components/inventory/daybook/DaybookVoucherTable.vue';
+import DaybookPartyTable from '~/components/inventory/daybook/DaybookPartyTable.vue';
+import DaybookHsnTable from '~/components/inventory/daybook/DaybookHsnTable.vue';
+import DaybookMarginWatchTable from '~/components/inventory/daybook/DaybookMarginWatchTable.vue';
+import DaybookTaxReconciliationTable from '~/components/inventory/daybook/DaybookTaxReconciliationTable.vue';
 
+const toast = useToast();
 const parsedData = ref<DaybookParsedData | null>(null);
 const activeTab = ref<'vouchers' | 'stock' | 'parties' | 'hsn' | 'margin' | 'reconciliation'>('vouchers');
+const isVerifying = ref(false);
 
-function onDataLoaded(data: DaybookParsedData) {
+async function onDataLoaded(data: DaybookParsedData) {
   parsedData.value = data;
   activeTab.value = 'vouchers';
+  // Automatically trigger CBIC statutory verification in the background
+  await verifyWithGstAccelerator();
 }
 
 function resetData() {
   parsedData.value = null;
+}
+
+async function verifyWithGstAccelerator() {
+  if (!parsedData.value) return;
+  isVerifying.value = true;
+
+  try {
+    const hsnList = parsedData.value.hsnSummary.map(h => ({
+      hsn: h.hsn,
+      gstRate: h.gstRate
+    }));
+
+    const gstins = Array.from(
+      new Set(
+        parsedData.value.vouchers
+          .map(v => (v.gstin || '').trim())
+          .filter(g => g.length > 0)
+      )
+    );
+
+    const res: any = await ($fetch as any)('/api/gst/accelerator/verify', {
+      method: 'POST',
+      body: { hsnList, gstins }
+    });
+
+    if (res && res.success && res.data) {
+      const { hsnMap, gstinMap, summary } = res.data;
+
+      // 1. Enrich HSN Summary table
+      parsedData.value.hsnSummary.forEach(h => {
+        const v = hsnMap[h.hsn];
+        if (v) {
+          h.cbicDescription = v.description;
+          h.cbicRate = v.cbicRate;
+          h.cbicNotificationRef = v.notificationRef;
+          h.rateMismatch = v.isVerified ? !v.isMatched : false;
+          h.rateVariance = v.variancePct;
+          h.conditionApplied = v.conditionApplied;
+          h.conditionWarning = v.conditionWarning;
+          h.cbicVerified = Boolean(v.isVerified);
+        }
+      });
+
+      // 2. Enrich Vouchers table with GSTIN validation & State
+      parsedData.value.vouchers.forEach(v => {
+        const clean = (v.gstin || '').trim();
+        if (clean && gstinMap[clean]) {
+          const g = gstinMap[clean];
+          v.gstinValid = g.isValid;
+          v.gstinState = g.stateCode ? `${g.stateCode}-${g.stateName}` : '';
+          v.gstinMessage = g.message;
+        }
+      });
+
+      parsedData.value.gstAcceleratorVerification = {
+        verifiedAt: new Date().toLocaleTimeString(),
+        ...summary
+      };
+
+      if (!summary.isLiveApiConfigured) {
+        toast.add({
+          title: 'GST Accelerator API Key Not Configured',
+          description: 'HSN statutory rates remain unverified. Set GST_ACCELERATOR_API_KEY in your .env file to enable live CBIC verification.',
+          color: 'warning'
+        });
+      } else if (summary.hsnMismatchCount > 0) {
+        toast.add({
+          title: 'CBIC Audit: Tax Rate Mismatches Detected',
+          description: `Found ${summary.hsnMismatchCount} HSN tax rate discrepancies against official CBIC notifications. Check the HSN & GST Slabs tab.`,
+          color: 'warning'
+        });
+      } else {
+        toast.add({
+          title: '✓ CBIC Statutory Verification Complete',
+          description: `All ${summary.totalHsnsChecked} HSNs verified via GST Accelerator API. Verified ${summary.totalGstinsChecked} GSTINs.`,
+          color: 'success'
+        });
+      }
+    }
+  } catch (err: any) {
+    toast.add({
+      title: 'Verification Warning',
+      description: err.message || 'Could not verify all rates against CBIC Master.',
+      color: 'neutral'
+    });
+  } finally {
+    isVerifying.value = false;
+  }
 }
 
 function exportExcel() {

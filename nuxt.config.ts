@@ -41,6 +41,8 @@ export default defineNuxtConfig({
     typeCheck: false
   },
   runtimeConfig: {
+    gstAcceleratorApiKey: process.env.GST_ACCELERATOR_API_KEY || '',
+    gstAcceleratorBaseUrl: process.env.GST_ACCELERATOR_BASE_URL || 'https://gstaccelerator.in',
     public: {
       upstashRedisRestUrl: process.env.NUXT_PUBLIC_UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_URL || '',
       upstashRedisRestReadToken: process.env.NUXT_PUBLIC_UPSTASH_REDIS_REST_READ_TOKEN || '',

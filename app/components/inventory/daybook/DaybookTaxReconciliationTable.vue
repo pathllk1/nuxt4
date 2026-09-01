@@ -11,10 +11,10 @@
 
     <template v-else>
       <!-- Reconciliation Summary Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <!-- Books (DayBook Excel) Output Tax -->
         <div class="bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-xs border-l-4 border-l-blue-500">
-          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Books GST Tax Liability</p>
+          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Books GST Liability</p>
           <p class="text-base font-black font-mono text-slate-900 dark:text-white mt-1">
             {{ formatCurrency(data.summary.totalGstTax) }}
           </p>
@@ -23,11 +23,25 @@
 
         <!-- Returns (GSTR-1 JSON) Output Tax -->
         <div class="bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-xs border-l-4 border-l-indigo-500">
-          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">GSTR-1 Filed Return Tax</p>
+          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">GSTR-1 Filed Return</p>
           <p class="text-base font-black font-mono text-indigo-600 dark:text-indigo-400 mt-1">
             {{ formatCurrency(reconciliation.totalGstr1Tax) }}
           </p>
           <p class="text-[10px] text-slate-400 mt-0.5">B2B ({{ formatCurrency(reconciliation.totalGstr1Tax - reconciliation.b2csRetailTax) }}) + B2CS ({{ formatCurrency(reconciliation.b2csRetailTax) }})</p>
+        </div>
+
+        <!-- CBIC Statutory Rate Liability -->
+        <div
+          class="bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-xs border-l-4"
+          :class="cbicRateMismatchCount === 0 ? 'border-l-teal-500' : 'border-l-amber-500'"
+        >
+          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">CBIC Benchmark Tax</p>
+          <p class="text-base font-black font-mono text-slate-900 dark:text-white mt-1">
+            {{ formatCurrency(cbicExpectedTax) }}
+          </p>
+          <p class="text-[10px] font-bold mt-0.5" :class="cbicRateMismatchCount === 0 ? 'text-teal-600' : 'text-amber-600'">
+            {{ cbicRateMismatchCount === 0 ? '✓ 100% Rate Compliant' : `⚠️ ${cbicRateMismatchCount} Rate Mismatches` }}
+          </p>
         </div>
 
         <!-- Net Variance -->
@@ -35,7 +49,7 @@
           class="bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-xs border-l-4"
           :class="Math.abs(reconciliation.taxVariance) < 5 ? 'border-l-emerald-500' : 'border-l-rose-500'"
         >
-          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Tax Difference / Variance</p>
+          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Books vs Return</p>
           <p
             class="text-base font-black font-mono mt-1"
             :class="Math.abs(reconciliation.taxVariance) < 5 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
@@ -43,13 +57,13 @@
             {{ formatCurrency(reconciliation.taxVariance) }}
           </p>
           <p class="text-[10px] font-bold mt-0.5" :class="Math.abs(reconciliation.taxVariance) < 5 ? 'text-emerald-600' : 'text-rose-600'">
-            {{ Math.abs(reconciliation.taxVariance) < 5 ? '✓ Clean Statutory Match' : '⚠️ Variance detected' }}
+            {{ Math.abs(reconciliation.taxVariance) < 5 ? '✓ Clean Match' : '⚠️ Variance detected' }}
           </p>
         </div>
 
         <!-- B2B Match Rate -->
-        <div class="bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-xs border-l-4 border-l-teal-500">
-          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">B2B Invoices Matched</p>
+        <div class="bg-white dark:bg-zinc-900 p-3.5 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-xs border-l-4 border-l-purple-500">
+          <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">B2B Invoice Match</p>
           <p class="text-base font-black font-mono text-slate-900 dark:text-white mt-1">
             {{ reconciliation.b2bMatchedCount }} / {{ reconciliation.b2bInvoicesCount }}
           </p>
@@ -116,12 +130,25 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { DaybookParsedData, Gstr1Reconciliation } from '@/utils/daybook-parser';
 
-defineProps<{
+const props = defineProps<{
   data: DaybookParsedData;
   reconciliation: Gstr1Reconciliation;
 }>();
+
+const cbicExpectedTax = computed(() => {
+  if (!props.data?.hsnSummary) return props.data?.summary?.totalGstTax || 0;
+  return props.data.hsnSummary.reduce((acc, h) => {
+    const rate = (h.cbicRate !== undefined ? h.cbicRate : h.gstRate) / 100;
+    return acc + ((h.totalTaxable || 0) * rate);
+  }, 0);
+});
+
+const cbicRateMismatchCount = computed(() => {
+  return props.data?.hsnSummary?.filter(h => h.rateMismatch).length || 0;
+});
 
 function formatCurrency(amount: number = 0): string {
   return '₹' + Number(amount || 0).toLocaleString('en-IN', {
