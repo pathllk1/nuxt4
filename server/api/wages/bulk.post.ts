@@ -1,9 +1,7 @@
 import mongoose from 'mongoose';
 import Wage from '../../models/Wage';
-import WageJob from '../../models/WageJob';
 import Advance from '../../models/Advance';
 import { postWageLedger } from '../../utils/wages-ledger-helper';
-import { processWageJob } from '../../utils/wage-job-processor';
 import { requireAuthSession } from '../../utils/auth';
 import { requireWageRole } from '../../utils/wage-authz';
 
@@ -30,32 +28,8 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  if (wages.length > 5) {
-    // Bug #4: persist the wages payload on the job document itself so it
-    // survives a server restart/crash, instead of only living in memory.
-    const job = new WageJob({
-      firm_id: user.firm_id,
-      user_id: user._id,
-      salary_month: month,
-      total_wages: wages.length,
-      status: 'PENDING',
-      wages_data: wages,
-      created_by: user._id,
-      updated_by: user._id
-    });
-    await job.save();
-
-    // Async background execution — processor now reads wages_data from the job itself
-    processWageJob(job._id as any);
-
-    return {
-      success: true,
-      jobId: job._id,
-      message: 'Wage generation job started'
-    };
-  }
-
-  // Direct inline creation for small batches
+  // Process ALL wages inline — Vercel serverless functions terminate execution
+  // once the response is sent, so fire-and-forget background jobs get killed.
   const session = await mongoose.startSession();
   session.startTransaction();
 
