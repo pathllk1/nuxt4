@@ -123,7 +123,7 @@ export async function resolveBankAccount(firmId: mongoose.Types.ObjectId, bankAc
   const bankAcc = await BankAccount.findOne({
     _id: bankAccountId,
     firm_id: firmId,
-    is_active: true,
+    status: { $ne: 'INACTIVE' },
   }).session(session).lean();
 
   if (!bankAcc) {
@@ -196,6 +196,24 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
       narration: `Wages for ${wage.salary_month} - ${empName}`,
       isWageEntry: true,
     });
+
+    if ((wage.other_benefit || 0) > 0) {
+      const benefitAccount = await resolveAccountHead(firmId, 'Staff Benefits', 'EXPENSE', userId, session);
+      entries.push({
+        firmId: firmId,
+        accountHead: benefitAccount.account_name,
+        accountType: benefitAccount.account_type,
+        debitAmount: wage.other_benefit,
+        creditAmount: 0,
+        refType: 'WAGE',
+        refId: wage._id,
+        masterRollId: wage.master_roll_id,
+        voucherGroupId: voucherId,
+        transactionDate: transactionDate,
+        narration: `Other Benefits for ${empName} - ${wage.salary_month}`,
+        isWageEntry: true,
+      });
+    }
 
     let bankAccount;
     if (wage.paid_date && wage.bank_account_id) {
