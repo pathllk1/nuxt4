@@ -82,6 +82,10 @@ const loadReport = async () => {
     }
     if (chequesRes && chequesRes.success) {
       serverChequeNos.value = chequesRes.data || []
+      // Auto-select first available cheque number if none currently selected
+      if (serverChequeNos.value.length > 0 && (chequeNoFilter.value === 'all' || !serverChequeNos.value.includes(chequeNoFilter.value))) {
+        chequeNoFilter.value = serverChequeNos.value[0]
+      }
     }
   } catch (err: any) {
     toast.add({ title: 'Error loading report', description: err.message, color: 'error' })
@@ -93,11 +97,21 @@ const formatCurrency = (val: number) => {
 }
 
 const onDownloadWagesExcel = () => exportWages(month.value, filteredWages.value)
-const onDownloadBankReport = () => downloadBankReport(
-  month.value, 
-  chequeNoFilter.value !== 'all' ? chequeNoFilter.value : undefined,
-  paymentModeFilter.value !== 'all' ? paymentModeFilter.value : undefined
-)
+const onDownloadBankReport = () => {
+  if (!chequeNoFilter.value || chequeNoFilter.value === 'all') {
+    toast.add({
+      title: 'Cheque / Ref No Required',
+      description: 'Please select a specific Cheque / Ref No to generate the Bank Payout Report.',
+      color: 'warning'
+    })
+    return
+  }
+  downloadBankReport(
+    month.value, 
+    chequeNoFilter.value,
+    paymentModeFilter.value !== 'all' ? paymentModeFilter.value : undefined
+  )
+}
 const onDownloadEPFESICReport = () => downloadEPFESICReport(month.value)
 const onDownloadAllSlips = () => downloadBulkWageSlips(month.value)
 const onDownloadSlip = (wage: any) => downloadWageSlip(wage._id, wage.master_roll_id?.employee_name || 'Employee')

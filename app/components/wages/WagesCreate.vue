@@ -385,7 +385,15 @@ const onExportExcel = async () => {
 
 const onExportBank = () => {
   if (!month.value) return
-  downloadBankReport(month.value)
+  if (!commonPaymentData.value.cheque_no) {
+    toast.add({
+      title: 'Cheque / Ref No Required',
+      description: 'Please specify a Cheque / Ref No in payment details to export the Bank Report.',
+      color: 'warning'
+    })
+    return
+  }
+  downloadBankReport(month.value, commonPaymentData.value.cheque_no, commonPaymentData.value.payment_mode || undefined)
 }
 
 const onExportEPF = () => {

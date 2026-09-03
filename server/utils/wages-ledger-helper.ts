@@ -130,7 +130,8 @@ export async function resolveBankAccount(firmId: mongoose.Types.ObjectId, bankAc
     throw new Error(`Bank account not found or inactive: ${bankAccountId}`);
   }
 
-  const accountName = `${bankAcc.bank_name} - ${bankAcc.account_number.slice(-4)}`;
+  // Use the exact account_name from the centralized BankAccount model to prevent duplicate COA creation
+  const accountName = bankAcc.account_name;
   return await resolveAccountHead(firmId, accountName, 'BANK', userId, session);
 }
 

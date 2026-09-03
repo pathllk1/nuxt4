@@ -20,10 +20,20 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const filter: any = { firm_id: user.firm_id, salary_month: month };
-  if (chequeNo && chequeNo !== 'all') {
-    filter.cheque_no = chequeNo;
+  if (!chequeNo || chequeNo.trim() === '' || chequeNo.trim().toLowerCase() === 'all') {
+    throw createError({
+      statusCode: 400,
+      message: 'Cheque / Ref No is required to generate the Bank Payout Report'
+    });
   }
+
+  const cleanChequeNo = chequeNo.trim();
+  const filter: any = { 
+    firm_id: user.firm_id, 
+    salary_month: month,
+    cheque_no: cleanChequeNo
+  };
+
   if (paymentMode && paymentMode !== 'all') {
     filter.payment_mode = paymentMode;
   } else {
@@ -37,6 +47,13 @@ export default defineEventHandler(async (event) => {
     .sort({ 'master_roll_id.employee_name': 1 })
     .lean();
 
+  if (wages.length === 0) {
+    throw createError({
+      statusCode: 404,
+      message: `No wage records found for Cheque / Ref No "${cleanChequeNo}" in ${month}`
+    });
+  }
+
   const defaultBankAccount = await BankAccount.findOne({
     firm_id: user.firm_id,
     is_default: true,
@@ -49,9 +66,7 @@ export default defineEventHandler(async (event) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Bank Report');
 
-  const resolvedChequeNo = (chequeNo && chequeNo !== 'all') 
-    ? chequeNo 
-    : (wages.find((w: any) => w.cheque_no)?.cheque_no || '');
+  const resolvedChequeNo = cleanChequeNo;
 
   const firstPaidDate = wages.find((w: any) => w.paid_date)?.paid_date;
 
