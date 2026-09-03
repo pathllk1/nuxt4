@@ -93,7 +93,11 @@ const formatCurrency = (val: number) => {
 }
 
 const onDownloadWagesExcel = () => exportWages(month.value, filteredWages.value)
-const onDownloadBankReport = () => downloadBankReport(month.value, chequeNoFilter.value !== 'all' ? chequeNoFilter.value : undefined)
+const onDownloadBankReport = () => downloadBankReport(
+  month.value, 
+  chequeNoFilter.value !== 'all' ? chequeNoFilter.value : undefined,
+  paymentModeFilter.value !== 'all' ? paymentModeFilter.value : undefined
+)
 const onDownloadEPFESICReport = () => downloadEPFESICReport(month.value)
 const onDownloadAllSlips = () => downloadBulkWageSlips(month.value)
 const onDownloadSlip = (wage: any) => downloadWageSlip(wage._id, wage.master_roll_id?.employee_name || 'Employee')

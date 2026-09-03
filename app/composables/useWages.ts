@@ -75,9 +75,10 @@ export const useWages = () => {
     downloadBlob(blob, `Wages_${month}.xlsx`)
   }
 
-  const downloadBankReport = async (month: string, chequeNo?: string) => {
+  const downloadBankReport = async (month: string, chequeNo?: string, paymentMode?: string) => {
     let path = `/wages/bank-report?month=${month}`
     if (chequeNo && chequeNo !== 'all') path += `&chequeNo=${encodeURIComponent(chequeNo)}`
+    if (paymentMode && paymentMode !== 'all') path += `&paymentMode=${encodeURIComponent(paymentMode)}`
     const blob = await apiFetch<Blob>(buildUrl(path), { responseType: 'blob' })
     downloadBlob(blob, `Bank_Report_${month}.xlsx`)
   }
