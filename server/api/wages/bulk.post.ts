@@ -102,9 +102,10 @@ export default defineEventHandler(async (event) => {
     if (/validation failed|cannot exceed gross salary/i.test(err.message || '')) {
       throw createError({ statusCode: 400, message: err.message });
     }
+    console.error('❌ [wages/bulk] Unhandled error:', err.message, err.stack);
     throw createError({
       statusCode: 500,
-      message: 'Failed to create wages. Please try again or contact support.'
+      message: `Failed to create wages: ${err.message}`
     });
   } finally {
     session.endSession();
