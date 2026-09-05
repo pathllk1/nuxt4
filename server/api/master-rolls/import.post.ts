@@ -1,37 +1,9 @@
 import MasterRoll from '../../models/MasterRoll';
 import { requireAuthSession } from '../../utils/auth';
-
-// Bug #8: allowlist for imported employee records — prevents a client from
-// spreading arbitrary fields (e.g. firm_id, _id, created_by) into the model.
-const IMPORTABLE_FIELDS = [
-  'employee_name',
-  'aadhar',
-  'bank',
-  'account_no',
-  'ifsc',
-  'branch',
-  'category',
-  'project',
-  'site',
-  'p_day_wage',
-  'date_of_joining',
-  'date_of_exit',
-  'status',
-] as const;
-
-function pickAllowlisted(emp: Record<string, any>) {
-  const clean: Record<string, any> = {};
-  for (const field of IMPORTABLE_FIELDS) {
-    if (emp[field] !== undefined) {
-      clean[field] = emp[field];
-    }
-  }
-  return clean;
-}
+import { pickMasterRollFields } from '../../utils/master-roll-fields';
 
 export default defineEventHandler(async (event) => {
   try {
-    // Bug #8: use the verified session instead of trusting the x-firm-id header
     const user = await requireAuthSession(event);
 
     const body = await readBody(event);
@@ -48,7 +20,7 @@ export default defineEventHandler(async (event) => {
     for (const emp of employees) {
       try {
         await MasterRoll.create({
-          ...pickAllowlisted(emp),
+          ...pickMasterRollFields(emp),
           firm_id: user.firm_id,
           created_by: user._id,
           updated_by: user._id

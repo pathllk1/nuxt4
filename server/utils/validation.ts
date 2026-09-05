@@ -25,19 +25,29 @@ export const signupSchema = z.object({
 /** Master Roll schemas */
 export const masterRollSchema = z.object({
   employee_name: z.string().min(1).max(200).trim(),
+  father_husband_name: z.string().min(1).max(200).trim().optional(),
+  date_of_birth: z.string().max(20).optional(),
   aadhar: z.string().min(12).max(12).regex(/^\d{12}$/, 'Aadhar must be 12 digits'),
+  pan: z.string().max(20).optional(),
   phone_no: z.string().max(20).optional(),
+  address: z.string().max(500).optional(),
   bank: z.string().max(100).optional(),
   account_no: z.string().max(30).optional(),
   ifsc: z.string().max(15).optional(),
   branch: z.string().max(100).optional(),
+  uan: z.string().max(30).optional(),
+  esic_no: z.string().max(30).optional(),
+  s_kalyan_no: z.string().max(50).optional(),
   category: z.string().max(50).optional(),
   project: z.string().max(100).optional(),
   site: z.string().max(100).optional(),
   p_day_wage: z.number().min(0).max(999999).optional(),
   date_of_joining: z.string().max(20).optional(),
   date_of_exit: z.string().max(20).optional(),
-  status: z.enum(['Active', 'Inactive', 'Terminated']).optional()
+  doe_rem: z.string().max(500).optional(),
+  resignation_notice_period: z.number().min(0).max(365).optional(),
+  card_valid_until: z.string().max(20).optional(),
+  status: z.enum(['Active', 'Inactive', 'Left', 'Terminated']).optional()
 });
 
 /** Document schemas */
