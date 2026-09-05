@@ -759,7 +759,12 @@ const headerActions = [
             :ui="{ content: 'w-full sm:max-w-7xl h-full sm:h-auto' }">
       <template #body>
         <div class="max-h-full sm:max-h-[85vh] overflow-y-auto custom-scrollbar px-2 py-4">
-          <MasterRollForm :employee="selectedEmployee" @success="fetchData" @close="isOpen = false" />
+          <MasterRollForm 
+            :employee="selectedEmployee" 
+            :unique-options="uniqueOptions"
+            @success="() => { fetchData(); fetchOptions(); }" 
+            @close="isOpen = false" 
+          />
         </div>
       </template>
     </UModal>
