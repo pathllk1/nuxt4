@@ -172,6 +172,27 @@ export default defineEventHandler(async (event) => {
     totalRow.getCell(3).numFmt = '#,##0.00';
   }
 
+  // Apply clean thin cell borders to all cells
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  r1.getCell(1).border = thinBorder;
+  r1.getCell(2).border = thinBorder;
+  r2.getCell(1).border = thinBorder;
+  r2.getCell(2).border = thinBorder;
+
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber >= 3) {
+      for (let c = 1; c <= 10; c++) {
+        row.getCell(c).border = thinBorder;
+      }
+    }
+  });
+
   const buffer = await workbook.xlsx.writeBuffer();
   setResponseHeaders(event, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
