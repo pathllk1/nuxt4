@@ -79,6 +79,12 @@ const errors = reactive<Record<string, string>>({})
 const loading = ref(false)
 const loadingUnique = ref(false)
 
+// IFSC Auto-Lookup State
+const ifscLookupState = ref<{
+  status: 'idle' | 'loading' | 'success' | 'error'
+  message?: string
+}>({ status: 'idle' })
+
 const uniqueProjects = ref<string[]>([])
 const uniqueSites = ref<string[]>([])
 const uniqueCategories = ref<string[]>([])
@@ -232,10 +238,6 @@ const onUanInput = (e: any) => {
 }
 
 // IFSC Auto-Lookup
-const ifscLookupState = ref<{
-  status: 'idle' | 'loading' | 'success' | 'error'
-  message?: string
-}>({ status: 'idle' })
 
 watch(() => form.ifsc, async (newVal) => {
   if (!newVal) {
