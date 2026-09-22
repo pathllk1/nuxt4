@@ -41,7 +41,7 @@
         <div class="bg-white dark:bg-zinc-800 p-4 rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-sm relative overflow-hidden">
           <div class="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Step 3</div>
           <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase">Statutory Deductions</h3>
-          <p class="text-[11px] text-slate-500 dark:text-zinc-400 mt-1 leading-snug">EPF (12% max ₹1,800) & ESIC (0.75% rounded up) auto-compute according to Indian Labor laws.</p>
+          <p class="text-[11px] text-slate-500 dark:text-zinc-400 mt-1 leading-snug">EPF (12% max ₹3,000 w.e.f. Sep 2026, ₹1,800 prior) & ESIC (0.75% rounded up) auto-compute according to Indian Labor laws.</p>
         </div>
 
         <!-- Step 4 -->
@@ -88,8 +88,8 @@
             </tr>
             <tr class="hover:bg-slate-50 dark:hover:bg-zinc-750 bg-emerald-50/20 dark:bg-emerald-950/20">
               <td class="px-4 py-3 font-bold text-emerald-600 dark:text-emerald-400">EPF Employee Contribution</td>
-              <td class="px-4 py-3 font-mono text-[11px]">min(round(Gross × 12%), 1800)</td>
-              <td class="px-4 py-3 font-bold text-emerald-600">Maximum ₹1,800 per month</td>
+              <td class="px-4 py-3 font-mono text-[11px]">min(round(Gross × 12%), Cap)</td>
+              <td class="px-4 py-3 font-bold text-emerald-600">Max ₹3,000 (Sep 2026+), ₹1,800 prior</td>
               <td class="px-4 py-3 font-bold text-emerald-600">12% of ₹13,000 = ₹1,560.00</td>
             </tr>
             <tr class="hover:bg-slate-50 dark:hover:bg-zinc-750 bg-emerald-50/20 dark:bg-emerald-950/20">

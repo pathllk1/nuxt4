@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useWages } from '~/composables/useWages'
 import { wagePersistence } from '~/utils/wagePersistence'
 import { calculateWBProfessionalTax } from '~/utils/taxCalculations'
+import { computeEpfDeduction, computeEsicDeduction } from '~~/shared/utils/statutory-rates'
 
 const { loading, fetchEligibleEmployees, createWagesBulk, fetchBankAccounts, downloadBankReport, downloadEPFESICReport, exportWages } = useWages()
 const toast = useToast()
@@ -173,7 +174,7 @@ const loadEmployees = async () => {
             advance_deduction: 0,
             net_salary: 0
           }
-          calculateEmployeeWages(empId, reconciledData[empId])
+          calculateEmployeeWages(empId, reconciledData[empId], serverEmp)
         }
 
         if (selectedEmployeeIds.value.has(empId)) {
@@ -199,18 +200,22 @@ const loadEmployees = async () => {
   }
 }
 
-const calculateEmployeeWages = (empId: string, data?: any) => {
+const calculateEmployeeWages = (empId: string, data?: any, empRecord?: any) => {
   const wage = data || wageData.value[empId]
   if (!wage) return
 
   const gross = parseFloat((wage.p_day_wage * wage.wage_days).toFixed(2))
   wage.gross_salary = gross
   
-  // EPF: 12% of gross, max 1800
-  wage.epf_deduction = Math.min(Math.round(gross * 0.12), 1800)
+  // Date-aware statutory deduction calculation
+  const emp = empRecord || employees.value.find((e: any) => String(e.master_roll_id) === String(empId))
+  const dateOfExit = emp?.date_of_exit || null
+
+  // EPF: Date-aware ceiling (₹15,000 / max ₹1,800 pre-17-Sep-2026; ₹25,000 / max ₹3,000 from 17-Sep-2026)
+  wage.epf_deduction = computeEpfDeduction(gross, month.value, dateOfExit)
   
   // ESIC: 0.75% of gross, rounded up
-  wage.esic_deduction = Math.ceil(gross * 0.0075)
+  wage.esic_deduction = computeEsicDeduction(gross, month.value, dateOfExit)
   
   // Professional Tax (West Bengal Slab) -> mapped to other_deduction when toggle is enabled
   if (calculatePT.value) {

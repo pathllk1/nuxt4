@@ -3,6 +3,7 @@ import Wage from '../../models/Wage';
 import MasterRoll from '../../models/MasterRoll';
 import { requireAuthSession } from '../../utils/auth';
 import { requireWageRole } from '../../utils/wage-authz';
+import { computeEmployerEsic } from '~~/shared/utils/statutory-rates';
 
 function formatDate(date: any) {
   if (!date) return '';
@@ -87,7 +88,7 @@ export default defineEventHandler(async (event) => {
     const exitDisplay = (mr?.date_of_exit && mr.date_of_exit.startsWith(prevMonth)) ? mr.date_of_exit : '';
 
     const employerEpf = epf;
-    const employerEsic = Math.ceil(gross * 0.0325);
+    const employerEsic = computeEmployerEsic(gross, wage.salary_month || month, mr?.date_of_exit);
     const totalEmployer = employerEpf + employerEsic;
     const grandTotal = (epf + esic) + totalEmployer;
 

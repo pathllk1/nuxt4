@@ -4,6 +4,7 @@ import { useAuth } from '~/composables/useAuth'
 import { useWages } from '~/composables/useWages'
 import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, ArcElement, DoughnutController } from 'chart.js'
 import WagesSummaryModal from '~/components/master-roll/WagesSummaryModal.vue'
+import { computeEmployerEsic } from '~~/shared/utils/statutory-rates'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, ArcElement, DoughnutController)
 
@@ -107,14 +108,14 @@ const totalDeductions = computed(() =>
 const employerStatutory = computed(() => {
   const w = currentMonthWages.value
   const erEpf = w.reduce((s, x) => s + (x.epf_deduction || 0), 0)
-  const erEsic = w.reduce((s, x) => s + Math.ceil((x.gross_salary || 0) * 0.0325), 0)
+  const erEsic = w.reduce((s, x) => s + computeEmployerEsic(x.gross_salary || 0, x.salary_month || month.value), 0)
   return erEpf + erEsic
 })
 
 const prevEmployerStatutory = computed(() => {
   const w = previousMonthWages.value
   const erEpf = w.reduce((s, x) => s + (x.epf_deduction || 0), 0)
-  const erEsic = w.reduce((s, x) => s + Math.ceil((x.gross_salary || 0) * 0.0325), 0)
+  const erEsic = w.reduce((s, x) => s + computeEmployerEsic(x.gross_salary || 0, x.salary_month || getPrevMonth(month.value)), 0)
   return erEpf + erEsic
 })
 

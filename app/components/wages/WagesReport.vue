@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useWages } from '~/composables/useWages'
+import { computeEmployerEsic } from '~~/shared/utils/statutory-rates'
 
 const { 
   loading, 
@@ -63,7 +64,7 @@ const totals = computed(() => {
     t.epf_e += w.epf_deduction || 0
     t.esic_e += w.esic_deduction || 0
     t.epf_er += w.epf_deduction || 0
-    t.esic_er += Math.ceil((w.gross_salary || 0) * 0.0325)
+    t.esic_er += computeEmployerEsic(w.gross_salary || 0, w.salary_month || month.value)
     t.adv += w.advance_deduction || 0
     t.net += w.net_salary || 0
   })
@@ -84,7 +85,7 @@ const loadReport = async () => {
       serverChequeNos.value = chequesRes.data || []
       // Auto-select first available cheque number if none currently selected
       if (serverChequeNos.value.length > 0 && (chequeNoFilter.value === 'all' || !serverChequeNos.value.includes(chequeNoFilter.value))) {
-        chequeNoFilter.value = serverChequeNos.value[0]
+        chequeNoFilter.value = serverChequeNos.value[0] ?? 'all'
       }
     }
   } catch (err: any) {
