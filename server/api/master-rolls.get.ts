@@ -16,6 +16,32 @@ export default defineEventHandler(async (event) => {
     if (query.category) filter.category = query.category;
     if (query.bank) filter.bank = query.bank;
 
+    const dojStart = typeof query.doj_start === 'string' && query.doj_start.trim() ? query.doj_start.trim() : null;
+    const dojEnd = typeof query.doj_end === 'string' && query.doj_end.trim() ? query.doj_end.trim() : null;
+
+    if (dojStart || dojEnd) {
+      const dojConditions: any[] = [];
+
+      // 1. String-based ISO comparison (covers 'YYYY-MM-DD', 'YYYY-MM-DDTHH:mm:ss.sssZ', etc.)
+      const strCond: Record<string, any> = {};
+      if (dojStart) strCond.$gte = dojStart;
+      if (dojEnd) strCond.$lte = `${dojEnd}\uffff`;
+      dojConditions.push(strCond);
+
+      // 2. BSON Date comparison in case date_of_joining was stored as Date
+      const dateCond: Record<string, any> = {};
+      if (dojStart) dateCond.$gte = new Date(`${dojStart}T00:00:00.000Z`);
+      if (dojEnd) dateCond.$lte = new Date(`${dojEnd}T23:59:59.999Z`);
+      dojConditions.push(dateCond);
+
+      const dojOr = dojConditions.map((c) => ({ date_of_joining: c }));
+      if (filter.$and) {
+        filter.$and.push({ $or: dojOr });
+      } else {
+        filter.$and = [{ $or: dojOr }];
+      }
+    }
+
     if (query.search) {
       const escapedSearch = String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const searchRegex = new RegExp(escapedSearch, 'i');
@@ -27,18 +53,19 @@ export default defineEventHandler(async (event) => {
     }
 
     const page = parseInt(query.page as string || '1', 10);
-    const limit = parseInt(query.limit as string || '50', 10);
-    const skip = (page - 1) * limit;
+    const limit = query.limit !== undefined ? parseInt(query.limit as string, 10) : 5000;
+    const skip = limit > 0 ? (page - 1) * limit : 0;
 
-    const sortField = query.sort || 'employee_name';
-    const sortOrder = query.order === 'desc' ? -1 : 1;
+    const sortField = (query.sortBy || query.sort || 'employee_name') as string;
+    const sortOrder = (query.sortOrder || query.order) === 'desc' ? -1 : 1;
+
+    const queryBuilder = MasterRoll.find(filter).sort({ [sortField]: sortOrder });
+    if (limit > 0) {
+      queryBuilder.skip(skip).limit(limit);
+    }
 
     const [employees, total] = await Promise.all([
-      MasterRoll.find(filter)
-        .sort({ [sortField as string]: sortOrder })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      queryBuilder.lean(),
       MasterRoll.countDocuments(filter)
     ]);
 

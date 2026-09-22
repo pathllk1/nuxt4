@@ -48,19 +48,56 @@ const filters = reactive({
   sortOrder: ''
 })
 
-const filteredEmployees = computed(() => {
-  const query = (filters.q || '').trim().toLowerCase()
-  if (!query) return employees.value
+const normalizeDate = (val: any): string | null => {
+  if (!val) return null
+  const s = String(val).trim()
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  const ddmmyyyy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/)
+  if (ddmmyyyy) {
+    const [, d, m, y] = ddmmyyyy
+    if (d && m && y) {
+      const day = d.padStart(2, '0')
+      const month = m.padStart(2, '0')
+      return `${y}-${month}-${day}`
+    }
+  }
+  const d = new Date(s)
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  return null
+}
 
-  return employees.value.filter(emp => {
-    return (
-      (emp.employee_name && emp.employee_name.toLowerCase().includes(query)) ||
-      (emp.aadhar && emp.aadhar.toLowerCase().includes(query)) ||
-      (emp.phone_no && emp.phone_no.toLowerCase().includes(query)) ||
-      (emp.project && emp.project.toLowerCase().includes(query)) ||
-      (emp.site && emp.site.toLowerCase().includes(query))
-    )
-  })
+const filteredEmployees = computed(() => {
+  let list = employees.value || []
+
+  const query = (filters.q || '').trim().toLowerCase()
+  if (query) {
+    list = list.filter(emp => {
+      return (
+        (emp.employee_name && emp.employee_name.toLowerCase().includes(query)) ||
+        (emp.aadhar && emp.aadhar.toLowerCase().includes(query)) ||
+        (emp.phone_no && emp.phone_no.toLowerCase().includes(query)) ||
+        (emp.project && emp.project.toLowerCase().includes(query)) ||
+        (emp.site && emp.site.toLowerCase().includes(query))
+      )
+    })
+  }
+
+  if (filters.doj_start) {
+    list = list.filter(emp => {
+      const doj = normalizeDate(emp.date_of_joining)
+      return doj ? doj >= filters.doj_start : false
+    })
+  }
+
+  if (filters.doj_end) {
+    list = list.filter(emp => {
+      const doj = normalizeDate(emp.date_of_joining)
+      return doj ? doj <= filters.doj_end : false
+    })
+  }
+
+  return list
 })
 
 const paginatedEmployees = computed(() => {
@@ -83,7 +120,7 @@ watch(employees, () => {
   currentPage.value = 1
 })
 
-watch(() => filters.q, () => {
+watch([() => filters.q, () => filters.doj_start, () => filters.doj_end], () => {
   currentPage.value = 1
 })
 
@@ -439,7 +476,7 @@ const headerActions = [
             <UButton color="neutral" variant="ghost" size="sm" icon="i-heroicons-shield-check" @click="isQualityModalOpen = true" />
           </UTooltip>
           <UTooltip text="Export Excel">
-            <UButton color="neutral" variant="ghost" size="sm" icon="i-heroicons-table-cells" @click="() => exportExcel()" />
+            <UButton color="neutral" variant="ghost" size="sm" icon="i-heroicons-table-cells" @click="() => exportExcel(undefined, filters)" />
           </UTooltip>
           <UTooltip text="I-Cards">
             <UButton color="neutral" variant="ghost" size="sm" icon="i-heroicons-identification" @click="isICardModalOpen = true" />

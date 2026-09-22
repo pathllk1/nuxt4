@@ -133,12 +133,19 @@ export const useMasterRoll = () => {
     URL.revokeObjectURL(url)
   }
 
-  const exportExcel = async (selectedIds?: string[]) => {
-    let path = '/master-rolls/export?format=xlsx'
+  const exportExcel = async (selectedIds?: string[], params: any = {}) => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('format', 'xlsx')
     if (selectedIds && selectedIds.length > 0) {
-      path += `&selectedIds=${selectedIds.join(',')}`
+      searchParams.append('selectedIds', selectedIds.join(','))
+    } else if (params && typeof params === 'object') {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && key !== 'format') {
+          searchParams.append(key, String(value))
+        }
+      })
     }
-    const blob = await apiFetch<Blob>(buildUrl(path), { responseType: 'blob' })
+    const blob = await apiFetch<Blob>(buildUrl(`/master-rolls/export?${searchParams.toString()}`), { responseType: 'blob' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
