@@ -219,7 +219,7 @@ const calculateEmployeeWages = (empId: string, data?: any, empRecord?: any) => {
   
   // Professional Tax (West Bengal Slab) -> mapped to other_deduction when toggle is enabled
   if (calculatePT.value) {
-    wage.other_deduction = calculateWBProfessionalTax(gross)
+    wage.other_deduction = calculateWBProfessionalTax(gross, month.value)
   }
 
   updateNetSalary(empId, data)

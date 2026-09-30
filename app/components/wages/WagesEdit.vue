@@ -82,7 +82,7 @@ const calculateWageNet = (wageId: string) => {
   const gross = item.gross_salary || 0
   
   if (calculatePT.value) {
-    item.other_deduction = calculateWBProfessionalTax(gross)
+    item.other_deduction = calculateWBProfessionalTax(gross, month.value)
   }
 
   const epf = item.epf_deduction || 0
