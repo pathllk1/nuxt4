@@ -48,6 +48,7 @@ export interface AccountingCartItem {
   id: string;
   ledgerAccountId: string;
   ledgerAccountHead: string;
+  ledgerAccountType?: string;
   sacCode: string;
   description: string;
   amount: number;
@@ -96,6 +97,7 @@ export function useAccountingInvoiceState(invoiceType: 'SALES' | 'PURCHASE') {
       id: `acct-item-${_nextId++}`,
       ledgerAccountId: '',
       ledgerAccountHead: '',
+      ledgerAccountType: '',
       sacCode: '',
       description: '',
       amount: 0,
@@ -109,6 +111,7 @@ export function useAccountingInvoiceState(invoiceType: 'SALES' | 'PURCHASE') {
     if (account) {
       item.ledgerAccountId = account._id;
       item.ledgerAccountHead = account.account_name;
+      item.ledgerAccountType = account.account_type || '';
       item.sacCode = account.hsn_sac || '';
       item.description = account.description || account.account_name || '';
       item.gstRate = account.gst_rate !== undefined && account.gst_rate !== null ? account.gst_rate : 18;

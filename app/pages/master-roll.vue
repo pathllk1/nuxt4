@@ -152,12 +152,10 @@ const siteOptions = computed(() => ['All Sites', ...uniqueOptions.value.sites])
 const categoryOptions = computed(() => ['All Categories', ...uniqueOptions.value.categories])
 const bankOptions = computed(() => ['All Banks', ...uniqueOptions.value.banks])
 
+const FILTER_RESET_VALUES = new Set(['All Status', 'All Projects', 'All Sites', 'All Categories', 'All Banks'])
+
 const handleFilterUpdate = (key: string, value: string) => {
-  if (value.startsWith('All ')) {
-    (filters as any)[key] = ''
-  } else {
-    (filters as any)[key] = value
-  }
+  (filters as any)[key] = FILTER_RESET_VALUES.has(value) ? '' : value
 }
 
 watch(sorting, (newVal) => {
@@ -172,17 +170,15 @@ watch(sorting, (newVal) => {
 
 watch(
   [
-    () => [
-      filters.status,
-      filters.project,
-      filters.site,
-      filters.category,
-      filters.bank,
-      filters.doj_start,
-      filters.doj_end,
-      filters.sortBy,
-      filters.sortOrder
-    ],
+    () => filters.status,
+    () => filters.project,
+    () => filters.site,
+    () => filters.category,
+    () => filters.bank,
+    () => filters.doj_start,
+    () => filters.doj_end,
+    () => filters.sortBy,
+    () => filters.sortOrder,
     selectedFirmId
   ],
   () => {
@@ -191,6 +187,7 @@ watch(
 )
 
 const fetchData = async () => {
+  currentPage.value = 1
   const apiParams = {
     status: filters.status,
     project: filters.project,
@@ -467,7 +464,7 @@ const headerActions = [
       <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
         <div class="flex flex-wrap items-center gap-3">
           <UInput v-model="filters.q" size="sm" icon="i-heroicons-magnifying-glass" placeholder="Search..." class="flex-1 lg:flex-none lg:w-64 bg-white" variant="outline" />
-          <USelect v-model="filters.status" size="sm" :items="['Active', 'Inactive', 'Left']" placeholder="All Status" class="w-full sm:w-32 bg-white" />
+          <USelect :model-value="filters.status || 'All Status'" @update:model-value="(val: any) => handleFilterUpdate('status', val)" size="sm" :items="statusOptions" placeholder="All Status" class="w-full sm:w-32 bg-white" />
           <div v-if="selectedRows.length > 0" class="hidden sm:block h-6 w-px bg-slate-200 mx-1" />
           <UButton v-if="selectedRows.length > 0" color="primary" variant="soft" size="sm" icon="i-heroicons-arrow-up-tray" :label="`Export Selected (${selectedRows.length})`" @click="onExportSelected" />
         </div>
@@ -598,6 +595,7 @@ const headerActions = [
             :columns="columns" 
             :loading="loading" 
             v-model:sorting="sorting"
+            :manual-sorting="true"
             class="w-full text-xs sticky-header-enterprise"
             :ui="{ 
               td: 'py-2.5 px-4 text-slate-800 border-b border-slate-100',

@@ -45,11 +45,13 @@ export default defineEventHandler(async (event) => {
     if (query.search) {
       const escapedSearch = String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const searchRegex = new RegExp(escapedSearch, 'i');
-      filter.$or = [
+      const searchOr = [
         { employee_name: searchRegex },
         { aadhar: searchRegex },
         { phone_no: searchRegex }
       ];
+      if (!filter.$and) filter.$and = [];
+      filter.$and.push({ $or: searchOr });
     }
 
     const page = parseInt(query.page as string || '1', 10);
@@ -76,7 +78,7 @@ export default defineEventHandler(async (event) => {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit)
+        totalPages: limit > 0 ? Math.ceil(total / limit) : 1
       }
     };
   } catch (error: any) {
