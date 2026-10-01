@@ -40,6 +40,8 @@ export class SmartVoucherConverter {
       return this.handleReceipt(docs, base, mainAccount, entries);
     } else if (vtype === 'JOURNAL') {
       return this.handleJournal(docs, base, entries);
+    } else if (vtype === 'CONTRA') {
+      return this.handleContra(docs, base, mainAccount, entries);
     }
 
     return docs;
@@ -187,6 +189,49 @@ export class SmartVoucherConverter {
         accountType: entry.accountType || 'GENERAL',
         debitAmount: dr,
         creditAmount: cr
+      });
+    }
+
+    return docs;
+  }
+
+  /**
+   * Contra Voucher — Cash ↔ Bank or Bank ↔ Bank transfer
+   * - Dr Destination Account (where money goes)
+   * - Cr Source Account (where money comes from)
+   * mainAccount = Source (e.g., Cash in Hand / Source Bank)
+   * entries = Destination accounts with amounts
+   */
+  private static handleContra(
+    docs: LedgerEntryParams[],
+    base: any,
+    mainAccount: string,
+    entries: VoucherLineInput[]
+  ): LedgerEntryParams[] {
+    let totalTransfer = 0;
+
+    for (const entry of entries) {
+      const amt = Number(entry.amount) || Number(entry.debitAmount) || 0;
+      if (amt === 0) continue;
+
+      totalTransfer += amt;
+      docs.push({
+        ...base,
+        accountHead: entry.accountHead,
+        accountType: entry.accountType || 'BANK',
+        debitAmount: amt > 0 ? amt : 0,
+        creditAmount: amt < 0 ? Math.abs(amt) : 0
+      });
+    }
+
+    if (totalTransfer !== 0) {
+      // Offset against Source Account (mainAccount)
+      docs.push({
+        ...base,
+        accountHead: mainAccount,
+        accountType: 'BANK',
+        debitAmount: totalTransfer < 0 ? Math.abs(totalTransfer) : 0,
+        creditAmount: totalTransfer > 0 ? totalTransfer : 0
       });
     }
 

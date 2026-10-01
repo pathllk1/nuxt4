@@ -38,7 +38,13 @@
       </header>
 
       <!-- Scrollable Form Body -->
-      <div class="overflow-y-auto p-5 flex-1 custom-scrollbar space-y-4">
+      <div class="overflow-y-auto p-5 flex-1 custom-scrollbar space-y-4 relative min-h-[300px]">
+        <!-- Loading State Overlay when account is being fetched remotely -->
+        <div v-if="isLoadingAccount" class="absolute inset-0 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-3">
+          <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 text-emerald-600 animate-spin" />
+          <span class="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-200">Loading Account Details...</span>
+        </div>
+
         <form @submit.prevent="saveMasterRecord" id="master-party-form" class="space-y-4">
           
           <!-- Classification Selector (Adaptive Switch) -->
@@ -493,6 +499,7 @@ function nextUid() {
 
 const modalContainerRef = ref<HTMLElement | null>(null);
 const isSaving = ref(false);
+const isLoadingAccount = ref(false);
 const fetchingGstIndices = ref<Set<number>>(new Set());
 const isFetchingIfsc = ref(false);
 const ifscVerified = ref(false);
@@ -612,21 +619,38 @@ function resetForm() {
   ifscVerified.value = false;
 }
 
+async function syncFromProps() {
+  resetForm(); // ALWAYS wipe stale state immediately so no previous row's data is shown!
+  if (props.initialData) {
+    hydrateInitialData(props.initialData);
+  } else if (props.accountId) {
+    isLoadingAccount.value = true;
+    try {
+      await loadAccount(props.accountId);
+    } finally {
+      isLoadingAccount.value = false;
+    }
+  } else {
+    resetForm();
+  }
+}
+
 watch(() => props.modelValue, async (isOpen) => {
   if (isOpen) {
     window.addEventListener('keydown', handleGlobalModalKeydown);
-    if (props.initialData) {
-      hydrateInitialData(props.initialData);
-    } else if (props.accountId) {
-      await loadAccount(props.accountId);
-    } else {
-      resetForm();
-    }
+    await syncFromProps();
     nextTick(() => {
       focusFirstInput();
     });
   } else {
     window.removeEventListener('keydown', handleGlobalModalKeydown);
+    resetForm();
+  }
+});
+
+watch([() => props.accountId, () => props.initialData], async () => {
+  if (props.modelValue) {
+    await syncFromProps();
   }
 });
 
@@ -770,6 +794,7 @@ function focusFirstInput() {
 
 function closeModal() {
   emit('update:modelValue', false);
+  resetForm();
 }
 
 function addGstLocation() {

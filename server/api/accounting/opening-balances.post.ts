@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
-import OpeningBalance from '../../models/OpeningBalance';
-import Ledger from '../../models/Ledger';
+import { OpeningBalanceService } from '../../utils/accounting/opening-balance.service';
 import { getCurrentFinancialYear } from '../../utils/accounting/bill-utils';
 import { requireAuthSession } from '../../utils/auth';
 
@@ -17,39 +16,18 @@ export default defineEventHandler(async (event) => {
   const debitAmount = parseFloat(body.debitAmount) || 0;
   const creditAmount = parseFloat(body.creditAmount) || 0;
 
-  const balance = await (OpeningBalance as any).findOneAndUpdate(
-    { firmId: firmIdObj, accountHead: body.accountHead, financialYear },
-    {
-      accountType: body.accountType,
-      debitAmount,
-      creditAmount,
-      createdBy: String(user._id)
-    },
-    { upsert: true, returnDocument: 'after', runValidators: true }
-  );
+  const amount = debitAmount > 0 ? debitAmount : creditAmount;
+  const balanceType = debitAmount > 0 ? 'DR' : 'CR';
 
-  await (Ledger as any).deleteMany({
+  const result = await OpeningBalanceService.syncOpeningBalance({
     firmId: firmIdObj,
     accountHead: body.accountHead,
-    voucherType: 'OPENING_BALANCE',
-    voucherGroupId: `OB-${financialYear}-${body.accountHead}`
+    accountType: body.accountType,
+    amount,
+    balanceType,
+    financialYear,
+    userId: String(user._id)
   });
 
-  if (debitAmount || creditAmount) {
-    await (Ledger as any).create({
-      firmId: firmIdObj,
-      transactionDate: `${String(financialYear).split('-')[0]}-04-01`,
-      accountHead: body.accountHead,
-      accountType: body.accountType,
-      debitAmount,
-      creditAmount,
-      narration: `Opening Balance for ${financialYear}`,
-      voucherType: 'OPENING_BALANCE',
-      voucherNo: `OB/${financialYear}/${body.accountHead}`,
-      voucherGroupId: `OB-${financialYear}-${body.accountHead}`,
-      createdBy: String(user._id)
-    });
-  }
-
-  return { success: true, message: 'Opening balance saved successfully', data: balance };
+  return { success: true, message: 'Opening balance saved successfully', data: result.data };
 });

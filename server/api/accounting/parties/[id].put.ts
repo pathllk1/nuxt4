@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Party from '../../../models/Party';
 import { resolveLedgerPostingAccount } from '../../../utils/accounting/ledger-account-resolver';
+import { OpeningBalanceService } from '../../../utils/accounting/opening-balance.service';
 import { requireAuthSession } from '../../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -19,6 +20,15 @@ export default defineEventHandler(async (event) => {
   const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
   const name = String(body.name).trim();
 
+  const prevParty = await (Party as any).findOne({
+    _id: new mongoose.Types.ObjectId(partyId),
+    firmId: firmIdObj
+  }).lean();
+
+  if (!prevParty) {
+    throw createError({ statusCode: 404, statusMessage: 'Party not found' });
+  }
+
   const duplicate = await (Party as any).findOne({
     firmId: firmIdObj,
     name,
@@ -28,7 +38,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Party with this name already exists' });
   }
 
-  const partyType = String(body.partyType || 'CUSTOMER').toUpperCase();
+  const partyType = String(body.partyType || prevParty.partyType || 'CUSTOMER').toUpperCase();
+  const fallbackType = partyType === 'SUPPLIER' ? 'SUNDRY_CREDITORS' : 'SUNDRY_DEBTORS';
+
   const updated = await (Party as any).findOneAndUpdate(
     { _id: new mongoose.Types.ObjectId(partyId), firmId: firmIdObj },
     {
@@ -45,20 +57,40 @@ export default defineEventHandler(async (event) => {
         primaryGstinIndex: Number(body.primaryGstinIndex) || 0,
         partyType,
         openingBalance: parseFloat(body.openingBalance) || 0,
-        balanceType: body.balanceType || 'DR'
+        balanceType: body.balanceType || prevParty.balanceType || (partyType === 'SUPPLIER' ? 'CR' : 'DR')
       }
     },
     { returnDocument: 'after', runValidators: true }
   );
 
-  if (!updated) {
-    throw createError({ statusCode: 404, statusMessage: 'Party not found' });
+  // If party name changed, rename in GL and OB
+  if (prevParty.name && prevParty.name !== name) {
+    await OpeningBalanceService.renameAccountHead({
+      firmId: firmIdObj,
+      oldHead: prevParty.name,
+      newHead: name
+    });
+  }
+
+  // Sync Opening Balance into GL & OpeningBalance collection
+  if (body.openingBalance !== undefined) {
+    const obAmount = parseFloat(body.openingBalance) || 0;
+    const obBalanceType = body.balanceType || updated.balanceType || (partyType === 'SUPPLIER' ? 'CR' : 'DR');
+    await OpeningBalanceService.syncOpeningBalance({
+      firmId: firmIdObj,
+      accountHead: updated.name,
+      accountType: fallbackType,
+      amount: obAmount,
+      balanceType: obBalanceType,
+      partyId: updated._id,
+      userId: String(user._id)
+    });
   }
 
   await resolveLedgerPostingAccount({
     firmId: firmIdObj,
     accountHead: updated.name,
-    fallbackType: partyType === 'SUPPLIER' ? 'SUNDRY_CREDITORS' : 'SUNDRY_DEBTORS',
+    fallbackType,
     partyId: updated._id
   });
 

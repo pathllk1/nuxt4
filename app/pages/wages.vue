@@ -55,7 +55,7 @@ const tabs = [
         leave-to-class="opacity-0 translate-y-1"
       >
         <div :key="activeTab" class="h-full">
-          <WagesDashboard v-if="activeTab === 'dashboard'" />
+          <WagesDashboard v-if="activeTab === 'dashboard'" @navigate="activeTab = $event" />
           <WagesCreate v-if="activeTab === 'create'" />
           <WagesEdit v-if="activeTab === 'edit'" />
           <AdvancesManagement v-if="activeTab === 'advance'" />

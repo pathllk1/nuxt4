@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Ledger, { type ILedger } from '../../models/Ledger';
 import ChartOfAccounts from '../../models/ChartOfAccounts';
+import Stock from '../../models/Stock';
 import { resolveLedgerPostingAccount, normalizeLedgerAccountHead } from './ledger-account-resolver';
 
 export interface LedgerEntryParams {
@@ -57,6 +58,7 @@ export class LedgerService {
       { account_name: 'Round Off', account_type: 'GENERAL', is_system: true },
       { account_name: 'Stock Adjustment', account_type: 'INCOME', is_system: true },
       { account_name: 'Opening Balance', account_type: 'CAPITAL', is_system: true },
+      { account_name: 'Difference in Opening Balances', account_type: 'CAPITAL', is_system: true },
       { account_name: 'CGST Input Credit', account_type: 'ASSET', is_system: true },
       { account_name: 'SGST Input Credit', account_type: 'ASSET', is_system: true },
       { account_name: 'IGST Input Credit', account_type: 'ASSET', is_system: true },
@@ -73,13 +75,14 @@ export class LedgerService {
 
     for (const account of DEFAULT_SYSTEM_ACCOUNTS) {
       const existing = await ChartOfAccounts.findOne({
-        firm_id: firmId,
+        $or: [{ firm_id: firmId }, { firmId: firmId }],
         account_name: account.account_name
       }).session(session || null).lean();
 
       if (!existing) {
         await ChartOfAccounts.create([{
           firm_id: firmId,
+          firmId: firmId,
           account_name: account.account_name,
           account_type: account.account_type,
           is_system: account.is_system,
@@ -618,9 +621,17 @@ export class LedgerService {
   static async getProfitAndLossModel(firmId: mongoose.Types.ObjectId, fromDate?: string, toDate?: string) {
     const trialBalance = await this.getTrialBalance(firmId, fromDate, toDate);
     const isCOGS = (head: string, type: string) => {
-      if (type === 'COGS') return true;
-      const h = head.toLowerCase();
-      return ['cogs', 'cost of goods', 'purchase', 'inventory'].some(k => h.includes(k)) && (type === 'EXPENSE' || type === 'COGS');
+      if (type === 'COGS' || type === 'DIRECT_EXPENSE') return true;
+      const h = head.trim().toLowerCase();
+      return (
+        h === 'cogs' ||
+        h === 'cost of goods sold' ||
+        h === 'purchases' ||
+        h === 'purchase account' ||
+        h === 'purchase' ||
+        h.startsWith('cogs -') ||
+        h.startsWith('cost of goods')
+      ) && (type === 'EXPENSE' || type === 'COGS');
     };
 
     const isIncomeType = (type: string) => ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type?.toUpperCase() || '');
@@ -631,7 +642,7 @@ export class LedgerService {
     ).map(a => {
       const netDr = a.totalDebit - a.totalCredit;
       const netCr = a.totalCredit - a.totalDebit;
-      return { head: a.accountHead, type: a.accountType, netDr, netCr };
+      return { head: a.accountHead, type: a.accountType, netDr, netCr, totalDebit: a.totalDebit, totalCredit: a.totalCredit };
     });
 
     const income = plAccounts.filter(a => isIncomeType(a.type));
@@ -646,10 +657,18 @@ export class LedgerService {
 
     const totalCOGS = drCOGS.reduce((s, a) => s + a.netDr, 0);
     const totalOpex = drOpex.reduce((s, a) => s + a.netDr, 0) + drGeneral.reduce((s, a) => s + a.netDr, 0);
-    const totalRevenueCr = crRevenue.reduce((s, a) => s + a.netCr, 0);
-    const totalIncomeCr = totalRevenueCr + crGeneral.reduce((s, a) => s + a.netCr, 0);
-    const totalExpensesDr = totalCOGS + totalOpex;
 
+    // Exact net totals accounting for returns, discounts, adjustments
+    let totalRevenueCr = income.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
+    let totalExpensesDr = expense.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
+
+    for (const g of general) {
+      const netCr = g.totalCredit - g.totalDebit;
+      if (netCr > 0) totalRevenueCr += netCr;
+      else totalExpensesDr += Math.abs(netCr);
+    }
+
+    const totalIncomeCr = totalRevenueCr;
     const netProfit = totalIncomeCr - totalExpensesDr;
     const drGrand = totalExpensesDr + (netProfit > 0 ? netProfit : 0);
     const crGrand = totalIncomeCr + (netProfit < 0 ? Math.abs(netProfit) : 0);
@@ -665,39 +684,113 @@ export class LedgerService {
     const trialBalance = await this.getTrialBalance(firmId, undefined, asOfDate);
     const plModel = await this.getProfitAndLossModel(firmId, undefined, asOfDate);
 
-    // Calculate closing stock valuation from Stock model
-    const StockModel = mongoose.models.Stock || mongoose.model('Stock');
-    const stockDocs = await StockModel.find({ firm_id: firmId }).select('total qty rate').lean();
-    const totalStock = (stockDocs || []).reduce((s: number, st: any) => s + (st.qty > 0 ? (st.total || (st.qty * st.rate)) : 0), 0);
+    // Filter out accounts belonging to P&L
+    const plTypes = ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL'];
+    const bsAccounts = trialBalance.filter(a => !plTypes.includes(a.accountType));
 
-    const assetAccounts = trialBalance.filter(a => ['ASSET', 'BANK', 'CASH', 'RECEIVABLE', 'SUNDRY_DEBTORS'].includes(a.accountType));
-    const liabAccounts = trialBalance.filter(a => ['LIABILITY', 'EQUITY', 'CAPITAL', 'PAYABLE', 'SUNDRY_CREDITORS'].includes(a.accountType));
+    // Categorization into mutually exclusive Balance Sheet buckets
+    const debtorAccounts = bsAccounts.filter(a =>
+      ['RECEIVABLE', 'SUNDRY_DEBTORS'].includes(a.accountType) ||
+      (a.accountHead && a.accountHead.toLowerCase().includes('debtor')) ||
+      (a.accountType === 'PARTY' && a.totalDebit > a.totalCredit)
+    );
 
-    const debtorAccounts = trialBalance.filter(a => ['RECEIVABLE', 'SUNDRY_DEBTORS'].includes(a.accountType) || (a.accountHead && a.accountHead.toLowerCase().includes('debtor')));
-    const creditorAccounts = trialBalance.filter(a => ['PAYABLE', 'SUNDRY_CREDITORS'].includes(a.accountType) || (a.accountHead && a.accountHead.toLowerCase().includes('creditor')));
-    const cashBankAccounts = trialBalance.filter(a => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(a.accountType));
+    const creditorAccounts = bsAccounts.filter(a =>
+      ['PAYABLE', 'SUNDRY_CREDITORS'].includes(a.accountType) ||
+      (a.accountHead && a.accountHead.toLowerCase().includes('creditor')) ||
+      (a.accountType === 'PARTY' && a.totalCredit > a.totalDebit)
+    );
 
-    const totalDebtors = debtorAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
-    const totalCred = creditorAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
-    const totalCashBank = cashBankAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
-    const totalOtherA = assetAccounts.filter(a => !debtorAccounts.includes(a) && !cashBankAccounts.includes(a)).reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
+    const cashBankAccounts = bsAccounts.filter(a => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(a.accountType));
+    const stockAccounts = bsAccounts.filter(a =>
+      a.accountHead === 'Inventory' ||
+      a.accountType === 'INVENTORY' ||
+      (a.accountHead && a.accountHead.toLowerCase().includes('stock'))
+    );
 
-    const totalAssets = totalOtherA + totalStock + Math.max(0, totalDebtors) + Math.max(0, totalCashBank);
-    const capital = liabAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
-    const totalLiab = capital + Math.max(0, totalCred);
-    const totalLiabSide = totalLiab + plModel.netProfit;
+    const equityAccounts = bsAccounts.filter(a => ['EQUITY', 'CAPITAL'].includes(a.accountType));
+    const externalLiabAccounts = bsAccounts.filter(a =>
+      ['LIABILITY', 'LOAN', 'SECURED_LOANS', 'UNSECURED_LOANS', 'CURRENT_LIABILITY', 'NON_CURRENT_LIABILITY'].includes(a.accountType) &&
+      !creditorAccounts.includes(a) &&
+      !equityAccounts.includes(a)
+    );
+
+    const otherAssetAccounts = bsAccounts.filter(a =>
+      !debtorAccounts.includes(a) &&
+      !creditorAccounts.includes(a) &&
+      !cashBankAccounts.includes(a) &&
+      !stockAccounts.includes(a) &&
+      !equityAccounts.includes(a) &&
+      !externalLiabAccounts.includes(a)
+    );
+
+    // Calculate Closing Stock
+    const stockLedgerVal = stockAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
+    const StockModel = (Stock || mongoose.models.Stock) as any;
+    const stockDocs = await StockModel.find({
+      $or: [{ firm_id: firmId }, { firmId: firmId }]
+    }).select('total qty rate').lean();
+    const totalStockFromModel = (stockDocs || []).reduce((s: number, st: any) => s + (st.qty > 0 ? (st.total || (st.qty * st.rate)) : 0), 0);
+
+    const totalStock = Math.max(0, stockLedgerVal > 0 ? stockLedgerVal : totalStockFromModel);
+    const totalStockDeficit = Math.abs(Math.min(0, stockLedgerVal)); // When stock is negative (sales precede purchases)
+
+    // Debtors and Creditors (including advances where customer has credit balance or supplier has debit balance)
+    const totalDebtors = debtorAccounts.reduce((s, a) => s + Math.max(0, a.totalDebit - a.totalCredit), 0);
+    const debtorCreditBalances = debtorAccounts.reduce((s, a) => s + Math.max(0, a.totalCredit - a.totalDebit), 0);
+
+    const creditorDebitBalances = creditorAccounts.reduce((s, a) => s + Math.max(0, a.totalDebit - a.totalCredit), 0);
+    const totalCred = creditorAccounts.reduce((s, a) => s + Math.max(0, a.totalCredit - a.totalDebit), 0) + debtorCreditBalances;
+
+    // Cash and Bank (Positive balance = Asset; Overdraft/Credit balance = Liability)
+    const netCashBank = cashBankAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
+    const totalCashBank = Math.max(0, netCashBank);
+    const totalBankOverdraft = Math.abs(Math.min(0, netCashBank));
+
+    // Separate Opening Balance Difference accounts from pure Equity
+    const diffObAccounts = equityAccounts.filter(a =>
+      a.accountHead === 'Difference in Opening Balances' || a.accountHead === 'Opening Balance'
+    );
+    const pureEquityAccounts = equityAccounts.filter(a => !diffObAccounts.includes(a));
+
+    const diffObNet = diffObAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
+    const diffObCr = diffObNet > 0 ? diffObNet : 0;
+    const diffObDr = diffObNet < 0 ? Math.abs(diffObNet) : 0;
+
+    // Fixed & Other Assets
+    const totalOtherA = otherAssetAccounts.reduce((s, a) => s + Math.max(0, a.totalDebit - a.totalCredit), 0);
+
+    // Equity and External Liabilities
+    const pureCapital = pureEquityAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
+    const capital = pureCapital + diffObCr;
+    const totalExternalLiab = externalLiabAccounts.reduce((s, a) => s + Math.max(0, a.totalCredit - a.totalDebit), 0);
+    const totalLiab = totalExternalLiab + totalBankOverdraft + totalStockDeficit;
+
+    // Both sides balance to the exact paisa
+    const totalAssets = totalOtherA + totalStock + totalDebtors + totalCashBank + creditorDebitBalances + diffObDr;
+    const totalLiabSide = capital + plModel.netProfit + totalLiab + totalCred;
 
     return {
       capital,
+      pureCapital,
+      diffObCr,
+      diffObDr,
+      differenceInOpeningBalances: {
+        amount: Math.abs(diffObNet),
+        type: diffObNet >= 0 ? 'CR' : 'DR',
+        isCredit: diffObNet > 0,
+        isDebit: diffObNet < 0,
+        isZero: Math.abs(diffObNet) < 0.01
+      },
       totalLiab,
       totalAssets,
       totalOtherA,
       totalStock,
-      totalCred: Math.max(0, totalCred),
-      totalDebtors: Math.max(0, totalDebtors),
-      totalCashBank: Math.max(0, totalCashBank),
-      totalDebtorCreditBalances: Math.abs(Math.min(0, totalDebtors)),
-      totalCashBankCreditBalances: Math.abs(Math.min(0, totalCashBank)),
+      totalCred,
+      totalDebtors: totalDebtors + creditorDebitBalances,
+      totalCashBank,
+      totalDebtorCreditBalances: debtorCreditBalances,
+      totalCashBankCreditBalances: totalBankOverdraft,
       totalLiabSide,
       netProfit: plModel.netProfit
     };

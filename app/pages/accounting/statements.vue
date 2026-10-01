@@ -181,12 +181,22 @@ const bsModel = computed(() => {
   const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(a.type));
   const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL'].includes(a.type));
 
+  // Dynamic Opening Balance Contra
+  const diffObAccount = bsAccounts.find(a =>
+    a.head === 'Difference in Opening Balances' || a.head === 'Opening Balance'
+  );
+  const diffObNet = diffObAccount ? diffObAccount.netCr : 0;
+  const diffObCr = diffObNet > 0 ? diffObNet : 0;
+  const diffObDr = diffObNet < 0 ? Math.abs(diffObNet) : 0;
+
+  const isDiffOb = (head: string) => head === 'Difference in Opening Balances' || head === 'Opening Balance';
+
   const stockAssets = assetsRaw.filter(a => isStock(a.head) && a.netDr > 0);
   const gstAssets = assetsRaw.filter(a => !isStock(a.head) && isGSTRec(a.head) && a.netDr > 0);
-  const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type === 'ASSET' && a.netDr > 0);
+  const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type === 'ASSET' && !isDiffOb(a.head) && a.netDr > 0);
   const debtors = assetsRaw.filter(a => isDebtorType(a.type) && a.netDr > 0);
   const cashBank = assetsRaw.filter(a => isCashBankType(a.type) && a.netDr > 0);
-  const liabilityDebitBalances = liabilitiesRaw.filter(a => a.netDr > 0);
+  const liabilityDebitBalances = liabilitiesRaw.filter(a => !isDiffOb(a.head) && a.netDr > 0);
 
   const totalStock = stockAssets.reduce((s, a) => s + a.netDr, 0);
   const totalGST = gstAssets.reduce((s, a) => s + a.netDr, 0);
@@ -195,11 +205,11 @@ const bsModel = computed(() => {
   const totalCashBank = cashBank.reduce((s, a) => s + a.netDr, 0);
   const totalLiabilityDebitBalances = liabilityDebitBalances.reduce((s, a) => s + a.netDr, 0);
 
-  const totalAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank + totalLiabilityDebitBalances;
+  const totalAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank + totalLiabilityDebitBalances + diffObDr;
 
   const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER'].includes(a.type) && a.netCr > 0);
   const creditors = liabilitiesRaw.filter(a => isCreditorType(a.type) && a.netCr > 0);
-  const assetCreditBalances = assetsRaw.filter(a => a.type === 'ASSET' && a.netCr > 0);
+  const assetCreditBalances = assetsRaw.filter(a => a.type === 'ASSET' && !isDiffOb(a.head) && a.netCr > 0);
   const debtorCreditBalances = assetsRaw.filter(a => isDebtorType(a.type) && a.netCr > 0);
   const cashBankCreditBalances = assetsRaw.filter(a => isCashBankType(a.type) && a.netCr > 0);
 
@@ -223,15 +233,15 @@ const bsModel = computed(() => {
   const quickRatio = currentLiabilities > 0 ? ((currentAssets - totalStock) / currentLiabilities) : (currentAssets - totalStock > 0 ? 99 : 0);
   const workingCapital = currentAssets - currentLiabilities;
 
-  const assetSideCount = stockAssets.length + gstAssets.length + otherAssets.length + debtors.length + cashBank.length + liabilityDebitBalances.length;
-  const liabilitySideCount = liabilities.length + creditors.length + assetCreditBalances.length + debtorCreditBalances.length + cashBankCreditBalances.length;
+  const assetSideCount = stockAssets.length + gstAssets.length + otherAssets.length + debtors.length + cashBank.length + liabilityDebitBalances.length + (diffObDr > 0 ? 1 : 0);
+  const liabilitySideCount = liabilities.length + creditors.length + assetCreditBalances.length + debtorCreditBalances.length + cashBankCreditBalances.length + (diffObCr > 0 ? 1 : 0);
 
   return {
     stockAssets, gstAssets, otherAssets, debtors, cashBank, liabilityDebitBalances,
     totalStock, totalGST, totalOtherA, totalDebtors, totalCashBank, totalLiabilityDebitBalances, totalAssets,
     liabilities, creditors, assetCreditBalances, debtorCreditBalances, cashBankCreditBalances,
     totalLiab, totalCred, totalAssetCreditBalances, totalDebtorCreditBalances, totalCashBankCreditBalances, totalExtLib,
-    capital, netProfit,
+    capital, netProfit, diffObCr, diffObDr,
     currentAssets, currentLiabilities, currentRatio, quickRatio, workingCapital,
     assetSideCount, liabilitySideCount,
     totalLiabSide, balanced,
@@ -673,6 +683,17 @@ onMounted(loadData);
                   </div>
                   <span class="font-mono font-bold text-violet-700 dark:text-violet-400">{{ formatINR(Math.abs(bsModel.netProfit)) }}</span>
                 </div>
+                <!-- Dynamic Difference in Opening Balances (Credit contra for asset debits) -->
+                <div v-if="bsModel.diffObCr > 0" class="py-1.5 px-4 flex justify-between text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20 border-t border-amber-100 dark:border-amber-900/30">
+                  <div class="flex flex-col">
+                    <span class="font-bold flex items-center gap-1">
+                      <UIcon name="i-heroicons-scale" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      Difference in Opening Balances
+                    </span>
+                    <span class="text-[8px] text-amber-600/80 dark:text-amber-400/80 uppercase mt-0.5">Asset Opening Balances (Dr) awaiting contra allocation</span>
+                  </div>
+                  <span class="font-mono font-bold">{{ formatINR(bsModel.diffObCr) }}</span>
+                </div>
                 <div class="py-1.5 px-4 bg-slate-50/30 dark:bg-zinc-800/10 text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-t border-gray-100 dark:border-zinc-800/40 leading-none">
                   <span>Total Capital Pool</span>
                   <span class="font-mono text-slate-700 dark:text-zinc-300 font-black">{{ formatINR(bsModel.capital + bsModel.netProfit) }}</span>
@@ -751,6 +772,24 @@ onMounted(loadData);
             <div class="flex flex-col">
               <div class="py-2 px-4 bg-slate-50/50 dark:bg-zinc-800/20 border-b border-gray-100 dark:border-zinc-800 text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 leading-none">
                 <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Asset Side (As)
+              </div>
+
+              <!-- Dynamic Difference in Opening Balances (Debit contra for liability/capital credits) -->
+              <div v-if="bsModel.diffObDr > 0" class="border-b border-amber-100 dark:border-amber-900/30">
+                <div class="py-1 px-4 bg-amber-50/40 dark:bg-amber-950/20 text-[8px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider flex justify-between leading-none">
+                  <span class="flex items-center gap-1">
+                    <UIcon name="i-heroicons-scale" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    Difference in Opening Balances
+                  </span>
+                  <span>Contra (Dr)</span>
+                </div>
+                <div class="py-1.5 px-4 flex justify-between text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-50/20 dark:bg-amber-950/10">
+                  <div class="flex flex-col">
+                    <span class="font-bold">Opening Balance Contra</span>
+                    <span class="text-[8px] text-amber-600/80 dark:text-amber-400/80 uppercase mt-0.5">Liability / Capital Credits awaiting contra allocation</span>
+                  </div>
+                  <span class="font-mono font-bold">{{ formatINR(bsModel.diffObDr) }}</span>
+                </div>
               </div>
 
               <!-- Fixed / Other Assets -->

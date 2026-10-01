@@ -123,11 +123,16 @@ export const useWages = () => {
     downloadBlob(blob, `Wages_Statement_${safeName}.xlsx`)
   }
 
+  const fetchAvailableMonths = async () => {
+    return await apiFetch(buildUrl('/wages/available-months'))
+  }
+
   return {
     loading,
     wages,
     fetchEligibleEmployees,
     fetchWagesByMonth,
+    fetchAvailableMonths,
     createWagesBulk,
     updateWage,
     deleteWage,

@@ -125,8 +125,10 @@ export default defineEventHandler(async (event) => {
       const ledger_debit = (ledger && ledger[0]) ? (Number(ledger[0].totalDebit) || 0) : 0;
       const ledger_credit = (ledger && ledger[0]) ? (Number(ledger[0].totalCredit) || 0) : 0;
 
-      const totalDebit = ob_debit + ledger_debit;
-      const totalCredit = ob_credit + ledger_credit;
+      // In double-entry General Ledger, opening balances are posted as OPENING_BALANCE vouchers.
+      // If ledger totals exist, they already encompass the opening balance.
+      const totalDebit = (ledger && ledger.length > 0) ? ledger_debit : ob_debit;
+      const totalCredit = (ledger && ledger.length > 0) ? ledger_credit : ob_credit;
       const rawNet = totalDebit - totalCredit;
 
       leaderLedgerBalance = {

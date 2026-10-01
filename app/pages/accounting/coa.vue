@@ -37,6 +37,7 @@ const typeFilter = ref('all');
 
 const isModalOpen = ref(false);
 const selectedEditId = ref<string | null>(null);
+const selectedEntry = ref<any>(null);
 const selectedDefaultType = ref('SUNDRY_DEBTORS');
 
 const accountTypes = [
@@ -80,9 +81,11 @@ const fetchCOA = async () => {
 const openModal = (entry?: any) => {
   if (entry && entry._id) {
     selectedEditId.value = entry._id;
+    selectedEntry.value = { ...entry };
     selectedDefaultType.value = entry.account_type || 'SUNDRY_DEBTORS';
   } else {
     selectedEditId.value = null;
+    selectedEntry.value = null;
     selectedDefaultType.value = 'EXPENSE';
   }
   isModalOpen.value = true;
@@ -387,6 +390,7 @@ onMounted(fetchCOA);
     <PartyAccountMasterModal
       v-model="isModalOpen"
       :account-id="selectedEditId"
+      :initial-data="selectedEntry"
       :default-type="selectedDefaultType"
       @saved="fetchCOA"
     />

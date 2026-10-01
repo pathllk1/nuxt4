@@ -12,7 +12,10 @@ export async function runPostProcessing(
   let firmParties: { name: string; firm: string }[] = [];
   if (firmId && mongoose.Types.ObjectId.isValid(String(firmId))) {
     try {
-      firmParties = await Party.find({ firm_id: new mongoose.Types.ObjectId(String(firmId)) })
+      const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
+      firmParties = await Party.find({
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }]
+      })
         .select('name firm')
         .lean() as any[];
     } catch {}

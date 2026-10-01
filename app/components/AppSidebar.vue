@@ -68,7 +68,7 @@
           <div
             v-if="openNestedMenus.includes(nav.label)"
             :class="[
-              isSidebarCollapsed ? 'ml-1' : 'ml-6',
+              isSidebarCollapsed ? 'ml-0 flex flex-col items-center' : 'ml-6',
               'space-y-1 mt-1',
               !isSidebarCollapsed && 'border-l-2 border-white/20 pl-2'
             ]"
@@ -78,12 +78,13 @@
               :key="child.label"
               :to="child.to"
               exact-active-class="bg-white/20 font-bold"
-              class="flex items-center text-white/80 hover:text-blue-200 transition duration-300 group px-2 py-1.5 rounded no-underline"
+              class="flex items-center text-white/90 hover:text-blue-200 transition duration-300 group px-2 py-1.5 rounded-lg no-underline w-full"
+              :class="isSidebarCollapsed ? 'justify-center' : ''"
               :title="isSidebarCollapsed ? child.label : ''"
               @click="closeNestedMenu(nav.label)"
             >
-              <div class="w-6 h-6 flex items-center justify-center text-xs shrink-0">
-                <span>{{ child.icon }}</span>
+              <div class="w-8 h-8 flex items-center justify-center text-lg shrink-0">
+                <span class="text-white text-base font-bold">{{ child.icon }}</span>
               </div>
               <span v-if="!isSidebarCollapsed" class="text-sm font-medium hover:underline ml-2 truncate">
                 {{ child.label }}
@@ -134,7 +135,7 @@ const navLinks = [
     restricted: true,
     children: [
       { label: 'Wages Center', to: '/wages', icon: '💵' },
-      { label: 'Master Roll', to: '/master-roll', icon: '👥' }
+      { label: 'Master Roll', to: '/master-roll', icon: '📋' }
     ]
   },
   { label: 'Labor System', to: '/labor', icon: '👷', restricted: true },

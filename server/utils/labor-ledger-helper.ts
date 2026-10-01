@@ -39,13 +39,24 @@ async function resolveLedgerPostingAccount(params: {
   session: mongoose.ClientSession;
 }) {
   const { firmId, accountHead, fallbackType, session } = params;
-  let coa: any = await ChartOfAccounts.findOne({ firm_id: firmId, account_name: accountHead }).session(session);
+  const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
+
+  let coa: any = await ChartOfAccounts.findOne({
+    $or: [
+      { firm_id: firmIdObj },
+      { firmId: firmIdObj },
+      { firm_id: firmId },
+      { firmId: firmId },
+    ],
+    account_name: accountHead
+  }).session(session);
 
   if (!coa) {
-    const coaDocs = await ChartOfAccounts.create(
+    const coaDocs = await (ChartOfAccounts as any).create(
       [
         {
-          firm_id: firmId,
+          firm_id: firmIdObj,
+          firmId: firmIdObj,
           account_name: accountHead,
           account_type: fallbackType,
           is_system: false,
@@ -89,6 +100,7 @@ export const laborLedgerHelper = {
     session.startTransaction();
 
     try {
+      const firmIdObj = new mongoose.Types.ObjectId(String(firm_id));
       let paymentPostAccountHead = 'Cash in Hand';
       let paymentPostAccountType = 'CASH';
       let mongoBankAccountId: string | null = null;
@@ -104,7 +116,10 @@ export const laborLedgerHelper = {
         paymentPostAccountType = cashPost.accountType;
       } else {
         if (!bank_account_id) throw new Error('Bank account is required for non-cash payments');
-        const bankAccount = await BankAccount.findOne({ _id: bank_account_id, firm_id }).session(session);
+        const bankAccount = await BankAccount.findOne({
+          _id: bank_account_id,
+          $or: [{ firm_id: firm_id }, { firmId: firm_id }, { firm_id: firmIdObj }, { firmId: firmIdObj }]
+        }).session(session);
         if (!bankAccount) throw new Error('Bank account not found or access denied');
 
         const bankPost = await resolveLedgerPostingAccount({
@@ -128,43 +143,45 @@ export const laborLedgerHelper = {
 
       const voucherGroupId = `LABOR_ADV_${uuidv4().substring(0, 8)}`;
       const transactionDate = payment_date || new Date().toISOString().split('T')[0];
+      const bankIdObj = mongoBankAccountId ? new mongoose.Types.ObjectId(String(mongoBankAccountId)) : null;
 
       const entries = [
         // Credit: Cash / Bank Account (Funds leaving firm)
         {
-          firm_id: firm_id,
-          account_head: paymentPostAccountHead,
-          account_type: paymentPostAccountType,
-          credit_amount: amount,
-          debit_amount: 0,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: paymentPostAccountHead,
+          accountType: paymentPostAccountType,
+          creditAmount: amount,
+          debitAmount: 0,
           narration: `Labor Advance to ${leader_name} (${payment_mode})`,
-          bank_account_id: mongoBankAccountId,
-          payment_mode: payment_mode,
-          ref_type: 'ADVANCE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          bankAccountId: bankIdObj,
+          paymentMode: payment_mode,
+          refType: 'ADVANCE',
+          voucherType: 'PAYMENT',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         },
         // Debit: Labor Leader Account Sub-ledger
         {
-          firm_id: firm_id,
-          account_head: leaderPost.accountHead,
-          account_type: leaderPost.accountType,
-          credit_amount: 0,
-          debit_amount: amount,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: leaderPost.accountHead,
+          accountType: leaderPost.accountType,
+          creditAmount: 0,
+          debitAmount: amount,
           narration: `Labor Advance to ${leader_name} (${payment_mode})`,
-          payment_mode: payment_mode,
-          ref_type: 'ADVANCE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          paymentMode: payment_mode,
+          refType: 'ADVANCE',
+          voucherType: 'PAYMENT',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         },
       ];
 
-      assertBalanced(
-        entries.map((e) => ({ debitAmount: e.debit_amount, creditAmount: e.credit_amount })),
-        `LABOR_ADVANCE ${voucherGroupId}`
-      );
+      assertBalanced(entries, `LABOR_ADVANCE ${voucherGroupId}`);
 
       await Ledger.insertMany(entries, { session });
       await session.commitTransaction();
@@ -199,6 +216,7 @@ export const laborLedgerHelper = {
     session.startTransaction();
 
     try {
+      const firmIdObj = new mongoose.Types.ObjectId(String(firm_id));
       let paymentPostAccountHead = 'Cash in Hand';
       let paymentPostAccountType = 'CASH';
       let mongoBankAccountId: string | null = null;
@@ -214,7 +232,10 @@ export const laborLedgerHelper = {
         paymentPostAccountType = cashPost.accountType;
       } else {
         if (!bank_account_id) throw new Error('Bank account is required for non-cash payments');
-        const bankAccount = await BankAccount.findOne({ _id: bank_account_id, firm_id }).session(session);
+        const bankAccount = await BankAccount.findOne({
+          _id: bank_account_id,
+          $or: [{ firm_id: firm_id }, { firmId: firm_id }, { firm_id: firmIdObj }, { firmId: firmIdObj }]
+        }).session(session);
         if (!bankAccount) throw new Error('Bank account not found or access denied');
 
         const bankPost = await resolveLedgerPostingAccount({
@@ -247,62 +268,71 @@ export const laborLedgerHelper = {
       const transactionDate = payment_date || new Date().toISOString().split('T')[0];
       const totalGrossLiability = Number(total_wages) + Number(total_expenses);
       const adjustmentAmount = Number(net_payable) - Number(paid_amount);
+      const bankIdObj = mongoBankAccountId ? new mongoose.Types.ObjectId(String(mongoBankAccountId)) : null;
 
-      const entries = [
+      const entries: any[] = [
         // 1. Debit: Labor Wages & Expenses (Cost to firm)
         {
-          firm_id: firm_id,
-          account_head: expensePost.accountHead,
-          account_type: expensePost.accountType,
-          credit_amount: 0,
-          debit_amount: totalGrossLiability,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: expensePost.accountHead,
+          accountType: expensePost.accountType,
+          creditAmount: 0,
+          debitAmount: totalGrossLiability,
           narration: `Final settlement for ${leader_name}`,
-          ref_type: 'WAGE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          refType: 'WAGE',
+          voucherType: 'JOURNAL',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         },
         // 2. Credit: Labor Leader Account (Gross liability)
         {
-          firm_id: firm_id,
-          account_head: leaderPost.accountHead,
-          account_type: leaderPost.accountType,
-          credit_amount: totalGrossLiability,
-          debit_amount: 0,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: leaderPost.accountHead,
+          accountType: leaderPost.accountType,
+          creditAmount: totalGrossLiability,
+          debitAmount: 0,
           narration: `Settlement liability - ${leader_name}`,
-          ref_type: 'WAGE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          refType: 'WAGE',
+          voucherType: 'JOURNAL',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         },
         // 3. Credit: Cash / Bank Account (Funds leaving firm)
         {
-          firm_id: firm_id,
-          account_head: paymentPostAccountHead,
-          account_type: paymentPostAccountType,
-          credit_amount: paid_amount,
-          debit_amount: 0,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: paymentPostAccountHead,
+          accountType: paymentPostAccountType,
+          creditAmount: paid_amount,
+          debitAmount: 0,
           narration: `Final payout for ${leader_name}${adjustmentAmount !== 0 ? ' (Adjusted)' : ''} (${payment_mode})`,
-          bank_account_id: mongoBankAccountId,
-          payment_mode: payment_mode,
-          ref_type: 'WAGE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          bankAccountId: bankIdObj,
+          paymentMode: payment_mode,
+          refType: 'WAGE',
+          voucherType: 'PAYMENT',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         },
         // 4. Debit: Labor Leader Account (Clear liability against payout)
         {
-          firm_id: firm_id,
-          account_head: leaderPost.accountHead,
-          account_type: leaderPost.accountType,
-          credit_amount: 0,
-          debit_amount: paid_amount,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: leaderPost.accountHead,
+          accountType: leaderPost.accountType,
+          creditAmount: 0,
+          debitAmount: paid_amount,
           narration: `Final payout for ${leader_name}`,
-          payment_mode: payment_mode,
-          ref_type: 'WAGE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          paymentMode: payment_mode,
+          refType: 'WAGE',
+          voucherType: 'PAYMENT',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         },
       ];
 
@@ -317,36 +347,37 @@ export const laborLedgerHelper = {
 
         // If paying less than net_payable: Credit Income, Debit Leader Account
         entries.push({
-          firm_id: firm_id,
-          account_head: adjustmentPost.accountHead,
-          account_type: adjustmentPost.accountType,
-          credit_amount: adjustmentAmount > 0 ? adjustmentAmount : 0,
-          debit_amount: adjustmentAmount < 0 ? Math.abs(adjustmentAmount) : 0,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: adjustmentPost.accountHead,
+          accountType: adjustmentPost.accountType,
+          creditAmount: adjustmentAmount > 0 ? adjustmentAmount : 0,
+          debitAmount: adjustmentAmount < 0 ? Math.abs(adjustmentAmount) : 0,
           narration: `Settlement adjustment: ${adjustment_reason || 'Dispute/Rounding'}`,
-          ref_type: 'WAGE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          refType: 'WAGE',
+          voucherType: 'JOURNAL',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         });
 
         entries.push({
-          firm_id: firm_id,
-          account_head: leaderPost.accountHead,
-          account_type: leaderPost.accountType,
-          credit_amount: adjustmentAmount < 0 ? Math.abs(adjustmentAmount) : 0,
-          debit_amount: adjustmentAmount > 0 ? adjustmentAmount : 0,
+          firmId: firmIdObj,
+          firm_id: firmIdObj,
+          accountHead: leaderPost.accountHead,
+          accountType: leaderPost.accountType,
+          creditAmount: adjustmentAmount < 0 ? Math.abs(adjustmentAmount) : 0,
+          debitAmount: adjustmentAmount > 0 ? adjustmentAmount : 0,
           narration: `Settlement adjustment clearing - ${leader_name}`,
-          ref_type: 'WAGE',
-          transaction_date: transactionDate,
-          voucher_group_id: voucherGroupId,
-          created_by: created_by,
+          refType: 'WAGE',
+          voucherType: 'JOURNAL',
+          transactionDate: transactionDate,
+          voucherGroupId: voucherGroupId,
+          createdBy: created_by,
         });
       }
 
-      assertBalanced(
-        entries.map((e) => ({ debitAmount: e.debit_amount, creditAmount: e.credit_amount })),
-        `LABOR_SETTLEMENT ${voucherGroupId}`
-      );
+      assertBalanced(entries, `LABOR_SETTLEMENT ${voucherGroupId}`);
 
       await Ledger.insertMany(entries, { session });
       await session.commitTransaction();

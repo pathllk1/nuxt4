@@ -166,14 +166,11 @@ export default defineEventHandler(async (event) => {
     const ledger = balanceMap.get(acc.account_name);
     const party = partyMap.get((acc.account_name || '').trim().toLowerCase());
 
-    const ob_debit = ob ? (ob.debitAmount || 0) : 0;
-    const ob_credit = ob ? (ob.creditAmount || 0) : 0;
-
-    const ledger_debit = ledger ? (ledger.totalDebit || 0) : 0;
-    const ledger_credit = ledger ? (ledger.totalCredit || 0) : 0;
-
-    const totalDebit = ob_debit + ledger_debit;
-    const totalCredit = ob_credit + ledger_credit;
+    // Opening balances are stored in Ledger as voucherType='OPENING_BALANCE'.
+    // The Ledger aggregate already includes all posted entries.
+    // Do NOT add ob_debit/ob_credit to ledger totals — it causes 2x double-counting.
+    const totalDebit = ledger ? (ledger.totalDebit || 0) : 0;
+    const totalCredit = ledger ? (ledger.totalCredit || 0) : 0;
 
     const netBalance = totalDebit - totalCredit;
     const openingVal = ob ? (ob.debitAmount || ob.creditAmount || 0) : 0;

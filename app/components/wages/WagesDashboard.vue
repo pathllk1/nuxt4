@@ -8,8 +8,22 @@ import { computeEmployerEsic } from '~~/shared/utils/statutory-rates'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, ArcElement, DoughnutController)
 
+interface WagePeriod {
+  month: string;
+  employeeCount: number;
+  totalGross: number;
+  totalNet: number;
+  postedCount: number;
+  draftCount: number;
+  lastUpdated?: string;
+}
+
+const emit = defineEmits<{
+  (e: 'navigate', tab: string): void
+}>()
+
 const { apiFetch } = useAuth()
-const { downloadWageSlip, downloadBulkWageSlips } = useWages()
+const { downloadWageSlip, downloadBulkWageSlips, fetchAvailableMonths } = useWages()
 const toast = useToast()
 
 const getInitialMonth = () => {
@@ -22,6 +36,8 @@ const getInitialMonth = () => {
 }
 
 const month = ref(getInitialMonth())
+const availablePeriods = ref<WagePeriod[]>([])
+const periodsLoading = ref(false)
 const currentMonthWages = ref<any[]>([])
 const previousMonthWages = ref<any[]>([])
 const trendData = ref<{ month: string; gross: number; net: number }[]>([])
@@ -67,11 +83,48 @@ const formatCompact = (val: number) => {
 }
 
 const monthLabel = (m: string) => {
+  if (!m) return ''
   const parts = m.split('-')
   const y = parts[0] || ''
   const mo = parts[1] || '01'
   const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  return `${names[parseInt(mo) - 1] || ''} ${y.slice(2)}`
+  return `${names[parseInt(mo, 10) - 1] || ''} ${y.slice(2)}`
+}
+
+const formatMonthFull = (m: string) => {
+  if (!m) return ''
+  const parts = m.split('-')
+  const y = parts[0] || ''
+  const mo = parts[1] || '01'
+  const names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  return `${names[parseInt(mo, 10) - 1] || ''} ${y}`
+}
+
+// Period navigation helpers
+const latestAvailablePeriod = computed(() => {
+  return availablePeriods.value.length > 0 ? availablePeriods.value[0] : null
+})
+
+const isViewingLatest = computed(() => {
+  return latestAvailablePeriod.value ? month.value === latestAvailablePeriod.value.month : true
+})
+
+const currentPeriodMeta = computed(() => {
+  return availablePeriods.value.find(p => p.month === month.value) || null
+})
+
+const jumpToLatest = () => {
+  if (latestAvailablePeriod.value) {
+    month.value = latestAvailablePeriod.value.month
+  }
+}
+
+const stepMonth = (offset: number) => {
+  const parts = month.value.split('-').map(Number)
+  const y = parts[0] || new Date().getFullYear()
+  const mo = parts[1] || 1
+  const d = new Date(y, mo - 1 + offset, 1)
+  month.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
 // KPI computations
@@ -207,7 +260,9 @@ const loadDashboard = async () => {
 
     await nextTick()
     renderBarChart()
-    renderDoughnutChart()
+    if (currentMonthWages.value.length > 0) {
+      renderDoughnutChart()
+    }
   } catch (err: any) {
     toast.add({ title: 'Error loading dashboard', description: err.message, color: 'error' })
   } finally {
@@ -361,12 +416,31 @@ const openHistoryModal = (wage: any) => {
   }
 }
 
-onMounted(() => {
-  loadDashboard()
+let isInitialized = false
+
+onMounted(async () => {
+  periodsLoading.value = true
+  try {
+    const res = await fetchAvailableMonths()
+    if (res?.success && res.data?.periods) {
+      availablePeriods.value = res.data.periods
+      if (res.data.latestMonth) {
+        month.value = res.data.latestMonth
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load available wage periods', err)
+  } finally {
+    periodsLoading.value = false
+    isInitialized = true
+    await loadDashboard()
+  }
 })
 
 watch(month, () => {
-  loadDashboard()
+  if (isInitialized) {
+    loadDashboard()
+  }
 })
 
 const formatDate = (d: string) => {
@@ -378,40 +452,223 @@ const formatDate = (d: string) => {
 <template>
   <div class="flex flex-col h-full gap-3 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-800 pr-1">
     <!-- Header -->
-    <div class="flex items-center justify-between shrink-0">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
       <div>
-        <h2 class="text-lg font-black text-gray-900 dark:text-gray-100 tracking-tight">Payroll Dashboard</h2>
-        <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Workforce Analytics & Insights</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <UButton size="xs" variant="outline" icon="i-heroicons-arrow-down-tray" @click="onDownloadBulkWageSlips">
-          Download All Slips (ZIP)
-        </UButton>
-        <div class="flex items-center gap-2 bg-white dark:bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800 shadow-sm">
-          <UIcon name="i-heroicons-calendar" class="w-3.5 h-3.5 text-primary" />
-          <input type="month" v-model="month" class="bg-transparent border-none text-xs font-bold focus:ring-0 p-0 outline-none" />
+        <div class="flex items-center gap-2">
+          <h2 class="text-lg font-black text-gray-900 dark:text-gray-100 tracking-tight">Payroll Dashboard</h2>
+          <span
+            v-if="currentPeriodMeta"
+            class="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+          >
+            {{ currentPeriodMeta.employeeCount }} Posted
+          </span>
+          <span
+            v-else
+            class="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+          >
+            Unprocessed
+          </span>
         </div>
-        <UButton size="xs" icon="i-heroicons-arrow-path" :loading="dashboardLoading" variant="ghost" color="neutral" @click="loadDashboard" />
+        <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+          Workforce Analytics & Insights • {{ formatMonthFull(month) }}
+        </p>
+      </div>
+
+      <div class="flex items-center flex-wrap gap-2">
+        <UButton
+          size="xs"
+          variant="outline"
+          icon="i-heroicons-arrow-down-tray"
+          :disabled="currentMonthWages.length === 0"
+          @click="onDownloadBulkWageSlips"
+        >
+          Download Slips (ZIP)
+        </UButton>
+
+        <!-- Quick Processed Period Dropdown -->
+        <div v-if="availablePeriods.length > 0" class="relative">
+          <select
+            v-model="month"
+            class="h-8 pl-2.5 pr-7 text-xs font-bold rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-xs focus:ring-1 focus:ring-primary outline-none cursor-pointer appearance-none"
+          >
+            <option
+              v-for="p in availablePeriods"
+              :key="p.month"
+              :value="p.month"
+            >
+              {{ monthLabel(p.month) }} ({{ p.employeeCount }} emp)
+            </option>
+            <option v-if="!currentPeriodMeta" :value="month">
+              {{ monthLabel(month) }} (Custom)
+            </option>
+          </select>
+          <UIcon name="i-heroicons-chevron-down" class="w-3.5 h-3.5 absolute right-2 top-2.5 pointer-events-none text-gray-400" />
+        </div>
+
+        <!-- Period Stepper & Date Picker -->
+        <div class="flex items-center bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 shadow-xs p-0.5">
+          <button
+            type="button"
+            class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors cursor-pointer"
+            title="Previous Month"
+            @click="stepMonth(-1)"
+          >
+            <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
+          </button>
+          
+          <div class="flex items-center gap-1.5 px-2">
+            <UIcon name="i-heroicons-calendar" class="w-3.5 h-3.5 text-primary shrink-0" />
+            <input
+              type="month"
+              v-model="month"
+              class="bg-transparent border-none text-xs font-bold focus:ring-0 p-0 outline-none text-gray-800 dark:text-gray-200 cursor-pointer"
+            />
+          </div>
+
+          <button
+            type="button"
+            class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors cursor-pointer"
+            title="Next Month"
+            @click="stepMonth(1)"
+          >
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Jump to Latest Button -->
+        <UButton
+          v-if="latestAvailablePeriod && !isViewingLatest"
+          size="xs"
+          variant="soft"
+          color="neutral"
+          icon="i-heroicons-arrow-uturn-left"
+          title="Jump to latest posted payroll"
+          @click="jumpToLatest"
+        >
+          Latest ({{ monthLabel(latestAvailablePeriod.month) }})
+        </UButton>
+
+        <UButton
+          size="xs"
+          icon="i-heroicons-arrow-path"
+          :loading="dashboardLoading"
+          variant="ghost"
+          color="neutral"
+          @click="loadDashboard"
+        />
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-if="dashboardLoading && currentMonthWages.length === 0" class="flex-1 flex items-center justify-center py-12">
+    <!-- Full Loading State -->
+    <div v-if="dashboardLoading && currentMonthWages.length === 0 && trendData.length === 0" class="flex-1 flex items-center justify-center py-12">
       <div class="flex flex-col items-center gap-3">
         <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 animate-spin text-primary" />
         <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 animate-pulse">Loading Analytics</span>
       </div>
     </div>
 
-    <!-- Empty State -->
-    <div v-else-if="currentMonthWages.length === 0 && !dashboardLoading" class="flex-1 flex items-center justify-center py-12">
-      <div class="text-center">
-        <UIcon name="i-heroicons-chart-bar" class="w-16 h-16 mx-auto text-gray-200 dark:text-gray-800 mb-4" />
-        <h3 class="text-sm font-black text-gray-400 uppercase tracking-wider">No Payroll Data</h3>
-        <p class="text-[10px] text-gray-400 mt-1">Select a month with posted wages to see analytics</p>
+    <!-- Pending / Unprocessed Month State -->
+    <div v-else-if="currentMonthWages.length === 0 && !dashboardLoading" class="flex flex-col gap-4">
+      <!-- Status Banner -->
+      <div class="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-200/60 dark:border-amber-900/40 rounded-2xl p-5 shadow-xs">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0 border border-amber-500/20 text-amber-600 dark:text-amber-400">
+              <UIcon name="i-heroicons-clock" class="w-6 h-6" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-base font-bold text-gray-900 dark:text-gray-100">
+                  Payroll Pending for {{ formatMonthFull(month) }}
+                </h3>
+                <span class="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                  Unprocessed
+                </span>
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                <template v-if="latestAvailablePeriod">
+                  No wage records have been posted for this period yet. The most recently finalized payroll was 
+                  <strong class="text-gray-900 dark:text-gray-200">{{ formatMonthFull(latestAvailablePeriod.month) }}</strong> 
+                  with <strong class="text-gray-900 dark:text-gray-200">{{ latestAvailablePeriod.employeeCount }} employees</strong> 
+                  ({{ formatCurrency(latestAvailablePeriod.totalNet) }} net disbursement).
+                </template>
+                <template v-else>
+                  No historical payroll records found for this organization. You can create your first payroll batch using the wage creation wizard.
+                </template>
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0 w-full md:w-auto">
+            <UButton
+              v-if="latestAvailablePeriod && !isViewingLatest"
+              size="sm"
+              variant="soft"
+              color="neutral"
+              icon="i-heroicons-arrow-uturn-left"
+              @click="jumpToLatest"
+            >
+              View {{ monthLabel(latestAvailablePeriod.month) }} (Latest)
+            </UButton>
+            <UButton
+              size="sm"
+              color="primary"
+              icon="i-heroicons-plus-circle"
+              @click="emit('navigate', 'create')"
+            >
+              Process Wages for {{ monthLabel(month) }}
+            </UButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trend & Historical Periods (Maintains dashboard continuity) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <!-- Rolling 6-Month Trend -->
+        <div class="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-xs font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider">Payroll Trend Trajectory</h3>
+              <p class="text-[9px] text-gray-400 font-bold">Gross vs Net salary over rolling 6 months</p>
+            </div>
+          </div>
+          <div class="h-52">
+            <canvas ref="barChartRef"></canvas>
+          </div>
+        </div>
+
+        <!-- Available Processed Periods List -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm flex flex-col">
+          <h3 class="text-xs font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-1">Finalized Periods</h3>
+          <p class="text-[9px] text-gray-400 font-bold mb-3">Select a past closed period to view analytics</p>
+          <div class="space-y-2 overflow-y-auto max-h-48 pr-1 flex-1">
+            <div
+              v-for="p in availablePeriods"
+              :key="p.month"
+              @click="month = p.month"
+              class="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer transition-all"
+              :class="p.month === month ? 'ring-1 ring-primary bg-primary-50/20 dark:bg-primary-950/20' : ''"
+            >
+              <div class="flex items-center gap-2.5">
+                <UIcon name="i-heroicons-calendar" class="w-4 h-4 text-primary" />
+                <div>
+                  <div class="text-xs font-bold text-gray-900 dark:text-gray-100">{{ formatMonthFull(p.month) }}</div>
+                  <div class="text-[9px] text-gray-400 font-mono">{{ p.employeeCount }} employees</div>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-xs font-mono font-black text-emerald-600 dark:text-emerald-400">{{ formatCompact(p.totalNet) }}</div>
+                <div class="text-[8px] uppercase tracking-wider font-bold text-gray-400">Net Pay</div>
+              </div>
+            </div>
+            <div v-if="availablePeriods.length === 0" class="text-center text-[10px] text-gray-400 py-6 font-bold">
+              No historical periods found
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
+    <!-- Populated Active Period State -->
     <template v-else>
       <!-- KPI Hero Cards -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 shrink-0">

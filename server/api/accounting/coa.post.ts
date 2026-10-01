@@ -3,6 +3,7 @@ import ChartOfAccounts from '../../models/ChartOfAccounts';
 import Party from '../../models/Party';
 import BankAccount from '../../models/BankAccount';
 import OpeningBalance from '../../models/OpeningBalance';
+import { OpeningBalanceService } from '../../utils/accounting/opening-balance.service';
 import { getCurrentFinancialYear } from '../../utils/accounting/bill-utils';
 import { requireAuthSession } from '../../utils/auth';
 import { getSql, connectPostgres } from '../../utils/pg.config';
@@ -150,16 +151,14 @@ export default defineEventHandler(async (event) => {
 
     // 5. Update Opening Balance
     if (openingBalance > 0) {
-      await (OpeningBalance as any).findOneAndUpdate(
-        { firmId: firmIdObj, accountHead: account.account_name, financialYear: getCurrentFinancialYear() },
-        {
-          accountType: account.account_type,
-          debitAmount: balanceType === 'DR' ? openingBalance : 0,
-          creditAmount: balanceType === 'CR' ? openingBalance : 0,
-          createdBy: String(user._id)
-        },
-        { upsert: true, returnDocument: 'after' }
-      );
+      await OpeningBalanceService.syncOpeningBalance({
+        firmId: firmIdObj,
+        accountHead: account.account_name,
+        accountType: account.account_type,
+        amount: openingBalance,
+        balanceType: balanceType,
+        userId: String(user._id)
+      });
     }
 
     return { success: true, message: 'Account head registered successfully', data: account };

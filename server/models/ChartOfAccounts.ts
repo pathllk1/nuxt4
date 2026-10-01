@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IChartOfAccounts extends Document {
   firm_id: mongoose.Types.ObjectId;
+  firmId?: mongoose.Types.ObjectId;
   account_name: string;
   account_type: string;
   pan?: string | null;
@@ -30,6 +31,11 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
       type: Schema.Types.ObjectId,
       ref: 'Firm',
       required: true,
+      index: true,
+    },
+    firmId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Firm',
       index: true,
     },
     account_name: {

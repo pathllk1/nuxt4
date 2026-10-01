@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Party from '../../models/Party';
 import { resolveLedgerPostingAccount } from '../../utils/accounting/ledger-account-resolver';
+import { OpeningBalanceService } from '../../utils/accounting/opening-balance.service';
 import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -45,6 +46,21 @@ export default defineEventHandler(async (event) => {
     fallbackType,
     partyId: party._id
   });
+
+  // Sync Opening Balance into GL & OpeningBalance collection
+  const openingBalance = parseFloat(body.openingBalance) || 0;
+  if (openingBalance > 0) {
+    const defaultBalanceType = partyType === 'SUPPLIER' ? 'CR' : 'DR';
+    await OpeningBalanceService.syncOpeningBalance({
+      firmId: firmIdObj,
+      accountHead: party.name,
+      accountType: fallbackType,
+      amount: openingBalance,
+      balanceType: body.balanceType || defaultBalanceType,
+      partyId: party._id,
+      userId: String(user._id)
+    });
+  }
 
   return {
     success: true,

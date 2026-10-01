@@ -1,6 +1,8 @@
 import { defineEventHandler, readBody, createError } from 'h3';
+import mongoose from 'mongoose';
 import BankAccount from '../../models/BankAccount';
 import ChartOfAccounts from '../../models/ChartOfAccounts';
+import { OpeningBalanceService } from '../../utils/accounting/opening-balance.service';
 import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -21,15 +23,21 @@ export default defineEventHandler(async (event) => {
       await BankAccount.updateMany({ firm_id: session.firm_id }, { is_default: false });
     }
 
+    const firmIdObj = mongoose.Types.ObjectId.isValid(String(session.firm_id))
+      ? new mongoose.Types.ObjectId(String(session.firm_id))
+      : session.firm_id;
+
     const doc = await BankAccount.create({
-      firm_id: session.firm_id,
+      firm_id: firmIdObj,
+      firmId: firmIdObj,
       ...body
     });
 
     // Auto-create ChartOfAccounts entry
     try {
       await ChartOfAccounts.create({
-        firm_id: session.firm_id,
+        firm_id: firmIdObj,
+        firmId: firmIdObj,
         account_name: doc.account_name,
         account_type: 'BANK',
         is_system: true,
@@ -38,6 +46,21 @@ export default defineEventHandler(async (event) => {
       });
     } catch (coaErr: any) {
       console.error('Failed to create ChartOfAccounts for bank account:', coaErr.message);
+    }
+
+    // Sync opening balance if specified
+    const obAmount = parseFloat(body.opening_balance ?? body.openingBalance) || 0;
+    if (obAmount > 0) {
+      const balanceType = String(body.balance_type || body.balanceType || (['OD', 'CC'].includes(body.account_type) ? 'CR' : 'DR')).toUpperCase();
+      await OpeningBalanceService.syncOpeningBalance({
+        firmId: firmIdObj,
+        accountHead: doc.account_name,
+        accountType: 'BANK',
+        amount: obAmount,
+        balanceType,
+        bankAccountId: doc._id,
+        userId: String(session._id)
+      });
     }
 
     return {

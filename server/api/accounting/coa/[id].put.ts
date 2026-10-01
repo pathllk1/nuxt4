@@ -3,6 +3,7 @@ import ChartOfAccounts from '../../../models/ChartOfAccounts';
 import Party from '../../../models/Party';
 import BankAccount from '../../../models/BankAccount';
 import OpeningBalance from '../../../models/OpeningBalance';
+import { OpeningBalanceService } from '../../../utils/accounting/opening-balance.service';
 import { getCurrentFinancialYear } from '../../../utils/accounting/bill-utils';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
@@ -159,21 +160,28 @@ export default defineEventHandler(async (event) => {
     );
   }
 
-  // 4. Update Opening Balance
+  // 4. If account name changed, sync rename across Ledger and OpeningBalance
+  if (prevAccount.account_name && prevAccount.account_name !== finalName) {
+    await OpeningBalanceService.renameAccountHead({
+      firmId: firmIdObj,
+      oldHead: prevAccount.account_name,
+      newHead: finalName
+    });
+  }
+
+  // 5. Update Opening Balance
   const openingRaw = body.opening_balance ?? body.openingBalance;
   if (openingRaw !== undefined) {
     const openingBalance = parseFloat(openingRaw) || 0;
     const balanceType = String(body.balance_type || body.balanceType || 'DR').toUpperCase();
-    await (OpeningBalance as any).findOneAndUpdate(
-      { firmId: firmIdObj, accountHead: account.account_name, financialYear: getCurrentFinancialYear() },
-      {
-        accountType: account.account_type,
-        debitAmount: balanceType === 'DR' ? openingBalance : 0,
-        creditAmount: balanceType === 'CR' ? openingBalance : 0,
-        createdBy: String(user._id)
-      },
-      { upsert: true, returnDocument: 'after' }
-    );
+    await OpeningBalanceService.syncOpeningBalance({
+      firmId: firmIdObj,
+      accountHead: account.account_name,
+      accountType: account.account_type,
+      amount: openingBalance,
+      balanceType: balanceType,
+      userId: String(user._id)
+    });
   }
 
   return { success: true, message: 'Account head updated successfully', data: account };

@@ -4,7 +4,7 @@ import { useWages } from '~/composables/useWages'
 import { wagePersistence } from '~/utils/wagePersistence'
 import { calculateWBProfessionalTax } from '~/utils/taxCalculations'
 
-const { loading, fetchWagesByMonth, updateWage, deleteWage, downloadWageSlip, fetchBankAccounts } = useWages()
+const { loading, fetchWagesByMonth, updateWage, deleteWage, downloadWageSlip, fetchBankAccounts, fetchAvailableMonths } = useWages()
 const toast = useToast()
 
 const getInitialMonth = () => {
@@ -47,8 +47,14 @@ const filteredWages = computed(() => {
 
 const loadData = async () => {
   try {
-    const bankRes = await fetchBankAccounts()
+    const [bankRes, monthsRes] = await Promise.all([
+      fetchBankAccounts(),
+      fetchAvailableMonths()
+    ])
     if (bankRes && bankRes.success) bankAccounts.value = bankRes.data
+    if (monthsRes && monthsRes.success && monthsRes.data?.latestMonth) {
+      month.value = monthsRes.data.latestMonth
+    }
     await loadWages()
   } catch (err: any) {
     toast.add({ title: 'Error loading data', description: err.message, color: 'error' })
