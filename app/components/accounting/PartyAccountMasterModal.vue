@@ -623,6 +623,22 @@ async function syncFromProps() {
   resetForm(); // ALWAYS wipe stale state immediately so no previous row's data is shown!
   if (props.initialData) {
     hydrateInitialData(props.initialData);
+    if (!form.value._id && (props.initialData.name || props.initialData.account_name)) {
+      try {
+        const targetName = (props.initialData.name || props.initialData.account_name).trim().toLowerCase();
+        const coaRes: any = await api.get('/accounting/coa').catch(() => null);
+        const match = coaRes?.data?.find((a: any) => (a.account_name || '').trim().toLowerCase() === targetName);
+        if (match && match._id) {
+          form.value._id = String(match._id);
+          if (match.opening_balance !== undefined && !form.value.opening_balance) {
+            form.value.opening_balance = match.opening_balance;
+            form.value.balance_type = match.balance_type || 'DR';
+          }
+        }
+      } catch {
+        // Continue with initial data
+      }
+    }
   } else if (props.accountId) {
     isLoadingAccount.value = true;
     try {

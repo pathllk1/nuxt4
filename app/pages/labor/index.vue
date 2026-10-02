@@ -234,73 +234,14 @@
       </div>
     </div>
 
-    <!-- Leader Modal -->
-    <UModal v-model:open="isLeaderModalOpen" :title="editingLeader ? 'Edit Labor Leader' : 'Register Labor Leader'">
-      <template #content>
-        <div class="bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
-          <div class="border-b border-gray-100 dark:border-gray-800 pb-3 flex justify-between items-center">
-            <h3 class="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-              {{ editingLeader ? 'Edit Labor Leader' : 'Register Labor Leader' }}
-            </h3>
-            <UButton icon="i-lucide-x" size="xs" color="neutral" variant="ghost" @click="isLeaderModalOpen = false" />
-          </div>
-
-          <form @submit.prevent="submitLeader" class="space-y-4 text-xs">
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Leader Name*</label>
-              <UInput v-model="leaderForm.name" placeholder="Enter leader/contractor name" size="sm" class="w-full font-semibold" required />
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Phone Number</label>
-              <UInput v-model="leaderForm.phone" placeholder="Enter contact phone" size="sm" class="w-full font-semibold" />
-            </div>
-            <div v-if="editingLeader" class="space-y-1">
-              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Status</label>
-              <USelect v-model="leaderForm.status" :items="['Active', 'Inactive']" size="sm" class="w-full font-semibold cursor-pointer" />
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">PAN Number</label>
-                <UInput v-model="leaderForm.pan" placeholder="ABCDE1234F" maxlength="10" size="sm" class="w-full font-semibold uppercase font-mono" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Aadhaar Number</label>
-                <UInput v-model="leaderForm.aadhaar_number" placeholder="12-digit Aadhaar" maxlength="12" size="sm" class="w-full font-semibold font-mono" />
-              </div>
-            </div>
-
-            <div class="space-y-1">
-              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">GSTIN (Optional)</label>
-              <UInput v-model="leaderForm.gst_number" placeholder="15-digit GSTIN" maxlength="15" size="sm" class="w-full font-semibold uppercase font-mono" />
-            </div>
-
-            <div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-3">
-              <h4 class="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">Bank Details (Optional)</h4>
-              <div class="space-y-1">
-                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Bank Name</label>
-                <UInput v-model="leaderForm.bank_name" placeholder="e.g. HDFC Bank" size="sm" class="w-full font-semibold" />
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="space-y-1">
-                  <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Account Number</label>
-                  <UInput v-model="leaderForm.account_number" placeholder="000000000000" size="sm" class="w-full font-semibold" />
-                </div>
-                <div class="space-y-1">
-                  <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">IFSC Code</label>
-                  <UInput v-model="leaderForm.ifsc_code" placeholder="HDFC0001234" size="sm" class="w-full font-semibold uppercase" />
-                </div>
-              </div>
-            </div>
-
-            <div class="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
-              <UButton label="Cancel" variant="ghost" color="neutral" size="sm" @click="isLeaderModalOpen = false" />
-              <UButton type="submit" label="Save Leader" color="primary" variant="solid" size="sm" class="font-bold cursor-pointer" :loading="savingLeader" />
-            </div>
-          </form>
-        </div>
-      </template>
-    </UModal>
+    <!-- Unified Master Party/Account Modal for Labor Leaders -->
+    <PartyAccountMasterModal
+      v-model="isLeaderModalOpen"
+      :account-id="editingLeaderAccountId"
+      :initial-data="editingLeader"
+      default-type="LABOR_LEADER"
+      @saved="onLeaderSaved"
+    />
 
     <!-- Period Modal -->
     <UModal v-model:open="isPeriodModalOpen" :title="editingPeriod ? 'Edit Work Period' : 'Start Work Period'">
@@ -348,6 +289,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useLabor } from '~/composables/useLabor';
+import PartyAccountMasterModal from '@/components/accounting/PartyAccountMasterModal.vue';
 
 definePageMeta({
   layout: 'default'
@@ -369,19 +311,7 @@ const {
 const leaderFilter = ref('All Leaders');
 const isLeaderModalOpen = ref(false);
 const editingLeader = ref<any>(null);
-const savingLeader = ref(false);
-
-const leaderForm = reactive({
-  name: '',
-  phone: '',
-  pan: '',
-  aadhaar_number: '',
-  gst_number: '',
-  bank_name: '',
-  account_number: '',
-  ifsc_code: '',
-  status: 'Active'
-});
+const editingLeaderAccountId = ref<string | null>(null);
 
 const isPeriodModalOpen = ref(false);
 const editingPeriod = ref<any>(null);
@@ -431,47 +361,25 @@ const formatDate = (dateStr: string) => {
 };
 
 const openLeaderModal = (leader: any = null) => {
-  editingLeader.value = leader;
-  if (leader) {
-    leaderForm.name = leader.name || '';
-    leaderForm.phone = leader.phone || '';
-    leaderForm.pan = leader.pan || '';
-    leaderForm.aadhaar_number = leader.aadhaar_number || '';
-    leaderForm.gst_number = leader.gst_number || '';
-    leaderForm.bank_name = leader.bank_name || '';
-    leaderForm.account_number = leader.account_number || '';
-    leaderForm.ifsc_code = leader.ifsc_code || '';
-    leaderForm.status = leader.status || 'Active';
-  } else {
-    leaderForm.name = '';
-    leaderForm.phone = '';
-    leaderForm.pan = '';
-    leaderForm.aadhaar_number = '';
-    leaderForm.gst_number = '';
-    leaderForm.bank_name = '';
-    leaderForm.account_number = '';
-    leaderForm.ifsc_code = '';
-    leaderForm.status = 'Active';
-  }
+  editingLeader.value = leader ? {
+    ...leader,
+    account_name: leader.name,
+    account_type: 'LABOR_LEADER',
+    name: leader.name,
+    phone: leader.phone || '',
+    pan: leader.pan || '',
+    aadhaar_number: leader.aadhaar_number || '',
+    bank_name: leader.bank_name || '',
+    account_number: leader.account_number || '',
+    ifsc_code: leader.ifsc_code || '',
+    status: leader.status || 'Active'
+  } : null;
+  editingLeaderAccountId.value = null;
   isLeaderModalOpen.value = true;
 };
 
-const submitLeader = async () => {
-  if (!leaderForm.name.trim()) return;
-  savingLeader.value = true;
-  try {
-    if (editingLeader.value) {
-      await updateLeader(editingLeader.value.id, leaderForm);
-    } else {
-      await createLeader(leaderForm);
-    }
-    isLeaderModalOpen.value = false;
-    await fetchLeaders();
-  } catch (err: any) {
-    alert(err.message || 'Error saving leader');
-  } finally {
-    savingLeader.value = false;
-  }
+const onLeaderSaved = async () => {
+  await fetchLeaders();
 };
 
 const handleDeleteLeader = async (id: string, name: string) => {

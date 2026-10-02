@@ -37,21 +37,39 @@ export default defineEventHandler(async (event) => {
         let sql = getSql();
         if (!sql) sql = await connectPostgres();
         if (sql) {
-          await sql`
-            INSERT INTO labor_leaders (firm_id, name, phone, pan, aadhaar_number, bank_name, account_number, ifsc_code, status)
-            VALUES (
-              ${firmIdStr}, 
-              ${name}, 
-              ${body.phone || body.contact || null}, 
-              ${body.pan ? String(body.pan).trim().toUpperCase() : null}, 
-              ${body.aadhaar_number || body.aadhaar || null}, 
-              ${body.bank_name || body.bankName || null}, 
-              ${body.account_number || body.accountNumber || null}, 
-              ${body.ifsc_code || body.ifscCode ? String(body.ifsc_code || body.ifscCode).trim().toUpperCase() : null}, 
-              'Active'
-            )
-            ON CONFLICT (id) DO NOTHING
+          const existing = await sql`
+            SELECT id FROM labor_leaders WHERE firm_id = ${firmIdStr} AND LOWER(TRIM(name)) = LOWER(TRIM(${name})) LIMIT 1
           `;
+          if (existing && existing.length > 0 && existing[0]) {
+            const existingId = existing[0].id;
+            await sql`
+              UPDATE labor_leaders
+              SET
+                phone = ${body.phone || body.contact || null},
+                pan = ${body.pan ? String(body.pan).trim().toUpperCase() : null},
+                aadhaar_number = ${body.aadhaar_number || body.aadhaar || null},
+                bank_name = ${body.bank_name || body.bankName || null},
+                account_number = ${body.account_number || body.accountNumber || null},
+                ifsc_code = ${body.ifsc_code || body.ifscCode ? String(body.ifsc_code || body.ifscCode).trim().toUpperCase() : null},
+                updated_at = CURRENT_TIMESTAMP
+              WHERE id = ${existingId}
+            `;
+          } else {
+            await sql`
+              INSERT INTO labor_leaders (firm_id, name, phone, pan, aadhaar_number, bank_name, account_number, ifsc_code, status)
+              VALUES (
+                ${firmIdStr}, 
+                ${name}, 
+                ${body.phone || body.contact || null}, 
+                ${body.pan ? String(body.pan).trim().toUpperCase() : null}, 
+                ${body.aadhaar_number || body.aadhaar || null}, 
+                ${body.bank_name || body.bankName || null}, 
+                ${body.account_number || body.accountNumber || null}, 
+                ${body.ifsc_code || body.ifscCode ? String(body.ifsc_code || body.ifscCode).trim().toUpperCase() : null}, 
+                'Active'
+              )
+            `;
+          }
         }
       } catch (pgErr) {
         console.error('Failed to sync PostgreSQL labor leader on create:', pgErr);
