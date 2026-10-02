@@ -258,19 +258,33 @@ export class UnifiedPostingService {
       let partyId = leg.partyId || null;
       let bankAccountId = leg.bankAccountId || null;
 
-      // Auto-resolve partyId by accountHead if missing on debtor/creditor accounts
-      if (!partyId && PARTY_REQUIRED_ACCOUNT_TYPES.has(accountType)) {
-        const escaped = rawHead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const matchedParty = await Party.findOne(
-          {
+      // Validate & resolve partyId for party-linked account types
+      if (PARTY_REQUIRED_ACCOUNT_TYPES.has(accountType) || PARTY_REQUIRED_ACCOUNT_TYPES.has(fallbackType)) {
+        let isValidParty = false;
+        if (partyId) {
+          const exists = await Party.exists({
+            _id: partyId,
             $or: [{ firmId }, { firm_id: firmId }],
-            name: { $regex: `^${escaped}$`, $options: 'i' },
-          },
-          '_id',
-          { session }
-        ).lean();
-        if (matchedParty) {
-          partyId = matchedParty._id as any;
+          }).session(session || null);
+          if (exists) isValidParty = true;
+        }
+
+        // If partyId was missing or invalid (e.g. caller passed a COA id):
+        if (!isValidParty) {
+          const escaped = rawHead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const matchedParty = await Party.findOne(
+            {
+              $or: [{ firmId }, { firm_id: firmId }],
+              name: { $regex: `^${escaped}$`, $options: 'i' },
+            },
+            '_id',
+            { session }
+          ).lean();
+          if (matchedParty) {
+            partyId = matchedParty._id as any;
+          } else {
+            partyId = null;
+          }
         }
       }
 
@@ -282,19 +296,30 @@ export class UnifiedPostingService {
         );
       }
 
-      // Auto-resolve bankAccountId by accountHead if missing on BANK accounts
-      if (!bankAccountId && accountType === 'BANK') {
-        const escaped = rawHead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const matchedBank = await BankAccount.findOne(
-          {
+      // Validate & resolve bankAccountId on BANK accounts
+      if (accountType === 'BANK' || fallbackType === 'BANK') {
+        let isValidBank = false;
+        if (bankAccountId) {
+          const exists = await BankAccount.exists({
+            _id: bankAccountId,
             $or: [{ firm_id: firmId }, { firmId: firmId }],
-            account_name: { $regex: `^${escaped}$`, $options: 'i' },
-          },
-          '_id',
-          { session }
-        ).lean();
-        if (matchedBank) {
-          bankAccountId = matchedBank._id as any;
+          }).session(session || null);
+          if (exists) isValidBank = true;
+        }
+
+        if (!isValidBank) {
+          const escaped = rawHead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const matchedBank = await BankAccount.findOne(
+            {
+              $or: [{ firm_id: firmId }, { firmId: firmId }],
+              account_name: { $regex: `^${escaped}$`, $options: 'i' },
+            },
+            '_id',
+            { session }
+          ).lean();
+          if (matchedBank) {
+            bankAccountId = matchedBank._id as any;
+          }
         }
       }
 

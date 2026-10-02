@@ -5,12 +5,14 @@ import { useAccounting } from '@/composables/useAccounting';
 import { useApi } from '@/utils/api';
 import StatementModal from '@/components/accounting/StatementModal.vue';
 import YearEndClosingModal from '@/components/accounting/YearEndClosingModal.vue';
+import SLGLAuditModal from '@/components/accounting/SLGLAuditModal.vue';
 
 const router = useRouter();
 const api = useApi();
 const { trialBalance, fetchTrialBalance, exportProfitLossPdf, exportBalanceSheetPdf, exportProfitLossExcel, exportBalanceSheetExcel, loading, error } = useAccounting();
 
 const showYearEndModal = ref(false);
+const showSlglModal = ref(false);
 const slglReport = ref<any>(null);
 const slglLoading = ref(false);
 
@@ -398,8 +400,15 @@ onMounted(loadData);
         />
       </div>
 
-      <!-- SL-GL Parity Indicator Badge -->
-      <div v-if="slglReport" class="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold shadow-sm" :class="slglReport.overallStatus === 'HEALTHY' ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'">
+      <!-- SL-GL Parity Indicator Badge (Clickable for Audit Modal) -->
+      <button 
+        v-if="slglReport" 
+        type="button"
+        @click="showSlglModal = true"
+        class="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer select-none" 
+        :class="slglReport.overallStatus === 'HEALTHY' ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-100'"
+        title="Click to view detailed SL-GL reconciliation report"
+      >
         <UIcon :name="slglReport.overallStatus === 'HEALTHY' ? 'i-heroicons-shield-check' : 'i-heroicons-shield-exclamation'" class="w-4 h-4 shrink-0" />
         <span class="text-[11px] font-black uppercase tracking-wider">
           {{ slglReport.overallStatus === 'HEALTHY' ? 'SL-GL Parity: Matched' : 'SL-GL: Drift Detected' }}
@@ -407,7 +416,8 @@ onMounted(loadData);
         <span v-if="slglReport.untaggedVoucherCount > 0" class="text-[10px] opacity-75 font-mono">
           ({{ slglReport.untaggedVoucherCount }} untagged)
         </span>
-      </div>
+        <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 opacity-60 ml-0.5" />
+      </button>
     </div>
 
     <!-- Error State -->
@@ -974,6 +984,14 @@ onMounted(loadData);
     <YearEndClosingModal
       v-model="showYearEndModal"
       @closed="loadData"
+    />
+
+    <!-- SL-GL Reconciliation Diagnostic Modal -->
+    <SLGLAuditModal
+      v-model="showSlglModal"
+      :report="slglReport"
+      :loading="slglLoading"
+      @refresh="fetchSlGlReconcile"
     />
     </div>
   </div>

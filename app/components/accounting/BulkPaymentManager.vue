@@ -742,7 +742,7 @@ function onBeneficiarySelect(accountOrName: any) {
     quickForm.value.accountHead = account.account_name || '';
     quickForm.value.beneficiaryName = account.account_name || '';
     quickForm.value.accountType = account.account_type || 'EXPENSE';
-    quickForm.value.partyId = account._id || null;
+    quickForm.value.partyId = account.party_id || account.partyId || null;
 
     // Auto-fill Beneficiary Bank Details if available, or RESET TO EMPTY STRING if absent
     quickForm.value.beneficiaryAccountNo = account.account_number ? String(account.account_number).trim() : '';

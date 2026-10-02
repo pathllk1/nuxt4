@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import BulkPayment from '../../../models/BulkPayment';
 import BankAccount from '../../../models/BankAccount';
+import Party from '../../../models/Party';
 import { UnifiedPostingService } from '../../../utils/accounting/unified-posting.service';
 import { requireAuthSession } from '../../../utils/auth';
 
@@ -52,9 +53,21 @@ export default defineEventHandler(async (event) => {
       const itemNarration = rawItem.narration || narration || `Bulk payout via ${rawItem.paysysId || 'NEFT'} Chq: ${chequeNo || '-'}`;
       const fullLineNarration = `${itemNarration} | Beneficiary: ${rawItem.beneficiaryName || '-'} (A/C: ${rawItem.beneficiaryAccountNo || '-'}, IFSC: ${rawItem.beneficiaryIfsc || '-'}) | Batch: ${batchNo}`;
 
-      const partyIdObj = rawItem.partyId && mongoose.Types.ObjectId.isValid(String(rawItem.partyId))
+      let partyIdObj = rawItem.partyId && mongoose.Types.ObjectId.isValid(String(rawItem.partyId))
         ? new mongoose.Types.ObjectId(String(rawItem.partyId))
         : null;
+
+      if (partyIdObj) {
+        const partyExists = await Party.exists({ _id: partyIdObj, firmId: firmIdObj }).session(session);
+        if (!partyExists) {
+          const targetName = rawItem.accountHead || rawItem.beneficiaryName;
+          const matchedParty = await Party.findOne({
+            firmId: firmIdObj,
+            name: { $regex: `^${String(targetName).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+          }).session(session).lean();
+          partyIdObj = matchedParty ? (matchedParty._id as mongoose.Types.ObjectId) : null;
+        }
+      }
 
       // Double-entry via UnifiedPostingService:
       // Leg 1: Debit Party/Expense Account

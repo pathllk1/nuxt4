@@ -187,6 +187,8 @@ export default defineEventHandler(async (event) => {
 
     return {
       ...acc,
+      party_id: party?._id || null,
+      partyId: party?._id || null,
       pan: resolvedPan,
       gstin: resolvedGstin,
       phone: resolvedPhone,
