@@ -144,49 +144,65 @@ export const laborLedgerHelper = {
 
       const transactionDate: string = payment_date || (new Date().toISOString().split('T')[0] as string);
       const totalGrossLiability = Number(total_wages) + Number(total_expenses);
-      const adjustmentAmount = Number(net_payable) - Number(paid_amount);
+      const numNetPayable = Number(net_payable);
+      const numPaidAmount = Number(paid_amount);
       const bankIdObj = mongoBankAccountId ? new mongoose.Types.ObjectId(String(mongoBankAccountId)) : null;
 
-      const legs: IVoucherLeg[] = [
-        // 1. Debit: Labor Wages & Expenses (Cost to firm)
-        {
-          accountHead: 'Labor Wages & Expenses',
-          accountType: 'EXPENSE',
-          debitAmount: totalGrossLiability,
-          creditAmount: 0,
-          narration: `Final settlement for ${leader_name}`,
-        },
-        // 2. Credit: Labor Leader Account (Gross liability)
-        {
-          accountHead: leader_name,
-          accountType: 'LABOR_LEADER',
-          debitAmount: 0,
-          creditAmount: totalGrossLiability,
-          narration: `Settlement liability - ${leader_name}`,
-        },
-        // 3. Credit: Cash / Bank Account (Funds leaving firm)
-        {
-          accountHead: paymentPostAccountHead,
-          accountType: paymentPostAccountType,
-          debitAmount: 0,
-          creditAmount: paid_amount,
-          bankAccountId: bankIdObj,
-          paymentMode: payment_mode,
-          narration: `Final payout for ${leader_name}${adjustmentAmount !== 0 ? ' (Adjusted)' : ''} (${payment_mode})`,
-        },
-        // 4. Debit: Labor Leader Account (Clear liability against payout)
-        {
-          accountHead: leader_name,
-          accountType: 'LABOR_LEADER',
-          debitAmount: paid_amount,
-          creditAmount: 0,
-          narration: `Final payout for ${leader_name}`,
-        },
-      ];
+      const legs: IVoucherLeg[] = [];
 
-      // 5. Handle Adjustment / Discount
+      // 1 & 2. Gross Wage / Expense Liability (Cost to firm)
+      if (totalGrossLiability > 0) {
+        legs.push(
+          {
+            accountHead: 'Labor Wages & Expenses',
+            accountType: 'EXPENSE',
+            debitAmount: totalGrossLiability,
+            creditAmount: 0,
+            narration: `Final settlement for ${leader_name}`,
+          },
+          {
+            accountHead: leader_name,
+            accountType: 'LABOR_LEADER',
+            debitAmount: 0,
+            creditAmount: totalGrossLiability,
+            narration: `Settlement liability - ${leader_name}`,
+          }
+        );
+      }
+
+      // 3 & 4. Payout Legs (Funds leaving firm, only if money actually paid)
+      if (numPaidAmount > 0) {
+        legs.push(
+          {
+            accountHead: paymentPostAccountHead,
+            accountType: paymentPostAccountType,
+            debitAmount: 0,
+            creditAmount: numPaidAmount,
+            bankAccountId: bankIdObj,
+            paymentMode: payment_mode,
+            narration: `Final payout for ${leader_name} (${payment_mode})`,
+          },
+          {
+            accountHead: leader_name,
+            accountType: 'LABOR_LEADER',
+            debitAmount: numPaidAmount,
+            creditAmount: 0,
+            narration: `Final payout for ${leader_name}`,
+          }
+        );
+      }
+
+      // 5 & 6. Handle Settlement Adjustment / Discount / Rounding
+      // Note: Adjustments only apply when net_payable > 0 and the actual payout differs from net_payable.
+      // If net_payable <= 0, advances exceeded wages; the remaining advance balance simply carries forward
+      // on the leader's account in the General Ledger as an asset (unabsorbed advance) and MUST NOT be written off.
+      let adjustmentAmount = 0;
+      if (numNetPayable > 0) {
+        adjustmentAmount = numNetPayable - numPaidAmount;
+      }
+
       if (Math.abs(adjustmentAmount) > 0.01) {
-        // If paying less than net_payable: Credit Income, Debit Leader Account
+        // If paying less than net_payable: Credit Income (Discount/Waiver), Debit Leader Account
         legs.push({
           accountHead: 'Labor Settlement Adjustments',
           accountType: adjustmentAmount > 0 ? 'INCOME' : 'EXPENSE',
@@ -202,6 +218,11 @@ export const laborLedgerHelper = {
           creditAmount: adjustmentAmount < 0 ? Math.abs(adjustmentAmount) : 0,
           narration: `Settlement adjustment clearing - ${leader_name}`,
         });
+      }
+
+      // If no financial movement occurred (e.g. 0 wages, 0 payout), return a synthetic reference without posting empty voucher
+      if (legs.length === 0) {
+        return `SETTLED-NO-VOUCHER-${Date.now()}`;
       }
 
       const postResult = await UnifiedPostingService.postVoucher({

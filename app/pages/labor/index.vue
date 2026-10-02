@@ -131,6 +131,18 @@
                   </td>
                   <td class="px-3.5 py-2.5 text-right" @click.stop>
                     <div class="flex items-center justify-end gap-1.5">
+                      <!-- Edit / Rectify Period (Open only) -->
+                      <UButton 
+                        v-if="p.status === 'Open'"
+                        icon="i-lucide-pencil" 
+                        variant="ghost" 
+                        color="neutral" 
+                        size="xs" 
+                        class="cursor-pointer"
+                        title="Rectify / Edit Period Dates"
+                        @click="openPeriodModal(p)"
+                      />
+                      <!-- Delete Period (Open only) -->
                       <UButton 
                         v-if="p.status === 'Open'"
                         icon="i-lucide-trash-2" 
@@ -138,7 +150,19 @@
                         color="error" 
                         size="xs" 
                         class="cursor-pointer"
+                        title="Delete Period"
                         @click="handleDeletePeriod(p.id)"
+                      />
+                      <!-- Reopen / Unsettle Period (Settled only) -->
+                      <UButton 
+                        v-if="p.status === 'Settled'"
+                        icon="i-lucide-rotate-ccw" 
+                        variant="ghost" 
+                        color="warning" 
+                        size="xs" 
+                        class="cursor-pointer"
+                        title="Reopen / Unsettle Period"
+                        @click="handleUnsettlePeriod(p.id, p.leader_name)"
                       />
                       <UButton 
                         label="Worksheet" 
@@ -248,9 +272,14 @@
       <template #content>
         <div class="bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
           <div class="border-b border-gray-100 dark:border-gray-800 pb-3 flex justify-between items-center">
-            <h3 class="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-              Start New Work Period
-            </h3>
+            <div>
+              <h3 class="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                {{ editingPeriod ? 'Rectify / Edit Work Period' : 'Start New Work Period' }}
+              </h3>
+              <p v-if="editingPeriod" class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                Update period date range or leader.
+              </p>
+            </div>
             <UButton icon="i-lucide-x" size="xs" color="neutral" variant="ghost" @click="isPeriodModalOpen = false" />
           </div>
 
@@ -277,7 +306,7 @@
 
             <div class="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
               <UButton label="Cancel" variant="ghost" color="neutral" size="sm" @click="isPeriodModalOpen = false" />
-              <UButton type="submit" label="Initialize Period" color="primary" variant="solid" size="sm" class="font-bold cursor-pointer" :loading="savingPeriod" />
+              <UButton type="submit" :label="editingPeriod ? 'Update Period' : 'Initialize Period'" color="primary" variant="solid" size="sm" class="font-bold cursor-pointer" :loading="savingPeriod" />
             </div>
           </form>
         </div>
@@ -305,7 +334,9 @@ const {
   deleteLeader, 
   fetchPeriods, 
   createPeriod, 
-  deletePeriod 
+  updatePeriod,
+  deletePeriod,
+  unsettlePeriod
 } = useLabor();
 
 const leaderFilter = ref('All Leaders');
@@ -411,18 +442,33 @@ const submitPeriod = async () => {
   if (!periodForm.leader_id || !periodForm.start_date || !periodForm.end_date) return;
   savingPeriod.value = true;
   try {
-    await createPeriod(periodForm);
+    if (editingPeriod.value) {
+      await updatePeriod(editingPeriod.value.id, periodForm);
+    } else {
+      await createPeriod(periodForm);
+    }
     isPeriodModalOpen.value = false;
     await fetchPeriods();
   } catch (err: any) {
-    alert(err.message || 'Error creating work period');
+    alert(err.message || 'Error saving work period');
   } finally {
     savingPeriod.value = false;
   }
 };
 
+const handleUnsettlePeriod = async (id: string, leaderName: string) => {
+  if (confirm(`Are you sure you want to reopen and unsettle the work period for ${leaderName}? This will reverse the settlement voucher in General Accounting and restore the period to Open status.`)) {
+    try {
+      await unsettlePeriod(id);
+      await fetchPeriods();
+    } catch (err: any) {
+      alert(err.message || 'Failed to reopen work period');
+    }
+  }
+};
+
 const handleDeletePeriod = async (id: string) => {
-  if (confirm('Are you sure you want to delete this open work period?')) {
+  if (confirm('Are you sure you want to delete this open work period? Any unreversed advances will be safely reversed.')) {
     try {
       await deletePeriod(id);
       await fetchPeriods();

@@ -121,10 +121,37 @@ export const useLabor = () => {
     }
   };
 
+  const deleteAdvance = async (advanceId: string) => {
+    loading.value = true;
+    try {
+      return await api.delete(`/labor/payments/advance/${advanceId}`);
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const settlePeriod = async (payload: any) => {
     loading.value = true;
     try {
       return await api.post('/labor/payments/settle', payload);
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const updatePeriod = async (id: string, payload: any) => {
+    loading.value = true;
+    try {
+      return await api.put(`/labor/periods/${id}`, payload);
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const unsettlePeriod = async (id: string) => {
+    loading.value = true;
+    try {
+      return await api.post(`/labor/periods/${id}/unsettle`, {});
     } finally {
       loading.value = false;
     }
@@ -146,11 +173,14 @@ export const useLabor = () => {
     deleteLeader,
     fetchPeriods,
     createPeriod,
+    updatePeriod,
     deletePeriod,
+    unsettlePeriod,
     fetchPeriodDetails,
     syncPeriodData,
     payAdvance,
     allocateAdvance,
+    deleteAdvance,
     settlePeriod,
     exportPeriodExcel
   };

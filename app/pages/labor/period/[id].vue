@@ -25,14 +25,34 @@
               {{ period?.status }}
             </UBadge>
           </div>
-          <p class="text-[11px] text-gray-500 dark:text-gray-400 font-medium">
-            {{ formatDateRange(period?.start_date, period?.end_date) }} • ID: {{ period?.id?.substring(0, 8) }}
+          <p class="text-[11px] text-gray-500 dark:text-gray-400 font-medium flex items-center gap-1.5">
+            <span>{{ formatDateRange(period?.start_date, period?.end_date) }} • ID: {{ period?.id?.substring(0, 8) }}</span>
+            <UButton 
+              v-if="period?.status === 'Open'"
+              icon="i-lucide-pencil" 
+              variant="ghost" 
+              color="neutral" 
+              size="xs" 
+              class="cursor-pointer p-0.5" 
+              title="Rectify / Edit Dates"
+              @click="openEditDatesModal"
+            />
           </p>
         </div>
       </div>
 
       <!-- Action Buttons -->
       <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <UButton 
+          v-if="period?.status === 'Settled'"
+          icon="i-lucide-rotate-ccw" 
+          label="Reopen / Unsettle" 
+          color="warning" 
+          variant="outline" 
+          size="xs" 
+          class="font-bold cursor-pointer"
+          @click="handleUnsettleCurrentPeriod" 
+        />
         <UButton 
           icon="i-lucide-file-spreadsheet" 
           label="Export Excel" 
@@ -78,7 +98,7 @@
 
     <!-- General Ledger Advance Detection & Allocation Banner -->
     <div 
-      v-if="hasUnallocatedLedgerAdvance && period?.status === 'Open'" 
+      v-if="hasUnallocatedLedgerAdvance && period?.status === 'Open' && netPayable > 0" 
       class="p-3.5 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 border-2 border-amber-400/80 dark:border-amber-700/80 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-xs animate-fadeIn"
     >
       <div class="flex items-start gap-3">
@@ -100,7 +120,7 @@
       <div class="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
         <UButton 
           icon="i-lucide-zap"
-          :label="`⚡ Allocate ₹${formatINR(Math.min(netPayable, leaderLedgerBalance.current_balance))} to Period`"
+          :label="`⚡ Allocate ₹${formatINR(Math.min(Math.max(0, netPayable), leaderLedgerBalance.current_balance))} to Period`"
           color="warning"
           variant="solid"
           size="xs"
@@ -357,8 +377,21 @@
                 Paid on {{ formatDate(adv.payment_date) }} • {{ adv.paid_from_bank_account_id ? 'Bank Account' : (adv.ledger_voucher_group_id === 'ALLOCATED_FROM_LEDGER' ? 'General Ledger Advance' : 'Cash') }}
               </div>
             </div>
-            <div class="text-xs font-black text-amber-700 dark:text-amber-300">
-              ₹{{ formatINR(adv.amount) }}
+            <div class="flex items-center gap-2">
+              <div class="text-xs font-black text-amber-700 dark:text-amber-300">
+                ₹{{ formatINR(adv.amount) }}
+              </div>
+              <UButton 
+                v-if="period?.status === 'Open'"
+                icon="i-lucide-trash-2" 
+                variant="ghost" 
+                color="error" 
+                size="xs" 
+                title="Revoke / Delete Advance"
+                class="cursor-pointer p-1"
+                :loading="revokingAdvanceId === adv.id"
+                @click="handleRevokeAdvance(adv)" 
+              />
             </div>
           </div>
         </div>
@@ -483,6 +516,43 @@
         </div>
       </template>
     </UModal>
+
+    <!-- Edit Dates Modal -->
+    <UModal v-model:open="isEditDatesModalOpen" title="Rectify Work Period Dates">
+      <template #content>
+        <div class="bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
+          <div class="border-b border-gray-100 dark:border-gray-800 pb-3 flex justify-between items-center">
+            <div>
+              <h3 class="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                Rectify Work Period Dates
+              </h3>
+              <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                Adjust start date and end date for {{ period?.leader_name }}'s work period.
+              </p>
+            </div>
+            <UButton icon="i-lucide-x" size="xs" color="neutral" variant="ghost" @click="isEditDatesModalOpen = false" />
+          </div>
+
+          <form @submit.prevent="handleUpdateDates" class="space-y-4 text-xs">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Start Date*</label>
+                <UInput v-model="editDatesForm.start_date" type="date" size="sm" class="w-full font-semibold cursor-pointer" required />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">End Date*</label>
+                <UInput v-model="editDatesForm.end_date" type="date" size="sm" class="w-full font-semibold cursor-pointer" required />
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <UButton label="Cancel" variant="ghost" color="neutral" size="sm" @click="isEditDatesModalOpen = false" />
+              <UButton type="submit" label="Save Dates" color="primary" variant="solid" size="sm" class="font-bold cursor-pointer" :loading="updatingDates" />
+            </div>
+          </form>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -502,6 +572,9 @@ const {
   syncPeriodData, 
   payAdvance, 
   allocateAdvance,
+  deleteAdvance,
+  updatePeriod,
+  unsettlePeriod,
   settlePeriod, 
   exportPeriodExcel 
 } = useLabor();
@@ -519,6 +592,7 @@ const localWorkers = ref<any[]>([]);
 const localExpenses = ref<any[]>([]);
 const savingData = ref(false);
 const allocating = ref(false);
+const revokingAdvanceId = ref<string | null>(null);
 
 const isAdvanceModalOpen = ref(false);
 const postingAdvance = ref(false);
@@ -538,6 +612,48 @@ const settlementForm = reactive({
   bank_account_id: '',
   adjustment_reason: ''
 });
+
+const isEditDatesModalOpen = ref(false);
+const updatingDates = ref(false);
+const editDatesForm = reactive({
+  start_date: '',
+  end_date: ''
+});
+
+const openEditDatesModal = () => {
+  if (!period.value) return;
+  editDatesForm.start_date = period.value.start_date.split('T')[0];
+  editDatesForm.end_date = period.value.end_date.split('T')[0];
+  isEditDatesModalOpen.value = true;
+};
+
+const handleUpdateDates = async () => {
+  if (!editDatesForm.start_date || !editDatesForm.end_date) return;
+  updatingDates.value = true;
+  try {
+    await updatePeriod(String(route.params.id), {
+      start_date: editDatesForm.start_date,
+      end_date: editDatesForm.end_date
+    });
+    isEditDatesModalOpen.value = false;
+    await loadDetails();
+  } catch (err: any) {
+    alert(err.message || 'Failed to update period dates');
+  } finally {
+    updatingDates.value = false;
+  }
+};
+
+const handleUnsettleCurrentPeriod = async () => {
+  if (confirm(`Are you sure you want to reopen and unsettle this work period? This will reverse the settlement voucher in General Accounting and restore the period to Open status.`)) {
+    try {
+      await unsettlePeriod(String(route.params.id));
+      await loadDetails();
+    } catch (err: any) {
+      alert(err.message || 'Failed to reopen work period');
+    }
+  }
+};
 
 const dates = computed(() => {
   if (!period.value?.start_date || !period.value?.end_date) return [];
@@ -775,7 +891,7 @@ const submitAdvance = async () => {
 
 const handleQuickAllocate = async () => {
   if (!period.value?.id) return;
-  const allocAmount = Math.min(netPayable.value, leaderLedgerBalance.value.current_balance);
+  const allocAmount = Math.min(Math.max(0, netPayable.value), leaderLedgerBalance.value.current_balance);
   if (allocAmount <= 0) {
     alert('No remaining net payable balance to allocate.');
     return;
@@ -792,6 +908,25 @@ const handleQuickAllocate = async () => {
     alert(err.message || 'Error allocating ledger advance');
   } finally {
     allocating.value = false;
+  }
+};
+
+const handleRevokeAdvance = async (adv: any) => {
+  const isAllocated = adv.ledger_voucher_group_id === 'ALLOCATED_FROM_LEDGER';
+  const confirmMsg = isAllocated
+    ? `Revoke allocated advance of ₹${formatINR(adv.amount)}? This will remove the advance deduction from this work period.`
+    : `Revoke advance of ₹${formatINR(adv.amount)} paid on ${formatDate(adv.payment_date)}? This will delete the advance and reverse the ledger voucher.`;
+
+  if (confirm(confirmMsg)) {
+    revokingAdvanceId.value = adv.id;
+    try {
+      await deleteAdvance(adv.id);
+      await loadDetails();
+    } catch (err: any) {
+      alert(err.message || 'Error revoking advance');
+    } finally {
+      revokingAdvanceId.value = null;
+    }
   }
 };
 

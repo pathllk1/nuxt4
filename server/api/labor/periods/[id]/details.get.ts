@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
     const bankAccounts = await BankAccount.find({ firm_id: session.firm_id }).sort({ account_name: 1 }).lean();
 
     // 8. Fetch Leader's current General Ledger balance from MongoDB to detect unallocated advances
-    let leaderLedgerBalance = { current_balance: 0, current_balance_type: 'DR', raw_net: 0 };
+    let leaderLedgerBalance: { current_balance: number; current_balance_type: string; raw_net: number; total_tracked_in_labor?: number } = { current_balance: 0, current_balance_type: 'DR', raw_net: 0 };
     try {
       const mongoose = await import('mongoose');
       const Ledger = (await import('../../../../models/Ledger')).default;
@@ -131,10 +131,22 @@ export default defineEventHandler(async (event) => {
       const totalCredit = (ledger && ledger.length > 0) ? ledger_credit : ob_credit;
       const rawNet = totalDebit - totalCredit;
 
+      // Deduct advances already tracked in open labor periods for this leader to avoid double-counting
+      const [advancesTotal] = await sql`
+        SELECT COALESCE(SUM(la.amount), 0) as total_tracked
+        FROM labor_advances la
+        JOIN labor_periods lp ON la.period_id = lp.id
+        WHERE lp.leader_id = ${period.leader_id}
+          AND lp.status = 'Open'
+      `;
+      const trackedInLabor = Number(advancesTotal?.total_tracked || 0);
+      const unallocatedAdvance = rawNet > trackedInLabor ? (rawNet - trackedInLabor) : 0;
+
       leaderLedgerBalance = {
-        current_balance: Math.abs(rawNet),
+        current_balance: unallocatedAdvance,
         current_balance_type: rawNet >= 0 ? 'DR' : 'CR',
-        raw_net: rawNet
+        raw_net: rawNet,
+        total_tracked_in_labor: trackedInLabor
       };
     } catch (err) {
       console.warn('Error fetching leader ledger balance:', err);
