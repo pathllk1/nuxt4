@@ -31,6 +31,42 @@ const finalBalance = ref(0);
 const finalBalanceType = ref('DR');
 const exportLoading = ref(false);
 
+const toast = useToast();
+const deletingVoucher = ref<any>(null);
+const showDeleteConfirm = ref(false);
+const isDeleting = ref(false);
+
+const confirmDeleteVoucher = (entry: any) => {
+  deletingVoucher.value = entry;
+  showDeleteConfirm.value = true;
+};
+
+const executeDeleteVoucher = async () => {
+  if (!deletingVoucher.value?.voucherGroupId) return;
+  isDeleting.value = true;
+  try {
+    const res: any = await api.delete(`/accounting/vouchers/${encodeURIComponent(deletingVoucher.value.voucherGroupId)}`);
+    if (res && res.success) {
+      toast.add({
+        title: 'Voucher Deleted',
+        description: res.message || `Voucher ${deletingVoucher.value.voucherNo} deleted`,
+        color: 'success'
+      });
+      showDeleteConfirm.value = false;
+      deletingVoucher.value = null;
+      await loadStatement();
+    }
+  } catch (err: any) {
+    toast.add({
+      title: 'Failed to Delete Voucher',
+      description: err.data?.statusMessage || err.message || 'Error deleting voucher',
+      color: 'error'
+    });
+  } finally {
+    isDeleting.value = false;
+  }
+};
+
 const isOpen = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
@@ -249,6 +285,7 @@ const triggerPrint = () => {
               <th class="py-2.5 px-3 text-right">Debit (DR)</th>
               <th class="py-2.5 px-3 text-right">Credit (CR)</th>
               <th class="py-2.5 px-3 text-right">Running Balance</th>
+              <th class="py-2.5 px-3 text-center w-12 print:hidden">Action</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/50 font-medium text-slate-700 dark:text-zinc-300">
@@ -278,10 +315,82 @@ const triggerPrint = () => {
                   {{ formatINR(e.runningBalance || 0) }} {{ e.runningBalanceType }}
                 </span>
               </td>
+              <td class="py-2 px-3 text-center print:hidden">
+                <button
+                  v-if="e.voucherGroupId && e.voucherType !== 'OPENING_BALANCE'"
+                  type="button"
+                  class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                  title="Delete / Reverse Voucher"
+                  @click="confirmDeleteVoucher(e)"
+                >
+                  <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
     </UCard>
+
+    <!-- Confirm Delete Voucher Modal Overlay -->
+    <div 
+      v-if="showDeleteConfirm && deletingVoucher" 
+      class="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+      @click.self="showDeleteConfirm = false"
+    >
+      <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl max-w-md w-full p-5 border border-slate-200 dark:border-zinc-800 space-y-4">
+        <div class="flex items-center gap-3 text-rose-600">
+          <div class="p-2 bg-rose-50 dark:bg-rose-950/40 rounded-xl">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6" />
+          </div>
+          <div>
+            <h3 class="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">Delete Voucher</h3>
+            <p class="text-xs text-slate-500 font-mono">{{ deletingVoucher.voucherNo || deletingVoucher.voucherGroupId }}</p>
+          </div>
+        </div>
+
+        <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-100 dark:border-zinc-800 text-xs space-y-1.5">
+          <div class="flex justify-between text-slate-600 dark:text-zinc-400">
+            <span>Date:</span>
+            <span class="font-mono font-bold text-slate-900 dark:text-white">{{ deletingVoucher.transactionDate }}</span>
+          </div>
+          <div class="flex justify-between text-slate-600 dark:text-zinc-400">
+            <span>Type:</span>
+            <span class="font-bold text-slate-900 dark:text-white">{{ deletingVoucher.voucherType }}</span>
+          </div>
+          <div class="flex justify-between text-slate-600 dark:text-zinc-400">
+            <span>Amount:</span>
+            <span class="font-mono font-black text-rose-600">{{ formatINR(deletingVoucher.debitAmount || deletingVoucher.creditAmount) }}</span>
+          </div>
+          <div class="pt-1 text-[11px] text-slate-500 border-t dark:border-zinc-700">
+            <strong>Narration:</strong> {{ deletingVoucher.narration || 'No narration' }}
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-600 dark:text-zinc-300">
+          Are you sure you want to delete this voucher? All associated double-entry legs will be removed from the General Ledger.
+        </p>
+
+        <div class="flex justify-end gap-2 pt-2 border-t dark:border-zinc-800">
+          <UButton 
+            variant="ghost" 
+            color="neutral" 
+            size="xs" 
+            label="Cancel" 
+            :disabled="isDeleting"
+            @click="showDeleteConfirm = false" 
+          />
+          <UButton 
+            variant="solid" 
+            color="error" 
+            size="xs" 
+            icon="i-heroicons-trash"
+            label="Confirm Delete" 
+            :loading="isDeleting"
+            @click="executeDeleteVoucher" 
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>

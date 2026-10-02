@@ -77,20 +77,32 @@ export default defineEventHandler(async (event) => {
 
     // Insert into PostgreSQL labor_settlements & update labor_periods status
     let settlement: any = null;
-    await sql.begin(async (tx) => {
-      [settlement] = await tx`
-        INSERT INTO labor_settlements (
-          period_id, total_wages, total_expenses, total_advances, net_payable, paid_amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id, adjustment_reason
-        ) VALUES (
-          ${period_id}, ${totalWages}, ${totalExpenses}, ${totalAdvances}, ${netPayable}, ${numPaidAmount}, ${payment_date}, ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId}, ${adjustment_reason || null}
-        )
-        RETURNING *
-      `;
+    try {
+      await sql.begin(async (tx) => {
+        [settlement] = await tx`
+          INSERT INTO labor_settlements (
+            period_id, total_wages, total_expenses, total_advances, net_payable, paid_amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id, adjustment_reason
+          ) VALUES (
+            ${period_id}, ${totalWages}, ${totalExpenses}, ${totalAdvances}, ${netPayable}, ${numPaidAmount}, ${payment_date}, ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId}, ${adjustment_reason || null}
+          )
+          RETURNING *
+        `;
 
-      await tx`
-        UPDATE labor_periods SET status = 'Settled', updated_at = CURRENT_TIMESTAMP WHERE id = ${period_id}
-      `;
-    });
+        await tx`
+          UPDATE labor_periods SET status = 'Settled', updated_at = CURRENT_TIMESTAMP WHERE id = ${period_id}
+        `;
+      });
+    } catch (pgError: any) {
+      // If Postgres fails, rollback the dangling MongoDB voucher so it doesn't leave ghost entries
+      if (voucherGroupId && !voucherGroupId.startsWith('SETTLED-NO-VOUCHER')) {
+        try {
+          const mongoose = await import('mongoose');
+          const Ledger = (await import('../../../models/Ledger')).default;
+          await Ledger.deleteMany({ voucherGroupId });
+        } catch (_) {}
+      }
+      throw pgError;
+    }
 
     return { success: true, data: settlement };
   } catch (error: any) {
