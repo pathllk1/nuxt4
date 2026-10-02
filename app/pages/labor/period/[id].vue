@@ -62,17 +62,23 @@
           class="font-bold cursor-pointer"
           @click="handleExportExcel" 
         />
-        <UButton 
-          v-if="period?.status === 'Open'"
-          icon="i-lucide-save" 
-          label="Save & Sync Sheet" 
-          color="primary" 
-          variant="solid"
-          size="xs" 
-          class="font-bold cursor-pointer"
-          :loading="savingData"
-          @click="handleSync" 
-        />
+        <div class="flex items-center gap-1.5">
+          <span v-if="lastSavedTime" class="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-2 py-1 rounded-md animate-fadeIn">
+            <UIcon name="i-lucide-check-circle-2" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            Synced at {{ lastSavedTime }}
+          </span>
+          <UButton 
+            v-if="period?.status === 'Open'"
+            icon="i-lucide-save" 
+            label="Save & Sync Sheet" 
+            color="primary" 
+            variant="solid"
+            size="xs" 
+            class="font-bold cursor-pointer"
+            :loading="savingData"
+            @click="handleSync" 
+          />
+        </div>
         <UButton 
           v-if="period?.status === 'Open'"
           icon="i-lucide-banknotes" 
@@ -179,98 +185,169 @@
         />
       </div>
 
-      <div class="overflow-auto max-h-[60vh] relative custom-scrollbar border-b border-gray-200 dark:border-gray-800">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead class="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-20 shadow-xs">
+      <div class="overflow-auto max-h-[65vh] relative custom-scrollbar border border-gray-300 dark:border-gray-700 rounded-lg shadow-inner bg-white dark:bg-gray-900">
+        <table class="w-full text-left border-collapse text-xs select-none">
+          <thead class="bg-gray-100 dark:bg-gray-800 sticky top-0 z-20 shadow-xs">
             <tr>
-              <th class="px-2.5 py-2 font-bold text-gray-600 dark:text-gray-300 min-w-[180px] text-[10px] sticky left-0 z-30 bg-gray-100 dark:bg-gray-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Labor Name</th>
-              <th class="px-2.5 py-2 font-bold text-gray-600 dark:text-gray-300 w-20 text-[10px]">Daily Wage</th>
+              <!-- Row # Column -->
+              <th class="px-2 py-2 font-bold text-gray-500 dark:text-gray-400 w-10 text-center text-[10px] border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
+                #
+              </th>
+              
+              <!-- Sticky Labor Name -->
+              <th class="px-3 py-2 font-bold text-gray-700 dark:text-gray-200 min-w-[200px] text-[10px] sticky left-0 z-30 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.1)]">
+                Labor Name
+              </th>
+              
+              <!-- Daily Wage (Thick right border to separate from dates) -->
+              <th class="px-2.5 py-2 font-bold text-gray-700 dark:text-gray-200 w-24 text-right text-[10px] border border-gray-300 dark:border-gray-700 border-r-2 border-r-teal-500/50 dark:border-r-teal-400/50 bg-gray-100 dark:bg-gray-800">
+                Daily Wage (₹)
+              </th>
+              
+              <!-- Date Headers -->
               <th 
                 v-for="d in dates" 
                 :key="dateKey(d)" 
-                class="px-1 py-1.5 font-bold text-center w-7 text-[10px]"
-                :class="[isWeekend(d) ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-600' : 'text-gray-600 dark:text-gray-300']"
+                class="px-1 py-1.5 font-bold text-center w-8 min-w-[32px] text-[10px] border border-gray-300 dark:border-gray-700"
+                :class="[isWeekend(d) ? 'bg-amber-100/70 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700' : 'text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800']"
               >
-                <div class="text-[8px] uppercase opacity-75">{{ formatWeekday(d) }}</div>
-                <div>{{ d.getDate() }}</div>
+                <div class="text-[8px] uppercase font-bold opacity-80" :class="d.getDay() === 0 ? 'text-rose-600 dark:text-rose-400 font-extrabold' : ''">{{ formatWeekday(d) }}</div>
+                <div class="font-extrabold text-[11px] leading-tight">{{ d.getDate() }}</div>
               </th>
-              <th class="px-2.5 py-2 font-bold text-gray-600 dark:text-gray-300 w-20 text-right text-[10px]">Days</th>
-              <th class="px-2.5 py-2 font-bold text-gray-600 dark:text-gray-300 w-24 text-right text-[10px]">Total Wages</th>
-              <th v-if="period?.status === 'Open'" class="px-2 py-2 text-center w-8"></th>
+              
+              <!-- Summary: Days (Thick left border to separate from dates) -->
+              <th class="px-2.5 py-2 font-bold text-gray-700 dark:text-gray-200 w-20 text-center text-[10px] border border-gray-300 dark:border-gray-700 border-l-2 border-l-teal-500/50 dark:border-l-teal-400/50 bg-gray-100 dark:bg-gray-800">
+                Days
+              </th>
+              
+              <!-- Summary: Total Wages -->
+              <th class="px-3 py-2 font-bold text-gray-700 dark:text-gray-200 w-28 text-right text-[10px] border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
+                Total Wages (₹)
+              </th>
+              
+              <!-- Actions -->
+              <th v-if="period?.status === 'Open'" class="px-2 py-2 text-center w-10 border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800"></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+          <tbody>
             <tr v-if="localWorkers.length === 0">
-              <td :colspan="dates.length + 5" class="py-8 text-center text-gray-400 italic text-xs">
+              <td :colspan="dates.length + 6" class="py-12 text-center text-gray-400 italic text-xs border border-gray-300 dark:border-gray-700">
                 No workers added yet. Click "Add Worker Row" above to start logging attendance.
               </td>
             </tr>
-            <tr v-else v-for="(w, wIdx) in localWorkers" :key="w.id || wIdx" class="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 group">
-              <!-- Worker Name (Sticky Column 1) -->
-              <td class="px-2.5 py-1.5 sticky left-0 z-10 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                <input 
-                  v-if="period?.status === 'Open'"
-                  v-model="w.labor_name" 
-                  type="text" 
-                  placeholder="Enter worker name"
-                  class="w-full bg-transparent border-0 border-b border-dashed border-gray-300 dark:border-gray-700 focus:border-teal-500 focus:ring-0 text-xs font-semibold text-gray-900 dark:text-white px-1 py-0.5"
-                />
-                <span v-else class="font-semibold text-xs text-gray-900 dark:text-white">{{ w.labor_name }}</span>
+            <tr 
+              v-else 
+              v-for="(w, wIdx) in localWorkers" 
+              :key="w.id || wIdx" 
+              class="group transition-colors even:bg-gray-50/60 dark:even:bg-gray-900/40 hover:bg-teal-50/60 dark:hover:bg-teal-950/30"
+            >
+              <!-- Row # -->
+              <td class="px-1.5 py-1.5 text-center text-[10px] font-mono font-semibold text-gray-400 group-hover:text-teal-600 border border-gray-200 dark:border-gray-800 group-hover:border-teal-300/40">
+                {{ wIdx + 1 }}
               </td>
 
-              <!-- Daily Wage -->
-              <td class="px-2.5 py-1.5 bg-white dark:bg-gray-900 group-hover:bg-gray-50">
-                <input 
-                  v-if="period?.status === 'Open'"
-                  v-model.number="w.daily_wage" 
-                  type="number" 
-                  min="0"
-                  placeholder="0"
-                  class="w-full bg-transparent border-0 border-b border-dashed border-gray-300 dark:border-gray-700 focus:border-teal-500 focus:ring-0 text-xs font-semibold text-gray-900 dark:text-white px-1 py-0.5"
-                />
-                <span v-else class="font-semibold text-xs text-gray-900 dark:text-white">₹{{ w.daily_wage }}</span>
+              <!-- Worker Name (Sticky Column) -->
+              <td class="px-3 py-1.5 sticky left-0 z-10 bg-white dark:bg-gray-900 group-even:bg-gray-50/60 dark:group-even:bg-gray-900/40 group-hover:bg-teal-50 dark:group-hover:bg-teal-950/60 border border-gray-200 dark:border-gray-800 group-hover:border-teal-300/40 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)]">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-teal-500 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"></span>
+                  <input 
+                    v-if="period?.status === 'Open'"
+                    v-model="w.labor_name" 
+                    type="text" 
+                    placeholder="Enter worker name"
+                    class="w-full bg-transparent border-0 border-b border-dashed border-gray-300 dark:border-gray-700 focus:border-teal-500 focus:ring-0 text-xs font-bold text-gray-900 dark:text-white px-1 py-0.5 tracking-wide uppercase"
+                  />
+                  <span v-else class="font-bold text-xs text-gray-900 dark:text-white uppercase tracking-wide">{{ w.labor_name }}</span>
+                </div>
+              </td>
+
+              <!-- Daily Wage (Thick right border) -->
+              <td class="px-2.5 py-1.5 text-right border border-gray-200 dark:border-gray-800 border-r-2 border-r-teal-500/50 dark:border-r-teal-400/50 group-hover:border-teal-300/40">
+                <div class="flex items-center justify-end gap-1">
+                  <span class="text-[10px] text-gray-400">₹</span>
+                  <input 
+                    v-if="period?.status === 'Open'"
+                    v-model.number="w.daily_wage" 
+                    type="number" 
+                    min="0"
+                    placeholder="0"
+                    class="w-16 text-right bg-transparent border-0 border-b border-dashed border-gray-300 dark:border-gray-700 focus:border-teal-500 focus:ring-0 text-xs font-bold text-gray-900 dark:text-white px-1 py-0.5"
+                  />
+                  <span v-else class="font-bold text-xs text-gray-900 dark:text-white">{{ w.daily_wage }}</span>
+                </div>
               </td>
 
               <!-- Attendance Cells -->
               <td 
                 v-for="d in dates" 
                 :key="dateKey(d)" 
-                class="px-0.5 py-1.5 text-center"
+                class="px-0.5 py-1 text-center border border-gray-200 dark:border-gray-800 group-hover:border-teal-300/40"
+                :class="[isWeekend(d) ? 'bg-amber-50/40 dark:bg-amber-950/20' : '']"
               >
                 <button 
                   type="button"
                   :disabled="period?.status !== 'Open'"
-                  class="w-5 h-5 rounded text-[9px] font-bold transition flex items-center justify-center mx-auto cursor-pointer"
+                  class="w-6 h-6 rounded-md text-[10px] font-black transition-all flex items-center justify-center mx-auto cursor-pointer shadow-xs active:scale-95 hover:scale-105"
                   :class="getCellClass(w.attendance[dateKey(d)])"
+                  :title="`${w.labor_name || 'Worker'} | ${formatFullDate(d)}: Click to toggle (${getCellLabel(w.attendance[dateKey(d)])})`"
                   @click="cycleCell(wIdx, dateKey(d))"
                 >
                   {{ getCellLabel(w.attendance[dateKey(d)]) }}
                 </button>
               </td>
 
-              <!-- Total Present Days -->
-              <td class="px-2.5 py-1.5 text-right font-bold text-xs text-gray-700 dark:text-gray-300">
-                {{ calculateWorkerPresentDays(w) }}
+              <!-- Total Present Days (Thick left border) -->
+              <td class="px-2.5 py-1.5 text-center font-extrabold text-xs text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-800 border-l-2 border-l-teal-500/50 dark:border-l-teal-400/50 group-hover:border-teal-300/40 bg-gray-50/30 dark:bg-gray-800/20">
+                <span class="inline-block px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">
+                  {{ calculateWorkerPresentDays(w) }}
+                </span>
               </td>
 
               <!-- Total Wages -->
-              <td class="px-2.5 py-1.5 text-right font-extrabold text-xs text-gray-900 dark:text-white">
+              <td class="px-3 py-1.5 text-right font-black text-xs text-gray-900 dark:text-white border border-gray-200 dark:border-gray-800 group-hover:border-teal-300/40 bg-gray-50/30 dark:bg-gray-800/20">
                 ₹{{ formatINR(calculateWorkerTotal(w)) }}
               </td>
 
               <!-- Delete Row Button -->
-              <td v-if="period?.status === 'Open'" class="px-2 py-2 text-center">
+              <td v-if="period?.status === 'Open'" class="px-1.5 py-1 text-center border border-gray-200 dark:border-gray-800 group-hover:border-teal-300/40">
                 <UButton 
                   icon="i-lucide-trash-2" 
                   variant="ghost" 
                   color="error" 
                   size="xs" 
-                  class="cursor-pointer"
+                  class="cursor-pointer p-1"
+                  title="Remove worker row"
                   @click="removeWorkerRow(wIdx)" 
                 />
               </td>
             </tr>
           </tbody>
+          <!-- Footer Totals Row -->
+          <tfoot class="bg-gray-100 dark:bg-gray-800 border-t-2 border-gray-300 dark:border-gray-600 font-bold sticky bottom-0 z-20">
+            <tr>
+              <td class="px-2 py-2 text-center text-[10px] text-gray-500 border border-gray-300 dark:border-gray-700">∑</td>
+              <td class="px-3 py-2 text-xs font-bold text-gray-800 dark:text-gray-100 sticky left-0 z-30 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.1)]">
+                Total ({{ localWorkers.length }} Workers)
+              </td>
+              <td class="px-2.5 py-2 text-right text-[10px] text-gray-500 border border-gray-300 dark:border-gray-700 border-r-2 border-r-teal-500/50 dark:border-r-teal-400/50">—</td>
+              <td 
+                v-for="d in dates" 
+                :key="'tot-' + dateKey(d)" 
+                class="px-0.5 py-1.5 text-center text-[9px] font-black text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700"
+                :class="[isWeekend(d) ? 'bg-amber-100/60 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' : '']"
+                :title="`Total Present on ${formatFullDate(d)}: ${calculateDateTotalPresent(dateKey(d))}`"
+              >
+                {{ calculateDateTotalPresent(dateKey(d)) }}
+              </td>
+              <td class="px-2.5 py-2 text-center text-xs font-black text-gray-900 dark:text-white border border-gray-300 dark:border-gray-700 border-l-2 border-l-teal-500/50 dark:border-l-teal-400/50">
+                {{ totalPresentDaysSum }}
+              </td>
+              <td class="px-3 py-2 text-right text-xs font-black text-emerald-600 dark:text-emerald-400 border border-gray-300 dark:border-gray-700">
+                ₹{{ formatINR(sumWages) }}
+              </td>
+              <td v-if="period?.status === 'Open'" class="border border-gray-300 dark:border-gray-700"></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -560,12 +637,15 @@
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useLabor } from '~/composables/useLabor';
+import { useToast } from '#imports';
 
 definePageMeta({
   layout: 'default'
 });
 
 const route = useRoute();
+const toast = useToast();
+const lastSavedTime = ref<string | null>(null);
 const { 
   fetchPeriodDetails, 
   periodDetails, 
@@ -714,6 +794,7 @@ onMounted(loadDetails);
 const dateKey = (d: Date): string => d.toISOString().split('T')[0] || '';
 const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6;
 const formatWeekday = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'short' }).charAt(0);
+const formatFullDate = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', weekday: 'short' });
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '';
@@ -782,6 +863,22 @@ const calculateWorkerPresentDays = (w: any) => {
 const calculateWorkerTotal = (w: any) => {
   return calculateWorkerPresentDays(w) * (w.daily_wage || 0);
 };
+
+const calculateDateTotalPresent = (dateKeyStr: string) => {
+  let count = 0;
+  localWorkers.value.forEach((w) => {
+    const status = w.attendance[dateKeyStr];
+    if (status === 'P') count += 1;
+    else if (status === '½') count += 0.5;
+    else if (status === '2' || status === '2.0') count += 2;
+    else if (status && status !== 'L') count += parseFloat(status) || 0;
+  });
+  return count > 0 ? count : '-';
+};
+
+const totalPresentDaysSum = computed(() => {
+  return localWorkers.value.reduce((acc, w) => acc + calculateWorkerPresentDays(w), 0);
+});
 
 const sumWages = computed(() => {
   return localWorkers.value.reduce((acc: number, w: any) => acc + calculateWorkerTotal(w), 0);
@@ -854,8 +951,21 @@ const handleSync = async () => {
     });
 
     await loadDetails();
+    lastSavedTime.value = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    toast.add({
+      title: 'Attendance Sheet Saved',
+      description: `Successfully saved ${formattedWorkers.length} worker(s). Total Wages: ₹${formatINR(sumWages.value)}`,
+      icon: 'i-lucide-check-circle-2',
+      color: 'success'
+    });
   } catch (err: any) {
-    alert(err.message || 'Error syncing attendance sheet');
+    console.error('Save & Sync error:', err);
+    toast.add({
+      title: 'Sync Failed',
+      description: err.message || 'Error syncing attendance sheet',
+      icon: 'i-lucide-alert-triangle',
+      color: 'error'
+    });
   } finally {
     savingData.value = false;
   }
