@@ -304,22 +304,25 @@ const filteredGroups = computed(() => {
   const creditors: any[] = [];
   const debtors: any[] = [];
   const expenses: any[] = [];
+  const loansAndCapital: any[] = [];
   const others: any[] = [];
 
   baseAccounts.forEach(acc => {
     const type = (acc.account_type || '').toUpperCase();
     const name = (acc.account_name || '').toUpperCase();
 
-    if (type.includes('LABOR_LEADER') || type.includes('LABOR')) {
-      laborLeaders.push(acc);
-    } else if (type.includes('BANK') || type.includes('CASH') || name.includes('BANK') || name === 'CASH') {
+    if (type.includes('BANK') || type.includes('CASH') || name.includes('BANK') || name === 'CASH') {
       banksAndCash.push(acc);
-    } else if (type.includes('CREDITOR') || type.includes('SUPPLIER') || type.includes('VENDOR')) {
+    } else if (type.includes('LABOR') || type.includes('STAFF') || type === 'CASUAL_LABOR') {
+      laborLeaders.push(acc);
+    } else if (type.includes('CREDITOR') || type.includes('SUPPLIER') || type.includes('VENDOR') || type.includes('TRANSPORTER')) {
       creditors.push(acc);
     } else if (type.includes('DEBTOR') || type.includes('CUSTOMER') || type.includes('CLIENT')) {
       debtors.push(acc);
     } else if (type.includes('EXPENSE')) {
       expenses.push(acc);
+    } else if (type.includes('LOAN') || type.includes('CAPITAL') || type.includes('BORROW') || type.includes('EQUITY')) {
+      loansAndCapital.push(acc);
     } else {
       others.push(acc);
     }
@@ -327,10 +330,11 @@ const filteredGroups = computed(() => {
 
   const groups = [];
   if (banksAndCash.length) groups.push({ title: 'Bank & Cash Accounts', icon: '🏦', items: banksAndCash });
-  if (laborLeaders.length) groups.push({ title: 'Labor Leaders', icon: '👷', items: laborLeaders });
-  if (creditors.length) groups.push({ title: 'Suppliers / Creditors', icon: '👥', items: creditors });
+  if (laborLeaders.length) groups.push({ title: 'Labor & Staff (Wages / People)', icon: '👷', items: laborLeaders });
+  if (creditors.length) groups.push({ title: 'Suppliers & Transporters', icon: '🏭', items: creditors });
   if (debtors.length) groups.push({ title: 'Customers / Debtors', icon: '🛒', items: debtors });
-  if (expenses.length) groups.push({ title: 'Expenses', icon: '💼', items: expenses });
+  if (expenses.length) groups.push({ title: 'Direct & Indirect Expenses', icon: '💼', items: expenses });
+  if (loansAndCapital.length) groups.push({ title: 'Loans, Borrowings & Capital', icon: '🏛️', items: loansAndCapital });
   if (others.length) groups.push({ title: 'Other Account Heads', icon: '📊', items: others });
 
   return groups;

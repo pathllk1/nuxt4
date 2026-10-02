@@ -9,7 +9,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="master-modal-title"
-      class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col"
+      class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col"
     >
       <!-- Header -->
       <header class="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 px-6 py-4 text-white flex justify-between items-center shrink-0">
@@ -47,24 +47,56 @@
 
         <form @submit.prevent="saveMasterRecord" id="master-party-form" class="space-y-4">
           
-          <!-- Classification Selector (Adaptive Switch) -->
-          <div class="p-3 bg-slate-50 dark:bg-zinc-800/70 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-1.5">
-            <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-              Account Classification / Entity Type *
-            </label>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+          <!-- Classification Selector (Adaptive Switch with Category Pillars) -->
+          <div class="p-3 bg-slate-50 dark:bg-zinc-800/70 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                Account Classification / Entity Type *
+              </label>
+              <span class="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                {{ selectedPillarLabel }}
+              </span>
+            </div>
+
+            <!-- Category Pillar Tabs -->
+            <div class="flex items-center gap-1 overflow-x-auto pb-1 custom-scrollbar">
               <button
-                v-for="opt in typeOptions"
+                v-for="p in pillars"
+                :key="p.id"
+                type="button"
+                @click="selectedPillar = p.id"
+                class="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 transition-all flex items-center gap-1.5 cursor-pointer"
+                :class="selectedPillar === p.id
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700'"
+              >
+                <span>{{ p.label }}</span>
+              </button>
+            </div>
+
+            <!-- Dynamic Entity Type Options Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-0.5">
+              <button
+                v-for="opt in filteredTypeOptions"
                 :key="opt.value"
                 type="button"
                 @click="setType(opt.value)"
-                class="px-2.5 py-2 rounded-xl text-left border text-xs font-black transition-all flex items-center gap-2 cursor-pointer"
+                class="px-2.5 py-2 rounded-xl text-left border text-xs font-black transition-all flex items-center justify-between gap-1.5 cursor-pointer relative group"
                 :class="form.account_type === opt.value
                   ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/30'
                   : 'bg-white dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:border-slate-300'"
               >
-                <span class="text-sm shrink-0">{{ opt.icon }}</span>
-                <span class="truncate">{{ opt.label }}</span>
+                <div class="flex items-center gap-2 truncate">
+                  <span class="text-sm shrink-0">{{ opt.icon }}</span>
+                  <span class="truncate">{{ opt.label }}</span>
+                </div>
+                <span 
+                  v-if="opt.badge" 
+                  class="text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter shrink-0"
+                  :class="form.account_type === opt.value ? 'bg-emerald-200/60 dark:bg-emerald-800/60 text-emerald-900 dark:text-emerald-200' : 'bg-slate-100 dark:bg-zinc-700 text-slate-500 dark:text-zinc-400'"
+                >
+                  {{ opt.badge }}
+                </span>
               </button>
             </div>
           </div>
@@ -80,21 +112,23 @@
               <!-- Name -->
               <div class="flex-[2] min-w-[240px] space-y-1">
                 <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-                  {{ isLaborLeader ? 'Leader / Contractor Name *' : (isParty ? 'Party / Firm Trade Name *' : 'Account Head Name *') }}
+                  {{ nameLabelByType }}
                 </label>
                 <input
                   type="text"
                   v-model="form.account_name"
                   required
-                  placeholder="e.g. Ramesh Kumar / Acme Corp India"
+                  :placeholder="namePlaceholderByType"
                   class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl focus:border-emerald-500 outline-none font-bold text-xs text-slate-900 dark:text-white first-input"
                   @keydown.enter.prevent="onInputEnter($event)"
                 />
               </div>
 
-              <!-- Contact / Phone (For Party & Labor) -->
+              <!-- Contact / Phone (For Party, Labor, Staff, Loans, Capital) -->
               <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresContact">
-                <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Contact Phone</label>
+                <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                  {{ isStaff ? 'Staff Mobile Phone *' : 'Contact Phone' }}
+                </label>
                 <input
                   type="text"
                   v-model="form.phone"
@@ -104,9 +138,11 @@
                 />
               </div>
 
-              <!-- PAN Number (For Party & Labor) -->
+              <!-- PAN Number (For Party, Labor, Staff, Loans, Capital, Payees) -->
               <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresPan">
-                <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">PAN Number</label>
+                <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                  {{ isStaff ? 'Employee PAN' : (isLoan ? 'Lender / Borrower PAN' : 'PAN Number') }}
+                </label>
                 <input
                   type="text"
                   v-model="form.pan"
@@ -118,9 +154,11 @@
                 />
               </div>
 
-              <!-- Aadhaar Number (Strictly for Labor Leader) -->
+              <!-- Aadhaar Number (For Labor Leader, Casual Labor, Staff) -->
               <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresAadhaar">
-                <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Aadhaar Number (12 Digits)</label>
+                <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                  {{ isCasualLabor ? 'Worker Aadhaar (12 Digits)' : 'Aadhaar Number (12 Digits)' }}
+                </label>
                 <input
                   type="text"
                   v-model="form.aadhaar_number"
@@ -251,17 +289,56 @@
             </div>
           </div>
 
-          <!-- Section 3: Corporate Banking & CMS Details (For Labor, Supplier & Bank) -->
+          <!-- Optional Beneficiary Banking Opt-In Banner for Expense / Capital / Customers -->
+          <div 
+            v-if="canOfferBeneficiaryBanking && !requiresBankSection" 
+            class="p-3 bg-blue-50/40 dark:bg-blue-950/20 rounded-2xl border border-dashed border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3"
+          >
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
+                <UIcon name="i-heroicons-building-library" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p class="text-xs font-black text-blue-950 dark:text-blue-200 uppercase tracking-tight">Beneficiary Bank & Payout Details (Optional)</p>
+                <p class="text-[10px] font-bold text-slate-500 dark:text-zinc-400 mt-0.5">Need to disburse digital payouts, NEFT, or CMS bulk payments directly to this head's payee?</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              @click="form.enable_beneficiary_banking = true"
+              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer shadow-sm flex items-center gap-1"
+            >
+              <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+              <span>Enable Banking</span>
+            </button>
+          </div>
+
+          <!-- Section 3: Corporate Banking & CMS Details -->
           <div v-if="requiresBankSection" class="p-4 bg-blue-50/50 dark:bg-blue-950/20 rounded-2xl border border-blue-200/80 dark:border-blue-900/60 space-y-3">
             <div class="flex items-center justify-between">
-              <h3 class="text-xs font-black text-blue-900 dark:text-blue-200 uppercase tracking-wider flex items-center gap-1.5">
-                <UIcon name="i-heroicons-building-library" class="w-4 h-4 text-blue-600" />
-                <span>3. Corporate Banking & CMS Payout Details</span>
-              </h3>
-              <span v-if="ifscVerified" class="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-1">
-                <UIcon name="i-heroicons-check-badge" class="w-3.5 h-3.5" />
-                <span>IFSC Verified</span>
-              </span>
+              <div>
+                <h3 class="text-xs font-black text-blue-900 dark:text-blue-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <UIcon name="i-heroicons-building-library" class="w-4 h-4 text-blue-600" />
+                  <span>{{ isBank ? '3. Corporate Treasury Bank Account Details' : '3. Beneficiary Banking & Digital Payout Details (CMS)' }}</span>
+                </h3>
+                <p class="text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase mt-0.5" v-if="!isBank">
+                  Used for direct electronic transfers, UPI, NEFT, and automated bulk payouts
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span v-if="ifscVerified" class="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-1">
+                  <UIcon name="i-heroicons-check-badge" class="w-3.5 h-3.5" />
+                  <span>IFSC Verified</span>
+                </span>
+                <button
+                  v-if="canOfferBeneficiaryBanking && !autoRequiresBank && form.enable_beneficiary_banking"
+                  type="button"
+                  @click="disableBeneficiaryBanking"
+                  class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider cursor-pointer"
+                >
+                  Remove Banking
+                </button>
+              </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -505,15 +582,53 @@ const isFetchingIfsc = ref(false);
 const ifscVerified = ref(false);
 
 const typeOptions = [
-  { value: 'SUNDRY_DEBTORS', label: 'Customer', icon: '🏢' },
-  { value: 'SUNDRY_CREDITORS', label: 'Supplier / Vendor', icon: '🏭' },
-  { value: 'LABOR_LEADER', label: 'Labor Leader', icon: '👷' },
-  { value: 'EXPENSE', label: 'Expense Head', icon: '🧾' },
-  { value: 'INCOME', label: 'Income Head', icon: '📈' },
-  { value: 'BANK', label: 'Bank Account', icon: '🏦' },
-  { value: 'DUTIES_AND_TAXES', label: 'Duties & Taxes', icon: '⚖️' },
-  { value: 'FIXED_ASSETS', label: 'Fixed Assets', icon: '🏗️' }
+  // 👥 Trade Parties
+  { value: 'SUNDRY_DEBTORS', label: 'Customer', icon: '🏢', pillar: 'PARTIES', badge: 'AR' },
+  { value: 'SUNDRY_CREDITORS', label: 'Supplier / Vendor', icon: '🏭', pillar: 'PARTIES', badge: 'AP' },
+  { value: 'TRANSPORTER', label: 'Transporter / Freight', icon: '🚚', pillar: 'PARTIES', badge: 'Logistics' },
+
+  // 👷 People & Labor
+  { value: 'CASUAL_LABOR', label: 'Casual Labour / Worker', icon: '👷‍♂️', pillar: 'PEOPLE', badge: 'Direct Wages' },
+  { value: 'LABOR_LEADER', label: 'Labor Leader (Contractor)', icon: '👷', pillar: 'PEOPLE', badge: 'Work Period' },
+  { value: 'STAFF', label: 'Employee / Staff', icon: '👔', pillar: 'PEOPLE', badge: 'Payroll' },
+
+  // 💼 Capital & Loans
+  { value: 'LOANS_BORROWINGS', label: 'Loans & Borrowings', icon: '💳', pillar: 'FINANCE', badge: 'Liability' },
+  { value: 'LOANS_ADVANCES', label: 'Loans & Advances Given', icon: '🤝', pillar: 'FINANCE', badge: 'Asset' },
+  { value: 'CAPITAL', label: 'Capital & Equity', icon: '🏛️', pillar: 'FINANCE', badge: 'Equity' },
+
+  // 📊 Expenses & Income
+  { value: 'DIRECT_EXPENSE', label: 'Direct Expense (COGS)', icon: '⚙️', pillar: 'PL', badge: 'Factory/Mfg' },
+  { value: 'EXPENSE', label: 'Indirect Expense Head', icon: '🧾', pillar: 'PL', badge: 'Admin/Overhead' },
+  { value: 'INCOME', label: 'Income Head', icon: '📈', pillar: 'PL', badge: 'Revenue' },
+
+  // 🏦 Treasury & Assets
+  { value: 'BANK', label: 'Bank Account', icon: '🏦', pillar: 'TREASURY', badge: 'Company Bank' },
+  { value: 'CASH', label: 'Cash in Hand', icon: '💵', pillar: 'TREASURY', badge: 'Petty Cash' },
+  { value: 'DUTIES_AND_TAXES', label: 'Duties & Taxes', icon: '⚖️', pillar: 'TREASURY', badge: 'Statutory' },
+  { value: 'FIXED_ASSETS', label: 'Fixed Assets', icon: '🏗️', pillar: 'TREASURY', badge: 'Non-Current' }
 ];
+
+const pillars = [
+  { id: 'ALL', label: 'All Types' },
+  { id: 'PARTIES', label: '👥 Trade Parties' },
+  { id: 'PEOPLE', label: '👷 People & Labor' },
+  { id: 'FINANCE', label: '💼 Capital & Loans' },
+  { id: 'PL', label: '📊 Expenses & Income' },
+  { id: 'TREASURY', label: '🏦 Treasury & Assets' }
+];
+
+const selectedPillar = ref('ALL');
+
+const filteredTypeOptions = computed(() => {
+  if (selectedPillar.value === 'ALL') return typeOptions;
+  return typeOptions.filter(opt => opt.pillar === selectedPillar.value);
+});
+
+const selectedPillarLabel = computed(() => {
+  const p = pillars.find(item => item.id === selectedPillar.value);
+  return p ? p.label : 'All Master Types';
+});
 
 const form = ref({
   _id: '',
@@ -529,6 +644,7 @@ const form = ref({
   bank_account_type: 'CURRENT',
   is_default: false,
   status: 'ACTIVE',
+  enable_beneficiary_banking: false,
   hsn_sac: '',
   gst_rate: null as number | null,
   description: '',
@@ -542,43 +658,122 @@ const form = ref({
 const isEditing = computed(() => !!form.value._id);
 
 const isLaborLeader = computed(() => form.value.account_type === 'LABOR_LEADER');
-const isParty = computed(() => ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'BOTH'].includes(form.value.account_type));
+const isCasualLabor = computed(() => form.value.account_type === 'CASUAL_LABOR');
+const isStaff = computed(() => form.value.account_type === 'STAFF');
+const isParty = computed(() => ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'TRANSPORTER', 'BOTH'].includes(form.value.account_type));
+const isLoan = computed(() => ['LOANS_BORROWINGS', 'LOANS_ADVANCES'].includes(form.value.account_type));
+const isCapital = computed(() => form.value.account_type === 'CAPITAL');
 const isBank = computed(() => form.value.account_type === 'BANK');
-const isTaxOrExpense = computed(() => ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'INCOME', 'DIRECT_INCOME', 'DUTIES_AND_TAXES'].includes(form.value.account_type));
+const isCash = computed(() => form.value.account_type === 'CASH');
+const isTaxOrExpense = computed(() => [
+  'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'INCOME', 'DIRECT_INCOME', 'DUTIES_AND_TAXES'
+].includes(form.value.account_type));
 
-const requiresContact = computed(() => isParty.value || isLaborLeader.value);
-const requiresPan = computed(() => isParty.value || isLaborLeader.value);
-const requiresAadhaar = computed(() => isLaborLeader.value);
-const requiresGstSection = computed(() => isParty.value && !isLaborLeader.value);
-const requiresBankSection = computed(() => isLaborLeader.value || form.value.account_type === 'SUNDRY_CREDITORS' || isBank.value);
-const requiresTaxHsnSection = computed(() => isTaxOrExpense.value);
+const requiresContact = computed(() => !isCash.value && form.value.account_type !== 'DUTIES_AND_TAXES');
+const requiresPan = computed(() => isParty.value || isLaborLeader.value || isStaff.value || isLoan.value || isCapital.value || requiresBankSection.value);
+const requiresAadhaar = computed(() => isLaborLeader.value || isCasualLabor.value || isStaff.value);
+const requiresGstSection = computed(() => isParty.value);
+const requiresTaxHsnSection = computed(() => isTaxOrExpense.value || form.value.account_type === 'TRANSPORTER');
+
+const autoRequiresBank = computed(() => [
+  'BANK', 'CASUAL_LABOR', 'LABOR_LEADER', 'STAFF', 'SUNDRY_CREDITORS', 
+  'TRANSPORTER', 'LOANS_BORROWINGS', 'LOANS_ADVANCES'
+].includes(form.value.account_type));
+
+const canOfferBeneficiaryBanking = computed(() => [
+  'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'CAPITAL', 'SUNDRY_DEBTORS'
+].includes(form.value.account_type));
+
+const requiresBankSection = computed(() => {
+  return autoRequiresBank.value || (canOfferBeneficiaryBanking.value && form.value.enable_beneficiary_banking);
+});
 
 const modalTitleByType = computed(() => {
-  if (isLaborLeader.value) return 'Register Labor Leader / Contractor';
-  if (form.value.account_type === 'SUNDRY_DEBTORS') return 'Register Customer Master';
-  if (form.value.account_type === 'SUNDRY_CREDITORS') return 'Register Supplier / Vendor Master';
-  if (isBank.value) return 'Register Bank Account';
-  if (isTaxOrExpense.value) return 'Register Expense / Tax Head';
-  return 'Create Account Head';
+  switch (form.value.account_type) {
+    case 'SUNDRY_DEBTORS': return 'Register Customer Master';
+    case 'SUNDRY_CREDITORS': return 'Register Supplier / Vendor Master';
+    case 'TRANSPORTER': return 'Register Transporter / Freight Master';
+    case 'CASUAL_LABOR': return 'Register Casual Worker / Direct Labour (Wages)';
+    case 'LABOR_LEADER': return 'Register Labor Leader / Contractor';
+    case 'STAFF': return 'Register Employee / Staff Master';
+    case 'LOANS_BORROWINGS': return 'Register Loan & Borrowing (Liability)';
+    case 'LOANS_ADVANCES': return 'Register Loan & Advance Given (Asset)';
+    case 'CAPITAL': return 'Register Capital / Partner Equity Head';
+    case 'DIRECT_EXPENSE': return 'Register Direct Expense (Factory/COGS)';
+    case 'EXPENSE': return 'Register Indirect Expense (Overheads)';
+    case 'INCOME': return 'Register Income Head';
+    case 'BANK': return 'Register Company Bank Account';
+    case 'CASH': return 'Register Cash Counter / Petty Cash';
+    case 'DUTIES_AND_TAXES': return 'Register Statutory Tax / Duty Head';
+    case 'FIXED_ASSETS': return 'Register Fixed Asset Head';
+    default: return 'Register Master Account Head';
+  }
 });
+
+const nameLabelByType = computed(() => {
+  switch (form.value.account_type) {
+    case 'SUNDRY_DEBTORS': return 'Customer / Firm Trade Name *';
+    case 'SUNDRY_CREDITORS': return 'Supplier / Vendor Trade Name *';
+    case 'TRANSPORTER': return 'Transporter / Fleet Name *';
+    case 'CASUAL_LABOR': return 'Casual Worker / Labour Name *';
+    case 'LABOR_LEADER': return 'Labor Leader / Contractor Name *';
+    case 'STAFF': return 'Employee / Staff Full Name *';
+    case 'LOANS_BORROWINGS': return 'Lender / Loan Provider Name *';
+    case 'LOANS_ADVANCES': return 'Borrower / Advance Recipient Name *';
+    case 'CAPITAL': return 'Owner / Partner Capital Account Name *';
+    case 'BANK': return 'Bank Account Ledger Name *';
+    case 'CASH': return 'Cash Register / Counter Name *';
+    default: return 'Account Head Name *';
+  }
+});
+
+const namePlaceholderByType = computed(() => {
+  switch (form.value.account_type) {
+    case 'CASUAL_LABOR': return 'e.g. Raju Loader / Shyam Moulder';
+    case 'LABOR_LEADER': return 'e.g. Moti Kumar (Thekedar)';
+    case 'STAFF': return 'e.g. Rajesh Sharma (Plant Supervisor)';
+    case 'LOANS_BORROWINGS': return 'e.g. Ramesh Bhai Unsecured Loan / HDFC Term Loan';
+    case 'LOANS_ADVANCES': return 'e.g. Advance to Artisan / Security Deposit Rent';
+    case 'CAPITAL': return 'e.g. Sharma Ji Partner Capital / Proprietor Drawings';
+    case 'DIRECT_EXPENSE': return 'e.g. Coal & Fuel / Direct Kiln Wages / Freight Inward';
+    case 'EXPENSE': return 'e.g. Office Rent / Printing & Stationery / Audit Fees';
+    case 'CASH': return 'e.g. Main Cash in Hand / Factory Cash Drawer';
+    case 'BANK': return 'e.g. State Bank of India - Current A/c';
+    default: return 'e.g. Ramesh Kumar / Acme Corp India';
+  }
+});
+
+function disableBeneficiaryBanking() {
+  form.value.enable_beneficiary_banking = false;
+  form.value.bank_name = '';
+  form.value.branch_name = '';
+  form.value.account_number = '';
+  form.value.ifsc_code = '';
+  form.value.is_default = false;
+  ifscVerified.value = false;
+}
 
 function setType(val: string) {
   form.value.account_type = val;
 
-  // Clear fields tied to sections that just became hidden, so switching
-  // classification doesn't silently carry stale data into the save payload.
-  const willShowAadhaar = val === 'LABOR_LEADER';
-  const willShowGst = ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS'].includes(val) && val !== 'LABOR_LEADER';
-  const willShowBank = val === 'LABOR_LEADER' || val === 'SUNDRY_CREDITORS' || val === 'BANK';
-  const willShowTaxHsn = ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'INCOME', 'DIRECT_INCOME', 'DUTIES_AND_TAXES'].includes(val);
+  const creditTypes = ['SUNDRY_CREDITORS', 'LOANS_BORROWINGS', 'CAPITAL', 'INCOME', 'DUTIES_AND_TAXES'];
+  if (!form.value._id) {
+    form.value.balance_type = creditTypes.includes(val) ? 'CR' : 'DR';
+  }
 
-  if (!willShowAadhaar) form.value.aadhaar_number = '';
-  if (!willShowGst) {
+  // Clear fields only if completely incompatible
+  const supportsAadhaar = ['CASUAL_LABOR', 'LABOR_LEADER', 'STAFF'].includes(val);
+  const supportsGst = ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'TRANSPORTER'].includes(val);
+  const autoSupportsBank = ['CASUAL_LABOR', 'LABOR_LEADER', 'STAFF', 'SUNDRY_CREDITORS', 'TRANSPORTER', 'LOANS_BORROWINGS', 'LOANS_ADVANCES', 'BANK'].includes(val);
+  const supportsTaxHsn = ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'INCOME', 'DIRECT_INCOME', 'DUTIES_AND_TAXES', 'TRANSPORTER'].includes(val);
+
+  if (!supportsAadhaar) form.value.aadhaar_number = '';
+  if (!supportsGst) {
     form.value.gstLocations = [
       { _uid: nextUid(), gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
     ];
   }
-  if (!willShowBank) {
+  if (!autoSupportsBank && !form.value.enable_beneficiary_banking) {
     form.value.bank_name = '';
     form.value.branch_name = '';
     form.value.account_number = '';
@@ -586,17 +781,20 @@ function setType(val: string) {
     form.value.is_default = false;
     ifscVerified.value = false;
   }
-  if (!willShowTaxHsn) {
+  if (!supportsTaxHsn) {
     form.value.hsn_sac = '';
     form.value.gst_rate = null;
   }
 }
 
 function resetForm() {
+  const initialType = props.defaultType || 'SUNDRY_DEBTORS';
+  const creditTypes = ['SUNDRY_CREDITORS', 'LOANS_BORROWINGS', 'CAPITAL', 'INCOME', 'DUTIES_AND_TAXES'];
+
   form.value = {
     _id: '',
     account_name: '',
-    account_type: props.defaultType || 'SUNDRY_DEBTORS',
+    account_type: initialType,
     phone: '',
     pan: '',
     aadhaar_number: '',
@@ -607,16 +805,24 @@ function resetForm() {
     bank_account_type: 'CURRENT',
     is_default: false,
     status: 'ACTIVE',
+    enable_beneficiary_banking: false,
     hsn_sac: '',
     gst_rate: null,
     description: '',
     opening_balance: 0,
-    balance_type: 'DR',
+    balance_type: creditTypes.includes(initialType) ? 'CR' : 'DR',
     gstLocations: [
       { _uid: nextUid(), gstin: '', state: '', stateCode: '', address: '', pincode: '', contact: '', isPrimary: true, fetchStatus: 'none' }
     ]
   };
   ifscVerified.value = false;
+
+  const matchedOpt = typeOptions.find(o => o.value === initialType);
+  if (matchedOpt) {
+    selectedPillar.value = matchedOpt.pillar;
+  } else {
+    selectedPillar.value = 'ALL';
+  }
 }
 
 async function syncFromProps() {
@@ -713,6 +919,13 @@ function hydrateInitialData(data: any) {
   if (data.ifsc_code || data.ifscCode || data.ifsc) {
     form.value.ifsc_code = data.ifsc_code || data.ifscCode || data.ifsc;
     ifscVerified.value = true;
+  }
+  if (data.bank_name || data.bankName || data.account_number || data.accountNumber || data.ifsc_code || data.ifscCode) {
+    form.value.enable_beneficiary_banking = true;
+  }
+  const matchedOpt = typeOptions.find(opt => opt.value === form.value.account_type);
+  if (matchedOpt) {
+    selectedPillar.value = matchedOpt.pillar;
   }
   if (data.bank_account_type) form.value.bank_account_type = data.bank_account_type;
   if (data.is_default !== undefined) form.value.is_default = !!data.is_default;

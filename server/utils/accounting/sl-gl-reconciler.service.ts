@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Ledger from '../../models/Ledger';
 import Party from '../../models/Party';
 import BankAccount from '../../models/BankAccount';
+import ChartOfAccounts from '../../models/ChartOfAccounts';
 
 // ─────────────────────────────────────────────────────────────────────────
 // SUB-LEDGER TO GENERAL LEDGER (SL-GL) RECONCILIATION SERVICE
@@ -119,14 +120,87 @@ export class SLGLReconcilerService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // LABOR LEADERS — LABOR_LEADER
+  // LABOR LEADERS — LABOR_LEADER (Reconciled via COA / PostgreSQL Leader Registry)
   // ═══════════════════════════════════════════════════════════════════════
 
   private static async reconcileLaborLeaders(
     firmId: mongoose.Types.ObjectId,
     toDate: string
   ) {
-    return this.reconcilePartyCategory(firmId, toDate, 'LABOR_LEADER', 'LABOR');
+    // GL side: aggregate by accountHead for accountType = 'LABOR_LEADER'
+    const glBalances = await Ledger.aggregate([
+      {
+        $match: {
+          $or: [{ firmId }, { firm_id: firmId }],
+          accountType: 'LABOR_LEADER',
+          transactionDate: { $lte: toDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$accountHead',
+          totalDebit: { $sum: '$debitAmount' },
+          totalCredit: { $sum: '$creditAmount' },
+        },
+      },
+    ]);
+
+    const glMap = new Map<string, number>();
+    let glGrandTotal = 0;
+
+    for (const row of glBalances) {
+      const net = (row.totalDebit || 0) - (row.totalCredit || 0);
+      glMap.set(String(row._id).trim().toLowerCase(), net);
+      glGrandTotal += net;
+    }
+
+    // SL side: query registered labor leaders from ChartOfAccounts for this firm
+    const coaLeaders = await ChartOfAccounts.find(
+      {
+        $or: [{ firm_id: firmId }, { firmId: firmId }],
+        account_type: 'LABOR_LEADER',
+      },
+      'account_name'
+    ).lean();
+
+    const leaderMap = new Map<string, string>();
+    for (const l of coaLeaders) {
+      leaderMap.set(l.account_name.trim().toLowerCase(), l.account_name);
+    }
+
+    let slGrandTotal = 0;
+    const variances: IReconciliationVariance[] = [];
+
+    for (const [headKey, glNet] of glMap) {
+      const canonicalName = leaderMap.get(headKey);
+      if (canonicalName) {
+        slGrandTotal += glNet;
+      } else {
+        variances.push({
+          category: 'LABOR',
+          entityName: `Unregistered Leader (${headKey})`,
+          entityId: headKey,
+          glBalance: Math.abs(glNet),
+          glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+          slBalance: 0,
+          slBalanceType: 'DR',
+          variance: Math.abs(glNet),
+          status: 'CRITICAL',
+        });
+      }
+    }
+
+    const totalVariance = Math.abs(glGrandTotal - slGrandTotal);
+
+    return {
+      summary: {
+        glTotal: glGrandTotal,
+        slTotal: slGrandTotal,
+        variance: totalVariance,
+        status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
+      },
+      variances,
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -317,7 +391,7 @@ export class SLGLReconcilerService {
         {
           $or: [
             {
-              accountType: { $in: ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'LABOR_LEADER'] },
+              accountType: { $in: ['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS'] },
               partyId: null,
             },
             {

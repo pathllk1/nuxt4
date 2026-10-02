@@ -44,6 +44,15 @@ export default defineEventHandler(async (event) => {
       created_by: String(session._id),
     });
 
+    // Ensure schema has newly added columns before inserting
+    try {
+      await sql`
+        ALTER TABLE labor_advances 
+        ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
+        ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100);
+      `;
+    } catch (_) {}
+
     // 2. Insert into PostgreSQL labor_advances
     const [advance] = await sql`
       INSERT INTO labor_advances (firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id)

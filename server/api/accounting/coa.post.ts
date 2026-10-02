@@ -76,9 +76,9 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // 2. Dual-Sync Parties collection if Customer / Supplier
-    if (['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'BOTH'].includes(accountType) || (body.gstLocations && body.gstLocations.length > 0)) {
-      const partyType = accountType === 'SUNDRY_DEBTORS' ? 'CUSTOMER' : (accountType === 'SUNDRY_CREDITORS' ? 'SUPPLIER' : 'BOTH');
+    // 2. Dual-Sync Parties collection if Customer / Supplier / Transporter
+    if (['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'TRANSPORTER', 'BOTH'].includes(accountType) || (body.gstLocations && body.gstLocations.length > 0)) {
+      const partyType = accountType === 'SUNDRY_DEBTORS' ? 'CUSTOMER' : (accountType === 'SUNDRY_CREDITORS' || accountType === 'TRANSPORTER' ? 'SUPPLIER' : 'BOTH');
       const primaryLoc = (body.gstLocations || []).find((l: any) => l.isPrimary) || (body.gstLocations || [])[0] || {};
 
       await (Party as any).findOneAndUpdate(

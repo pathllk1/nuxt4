@@ -41,20 +41,28 @@ const selectedEntry = ref<any>(null);
 const selectedDefaultType = ref('SUNDRY_DEBTORS');
 
 const accountTypes = [
-  { label: 'Income', value: 'INCOME' },
-  { label: 'Expense', value: 'EXPENSE' },
-  { label: 'Asset', value: 'ASSET' },
-  { label: 'Liability', value: 'LIABILITY' },
-  { label: 'Cash', value: 'CASH' },
-  { label: 'Bank', value: 'BANK' },
-  { label: 'Sundry Debtors (Customer)', value: 'SUNDRY_DEBTORS' },
-  { label: 'Sundry Creditors (Supplier)', value: 'SUNDRY_CREDITORS' },
+  { label: 'Customer (Sundry Debtors)', value: 'SUNDRY_DEBTORS' },
+  { label: 'Supplier / Vendor', value: 'SUNDRY_CREDITORS' },
+  { label: 'Transporter / Freight', value: 'TRANSPORTER' },
+  { label: 'Casual Labour / Worker', value: 'CASUAL_LABOR' },
+  { label: 'Labor Leader (Contractor)', value: 'LABOR_LEADER' },
+  { label: 'Employee / Staff', value: 'STAFF' },
+  { label: 'Direct Expense (COGS)', value: 'DIRECT_EXPENSE' },
+  { label: 'Indirect Expense', value: 'EXPENSE' },
+  { label: 'Income Head', value: 'INCOME' },
+  { label: 'Bank Account', value: 'BANK' },
+  { label: 'Cash in Hand', value: 'CASH' },
+  { label: 'Loans & Borrowings (Liability)', value: 'LOANS_BORROWINGS' },
+  { label: 'Loans & Advances (Asset)', value: 'LOANS_ADVANCES' },
+  { label: 'Capital & Equity', value: 'CAPITAL' },
+  { label: 'Duties & Taxes', value: 'DUTIES_AND_TAXES' },
+  { label: 'Fixed Assets', value: 'FIXED_ASSETS' },
   { label: 'Debtor', value: 'DEBTOR' },
   { label: 'Creditor', value: 'CREDITOR' },
-  { label: 'Labor Leader', value: 'LABOR_LEADER' },
-  { label: 'Capital', value: 'CAPITAL' },
-  { label: 'General', value: 'GENERAL' },
-  { label: 'Payable', value: 'PAYABLE' }
+  { label: 'General / Nominal', value: 'GENERAL' },
+  { label: 'Payable', value: 'PAYABLE' },
+  { label: 'Asset', value: 'ASSET' },
+  { label: 'Liability', value: 'LIABILITY' }
 ];
 
 const filterOptions = computed(() => [

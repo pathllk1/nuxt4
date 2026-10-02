@@ -106,8 +106,8 @@ export default defineEventHandler(async (event) => {
   }
 
   // 2. Dual-Sync MongoDB Parties
-  if (['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'BOTH'].includes(finalType) || body.gstLocations) {
-    const partyType = finalType === 'SUNDRY_DEBTORS' ? 'CUSTOMER' : (finalType === 'SUNDRY_CREDITORS' ? 'SUPPLIER' : 'BOTH');
+  if (['SUNDRY_DEBTORS', 'SUNDRY_CREDITORS', 'TRANSPORTER', 'BOTH'].includes(finalType) || body.gstLocations) {
+    const partyType = finalType === 'SUNDRY_DEBTORS' ? 'CUSTOMER' : (finalType === 'SUNDRY_CREDITORS' || finalType === 'TRANSPORTER' ? 'SUPPLIER' : 'BOTH');
     const primaryLoc = (body.gstLocations || []).find((l: any) => l.isPrimary) || (body.gstLocations || [])[0] || {};
 
     const partyUpdate: any = {

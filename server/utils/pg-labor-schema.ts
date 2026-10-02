@@ -116,6 +116,20 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
       );
     `;
 
+    // Safe non-destructive column additions for existing live tables
+    await clientSql`
+      ALTER TABLE labor_advances 
+      ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
+      ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100);
+    `;
+
+    await clientSql`
+      ALTER TABLE labor_settlements 
+      ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
+      ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS adjustment_reason VARCHAR(255);
+    `;
+
     // Performance Indexes
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_leaders_firm ON labor_leaders(firm_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_periods_leader ON labor_periods(leader_id);`;
