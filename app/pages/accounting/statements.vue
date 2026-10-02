@@ -2,10 +2,31 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
+import { useApi } from '@/utils/api';
 import StatementModal from '@/components/accounting/StatementModal.vue';
+import YearEndClosingModal from '@/components/accounting/YearEndClosingModal.vue';
 
 const router = useRouter();
+const api = useApi();
 const { trialBalance, fetchTrialBalance, exportProfitLossPdf, exportBalanceSheetPdf, exportProfitLossExcel, exportBalanceSheetExcel, loading, error } = useAccounting();
+
+const showYearEndModal = ref(false);
+const slglReport = ref<any>(null);
+const slglLoading = ref(false);
+
+const fetchSlGlReconcile = async () => {
+  slglLoading.value = true;
+  try {
+    const res = await api.get('/accounting/audit/sl-gl-reconcile' + (toDate.value ? `?toDate=${toDate.value}` : ''));
+    if (res.success && res.data) {
+      slglReport.value = res.data;
+    }
+  } catch (e) {
+    console.warn('SL-GL check notice:', e);
+  } finally {
+    slglLoading.value = false;
+  }
+};
 
 const exportLoading = ref(false);
 const onExportPDF = async () => {
@@ -54,7 +75,10 @@ const loadData = async () => {
   const params: { fromDate?: string; toDate?: string } = {};
   if (fromDate.value) params.fromDate = fromDate.value;
   if (toDate.value) params.toDate = toDate.value;
-  await fetchTrialBalance(params);
+  await Promise.all([
+    fetchTrialBalance(params),
+    fetchSlGlReconcile()
+  ]);
 };
 
 const clearFilters = async () => {
@@ -124,11 +148,19 @@ const plModel = computed(() => {
   const crGeneral = general.filter(a => a.netCr >= 0);
   const drGeneral = general.filter(a => a.netCr < 0);
 
+  const sumDrCOGS = drCOGS.reduce((s, a) => s + Math.abs(a.netCr), 0);
+  const sumCrCOGS = crCOGS.reduce((s, a) => s + a.netCr, 0);
+  const sumDrOpex = drOpex.reduce((s, a) => s + Math.abs(a.netCr), 0);
+  const sumCrOpex = crOpex.reduce((s, a) => s + a.netCr, 0);
+  const sumDrGeneral = drGeneral.reduce((s, a) => s + Math.abs(a.netCr), 0);
+  const sumCrGeneral = crGeneral.reduce((s, a) => s + a.netCr, 0);
+  const sumContraExpense = sumCrCOGS + sumCrOpex;
+
   const totalRevenueCr = crIncome.reduce((s, a) => s + a.netCr, 0);
   const totalContraInc = drContraIncome.reduce((s, a) => s + Math.abs(a.netCr), 0);
-  const totalCOGS = drCOGS.reduce((s, a) => s + Math.abs(a.netCr), 0) - crCOGS.reduce((s, a) => s + a.netCr, 0);
-  const totalOpex = drOpex.reduce((s, a) => s + Math.abs(a.netCr), 0) - crOpex.reduce((s, a) => s + a.netCr, 0);
-  const totalGeneralNet = general.reduce((s, a) => s + a.netCr, 0);
+  const totalCOGS = sumDrCOGS - sumCrCOGS;
+  const totalOpex = sumDrOpex - sumCrOpex;
+  const totalGeneralNet = sumCrGeneral - sumDrGeneral;
 
   const effectiveRevenue = totalRevenueCr - totalContraInc;
   const grossProfit = effectiveRevenue - totalCOGS;
@@ -136,14 +168,12 @@ const plModel = computed(() => {
   const gpMargin = effectiveRevenue ? (grossProfit / effectiveRevenue) * 100 : 0;
   const npMargin = effectiveRevenue ? (netProfit / effectiveRevenue) * 100 : 0;
 
-  const drItems = totalCOGS + totalContraInc + totalOpex + 
-                  drGeneral.reduce((s, a) => s + Math.abs(a.netCr), 0) - 
-                  crCOGS.reduce((s, a) => s + a.netCr, 0) - 
-                  crOpex.reduce((s, a) => s + a.netCr, 0);
-  const crItems = totalRevenueCr + 
-                  crGeneral.reduce((s, a) => s + a.netCr, 0) + 
-                  crCOGS.reduce((s, a) => s + a.netCr, 0) + 
-                  crOpex.reduce((s, a) => s + a.netCr, 0);
+  // The Debit side T-table displays drCOGS, drContraIncome, drOpex, drGeneral
+  const drItems = sumDrCOGS + totalContraInc + sumDrOpex + sumDrGeneral;
+
+  // The Credit side T-table displays crIncome, crGeneral, and contra expense credit balances (crCOGS + crOpex)
+  const crItems = totalRevenueCr + sumCrGeneral + sumContraExpense;
+
   const drGrand = drItems + Math.max(netProfit, 0);
   const crGrand = crItems + Math.max(-netProfit, 0);
 
@@ -151,6 +181,7 @@ const plModel = computed(() => {
     crIncome, drContraIncome, drCOGS, crCOGS, drOpex, crOpex, crGeneral, drGeneral,
     totalRevenueCr, totalContraInc, effectiveRevenue,
     totalCOGS, totalOpex, totalGeneralNet,
+    sumDrCOGS, sumCrCOGS, sumDrOpex, sumCrOpex, sumContraExpense, sumCrGeneral,
     grossProfit, netProfit, gpMargin, npMargin,
     drGrand, crGrand,
     isEmpty: plAccounts.length === 0
@@ -317,6 +348,15 @@ onMounted(loadData);
           @click="triggerPrint"
         />
         <UButton 
+          color="warning" 
+          variant="outline" 
+          icon="i-heroicons-lock-closed"
+          label="Year-End Close"
+          size="sm"
+          class="font-bold text-xs h-8"
+          @click="showYearEndModal = true"
+        />
+        <UButton 
           color="neutral" 
           variant="outline" 
           icon="i-heroicons-arrow-left"
@@ -337,24 +377,37 @@ onMounted(loadData);
       </p>
     </div>
 
-    <!-- Tab Selection -->
-    <div class="flex items-center gap-1 bg-white dark:bg-zinc-900 p-1 rounded-xl border border-gray-100 dark:border-zinc-800 shadow-sm w-fit print:hidden">
-      <UButton 
-        :variant="activeTab === 'pl' ? 'solid' : 'ghost'"
-        :color="activeTab === 'pl' ? 'primary' : 'neutral'"
-        size="sm"
-        class="font-black text-[10px] uppercase tracking-wider rounded-lg px-4"
-        label="Profit & Loss"
-        @click="activeTab = 'pl'"
-      />
-      <UButton 
-        :variant="activeTab === 'bs' ? 'solid' : 'ghost'"
-        :color="activeTab === 'bs' ? 'primary' : 'neutral'"
-        size="sm"
-        class="font-black text-[10px] uppercase tracking-wider rounded-lg px-4"
-        label="Balance Sheet"
-        @click="activeTab = 'bs'"
-      />
+    <!-- Tab Selection & SL-GL Parity Badge -->
+    <div class="flex flex-wrap items-center justify-between gap-3 print:hidden">
+      <div class="flex items-center gap-1 bg-white dark:bg-zinc-900 p-1 rounded-xl border border-gray-100 dark:border-zinc-800 shadow-sm w-fit">
+        <UButton 
+          :variant="activeTab === 'pl' ? 'solid' : 'ghost'"
+          :color="activeTab === 'pl' ? 'primary' : 'neutral'"
+          size="sm"
+          class="font-black text-[10px] uppercase tracking-wider rounded-lg px-4"
+          label="Profit & Loss"
+          @click="activeTab = 'pl'"
+        />
+        <UButton 
+          :variant="activeTab === 'bs' ? 'solid' : 'ghost'"
+          :color="activeTab === 'bs' ? 'primary' : 'neutral'"
+          size="sm"
+          class="font-black text-[10px] uppercase tracking-wider rounded-lg px-4"
+          label="Balance Sheet"
+          @click="activeTab = 'bs'"
+        />
+      </div>
+
+      <!-- SL-GL Parity Indicator Badge -->
+      <div v-if="slglReport" class="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold shadow-sm" :class="slglReport.overallStatus === 'HEALTHY' ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'">
+        <UIcon :name="slglReport.overallStatus === 'HEALTHY' ? 'i-heroicons-shield-check' : 'i-heroicons-shield-exclamation'" class="w-4 h-4 shrink-0" />
+        <span class="text-[11px] font-black uppercase tracking-wider">
+          {{ slglReport.overallStatus === 'HEALTHY' ? 'SL-GL Parity: Matched' : 'SL-GL: Drift Detected' }}
+        </span>
+        <span v-if="slglReport.untaggedVoucherCount > 0" class="text-[10px] opacity-75 font-mono">
+          ({{ slglReport.untaggedVoucherCount }} untagged)
+        </span>
+      </div>
     </div>
 
     <!-- Error State -->
@@ -445,7 +498,7 @@ onMounted(loadData);
                 <div v-if="plModel.drCOGS.length === 0" class="py-2 px-4 text-center text-[10px] text-slate-400 border-b border-gray-100 dark:border-zinc-800/40 italic">No COGS accounts</div>
                 <div class="py-1.5 px-4 bg-amber-50/30 dark:bg-amber-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
                   <span>Total Cost of Sales</span>
-                  <span class="font-mono text-amber-700 dark:text-amber-400 font-bold">{{ formatINR(plModel.totalCOGS) }}</span>
+                  <span class="font-mono text-amber-700 dark:text-amber-400 font-bold">{{ formatINR(plModel.sumDrCOGS) }}</span>
                 </div>
               </div>
 
@@ -478,7 +531,7 @@ onMounted(loadData);
                 <div v-if="plModel.drOpex.length === 0" class="py-2 px-4 text-center text-[10px] text-slate-400 border-b border-gray-100 dark:border-zinc-800/40 italic">No operating expenses</div>
                 <div class="py-1.5 px-4 bg-rose-50/30 dark:bg-rose-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
                   <span>Total Operating Expenses</span>
-                  <span class="font-mono text-rose-700 dark:text-rose-400 font-bold">{{ formatINR(plModel.totalOpex) }}</span>
+                  <span class="font-mono text-rose-700 dark:text-rose-400 font-bold">{{ formatINR(plModel.sumDrOpex) }}</span>
                 </div>
               </div>
 
@@ -546,6 +599,10 @@ onMounted(loadData);
                 <div v-for="a in [...plModel.crCOGS, ...plModel.crOpex]" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
                   <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-bold">{{ a.head }}</span>
                   <span class="font-mono font-bold">{{ formatINR(a.netCr) }}</span>
+                </div>
+                <div class="py-1.5 px-4 bg-sky-50/30 dark:bg-sky-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
+                  <span>Total Contra Expense</span>
+                  <span class="font-mono text-sky-700 dark:text-sky-400 font-bold">{{ formatINR(plModel.sumContraExpense) }}</span>
                 </div>
               </div>
 
@@ -911,6 +968,12 @@ onMounted(loadData);
       :account-head="selectedAccountHead"
       :initial-from-date="fromDate"
       :initial-to-date="toDate"
+    />
+
+    <!-- Year-End Closing Wizard Modal -->
+    <YearEndClosingModal
+      v-model="showYearEndModal"
+      @closed="loadData"
     />
     </div>
   </div>

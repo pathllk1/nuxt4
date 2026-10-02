@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import type { LedgerEntryParams } from './ledger.service';
+import { convertVoucherInputToLegs } from './posting-adapter';
 
 export interface VoucherLineInput {
   accountHead: string;
@@ -9,12 +10,18 @@ export interface VoucherLineInput {
   accountType?: string;
   type?: string;
   laborPeriodId?: string;
+  partyId?: any;
+  bankAccountId?: any;
 }
 
+/**
+ * @deprecated SmartVoucherConverter is retired.
+ * Use convertVoucherInputToLegs() from posting-adapter.ts and UnifiedPostingService instead.
+ */
 export class SmartVoucherConverter {
   static convertToLedgerEntries(
     firmId: mongoose.Types.ObjectId,
-    voucherId: number,
+    voucherId: number | string,
     voucherNo: string,
     vtype: string,
     vdate: string,
@@ -23,218 +30,27 @@ export class SmartVoucherConverter {
     narration: string,
     createdBy: string
   ): LedgerEntryParams[] {
-    const docs: LedgerEntryParams[] = [];
-    const base = {
+    const legs = convertVoucherInputToLegs({
+      vtype,
+      entries,
+      mainAccount,
+      narration,
+    });
+
+    return legs.map((leg) => ({
       firmId,
       transactionDate: vdate,
-      voucherGroupId: voucherId.toString(),
+      accountHead: leg.accountHead,
+      accountType: leg.accountType || 'GENERAL',
+      debitAmount: leg.debitAmount,
+      creditAmount: leg.creditAmount,
+      narration: leg.narration || narration,
+      voucherGroupId: String(voucherId),
       voucherNo,
       voucherType: vtype,
+      partyId: leg.partyId ? new mongoose.Types.ObjectId(String(leg.partyId)) : undefined,
+      bankAccountId: leg.bankAccountId ? new mongoose.Types.ObjectId(String(leg.bankAccountId)) : undefined,
       createdBy,
-      narration
-    };
-
-    if (vtype === 'PAYMENT') {
-      return this.handlePayment(docs, base, mainAccount, entries);
-    } else if (vtype === 'RECEIPT') {
-      return this.handleReceipt(docs, base, mainAccount, entries);
-    } else if (vtype === 'JOURNAL') {
-      return this.handleJournal(docs, base, entries);
-    } else if (vtype === 'CONTRA') {
-      return this.handleContra(docs, base, mainAccount, entries);
-    }
-
-    return docs;
-  }
-
-  /**
-   * Tally Single-Entry Payment Voucher
-   * - Positive line amount: Debit party/expense (e.g. ₹5,050 Dr)
-   * - Negative line amount: Credit deduction/TDS/discount (e.g. ₹50 Cr)
-   * - Net Bank/Cash Outflow: Credit Bank/Cash account (e.g. ₹5,000 Cr)
-   * Mathematical proof: Total Debits (5050) = Total Credits (5000 + 50)
-   */
-  private static handlePayment(
-    docs: LedgerEntryParams[],
-    base: any,
-    mainAccount: string,
-    entries: VoucherLineInput[]
-  ): LedgerEntryParams[] {
-    let totalDebit = 0;
-    let totalDeductions = 0;
-
-    for (const entry of entries) {
-      const amt = Number(entry.amount) || 0;
-      if (amt === 0) continue;
-
-      if (amt > 0) {
-        // Normal payment/expense/party line -> DEBIT
-        totalDebit += amt;
-        docs.push({
-          ...base,
-          accountHead: entry.accountHead,
-          accountType: entry.accountType || 'EXPENSE',
-          debitAmount: amt,
-          creditAmount: 0
-        });
-      } else {
-        // Negative amount (Deduction/TDS/Discount/Recovery) -> CREDIT
-        const positiveDeduction = Math.abs(amt);
-        totalDeductions += positiveDeduction;
-        docs.push({
-          ...base,
-          accountHead: entry.accountHead,
-          accountType: entry.accountType || 'LIABILITY',
-          debitAmount: 0,
-          creditAmount: positiveDeduction
-        });
-      }
-    }
-
-    const netBankPayout = totalDebit - totalDeductions;
-    if (netBankPayout < 0) {
-      throw new Error(`Invalid Payment Voucher: Total deductions (₹${totalDeductions.toFixed(2)}) exceed gross payout (₹${totalDebit.toFixed(2)}). Net amount cannot be negative.`);
-    }
-
-    // Credit Bank / Cash with actual net outflow
-    docs.push({
-      ...base,
-      accountHead: mainAccount,
-      accountType: 'BANK',
-      debitAmount: 0,
-      creditAmount: netBankPayout
-    });
-
-    return docs;
-  }
-
-  /**
-   * Tally Single-Entry Receipt Voucher
-   * - Positive line amount: Credit customer/income (e.g. ₹10,000 Cr)
-   * - Negative line amount: Debit deduction/gateway charge/TDS receivable (e.g. ₹200 Dr)
-   * - Net Bank/Cash Inflow: Debit Bank/Cash account (e.g. ₹9,800 Dr)
-   * Mathematical proof: Total Debits (9800 + 200) = Total Credits (10000)
-   */
-  private static handleReceipt(
-    docs: LedgerEntryParams[],
-    base: any,
-    mainAccount: string,
-    entries: VoucherLineInput[]
-  ): LedgerEntryParams[] {
-    let totalCredit = 0;
-    let totalDeductions = 0;
-
-    for (const entry of entries) {
-      const amt = Number(entry.amount) || 0;
-      if (amt === 0) continue;
-
-      if (amt > 0) {
-        // Normal receipt from customer/income -> CREDIT
-        totalCredit += amt;
-        docs.push({
-          ...base,
-          accountHead: entry.accountHead,
-          accountType: entry.accountType || 'PARTY',
-          debitAmount: 0,
-          creditAmount: amt
-        });
-      } else {
-        // Negative amount (Deduction/Gateway charge/Customer TDS) -> DEBIT
-        const positiveDeduction = Math.abs(amt);
-        totalDeductions += positiveDeduction;
-        docs.push({
-          ...base,
-          accountHead: entry.accountHead,
-          accountType: entry.accountType || 'EXPENSE',
-          debitAmount: positiveDeduction,
-          creditAmount: 0
-        });
-      }
-    }
-
-    const netBankInflow = totalCredit - totalDeductions;
-    if (netBankInflow < 0) {
-      throw new Error(`Invalid Receipt Voucher: Total deductions (₹${totalDeductions.toFixed(2)}) exceed gross receipt (₹${totalCredit.toFixed(2)}). Net amount cannot be negative.`);
-    }
-
-    // Debit Bank / Cash with actual net inflow
-    docs.push({
-      ...base,
-      accountHead: mainAccount,
-      accountType: 'BANK',
-      debitAmount: netBankInflow,
-      creditAmount: 0
-    });
-
-    return docs;
-  }
-
-  /**
-   * Pure Double-Entry Journal Voucher
-   */
-  private static handleJournal(
-    docs: LedgerEntryParams[],
-    base: any,
-    entries: VoucherLineInput[]
-  ): LedgerEntryParams[] {
-    for (const entry of entries) {
-      const dr = Number(entry.debitAmount) || 0;
-      const cr = Number(entry.creditAmount) || 0;
-
-      if (dr === 0 && cr === 0) continue;
-
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: entry.accountType || 'GENERAL',
-        debitAmount: dr,
-        creditAmount: cr
-      });
-    }
-
-    return docs;
-  }
-
-  /**
-   * Contra Voucher — Cash ↔ Bank or Bank ↔ Bank transfer
-   * - Dr Destination Account (where money goes)
-   * - Cr Source Account (where money comes from)
-   * mainAccount = Source (e.g., Cash in Hand / Source Bank)
-   * entries = Destination accounts with amounts
-   */
-  private static handleContra(
-    docs: LedgerEntryParams[],
-    base: any,
-    mainAccount: string,
-    entries: VoucherLineInput[]
-  ): LedgerEntryParams[] {
-    let totalTransfer = 0;
-
-    for (const entry of entries) {
-      const amt = Number(entry.amount) || Number(entry.debitAmount) || 0;
-      if (amt === 0) continue;
-
-      totalTransfer += amt;
-      docs.push({
-        ...base,
-        accountHead: entry.accountHead,
-        accountType: entry.accountType || 'BANK',
-        debitAmount: amt > 0 ? amt : 0,
-        creditAmount: amt < 0 ? Math.abs(amt) : 0
-      });
-    }
-
-    if (totalTransfer !== 0) {
-      // Offset against Source Account (mainAccount)
-      docs.push({
-        ...base,
-        accountHead: mainAccount,
-        accountType: 'BANK',
-        debitAmount: totalTransfer < 0 ? Math.abs(totalTransfer) : 0,
-        creditAmount: totalTransfer > 0 ? totalTransfer : 0
-      });
-    }
-
-    return docs;
+    }));
   }
 }

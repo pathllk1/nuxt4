@@ -1,24 +1,8 @@
 import mongoose from 'mongoose';
 import BulkPayment from '../../../models/BulkPayment';
 import BankAccount from '../../../models/BankAccount';
-import VoucherSequence from '../../../models/VoucherSequence';
-import { LedgerService } from '../../../utils/accounting/ledger.service';
+import { UnifiedPostingService } from '../../../utils/accounting/unified-posting.service';
 import { requireAuthSession } from '../../../utils/auth';
-
-async function getNextVoucherGroupId(firmId: mongoose.Types.ObjectId, session?: mongoose.ClientSession): Promise<number> {
-  const seq = await VoucherSequence.findOneAndUpdate(
-    { firmId },
-    { $inc: { lastNo: 1 } },
-    { returnDocument: 'after', upsert: true, session }
-  );
-  return seq.lastNo;
-}
-
-function generateVoucherNo(vtype: string, year: number, sequence: number): string {
-  const prefixMap: Record<string, string> = { JOURNAL: 'JV', PAYMENT: 'PV', RECEIPT: 'RV', CONTRA: 'CV' };
-  const prefix = prefixMap[vtype] || 'PV';
-  return `${prefix}/${year}/${sequence.toString().padStart(4, '0')}`;
-}
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -65,9 +49,6 @@ export default defineEventHandler(async (event) => {
       }
       totalAmount += amount;
 
-      const voucherId = await getNextVoucherGroupId(firmIdObj, session);
-      const voucherNo = generateVoucherNo('PAYMENT', year, voucherId);
-
       const itemNarration = rawItem.narration || narration || `Bulk payout via ${rawItem.paysysId || 'NEFT'} Chq: ${chequeNo || '-'}`;
       const fullLineNarration = `${itemNarration} | Beneficiary: ${rawItem.beneficiaryName || '-'} (A/C: ${rawItem.beneficiaryAccountNo || '-'}, IFSC: ${rawItem.beneficiaryIfsc || '-'}) | Batch: ${batchNo}`;
 
@@ -75,55 +56,37 @@ export default defineEventHandler(async (event) => {
         ? new mongoose.Types.ObjectId(String(rawItem.partyId))
         : null;
 
-      // 1-to-1 Double Entry Voucher:
-      // Line 1: Debit Party/Expense Account
-      // Line 2: Credit Firm Bank Account
-      const ledgerEntries = [
-        {
-          firmId: firmIdObj,
-          transactionDate: effectiveDate,
-          accountHead: rawItem.accountHead || rawItem.beneficiaryName,
-          accountType: rawItem.accountType || 'EXPENSE',
-          debitAmount: amount,
-          creditAmount: 0,
-          narration: fullLineNarration,
-          voucherGroupId: String(voucherId),
-          voucherNo,
-          voucherType: 'PAYMENT',
-          partyId: partyIdObj,
-          createdBy: user.username || user.email || 'system'
-        },
-        {
-          firmId: firmIdObj,
-          transactionDate: effectiveDate,
-          accountHead: bankAccount.account_name,
-          accountType: 'ASSET',
-          debitAmount: 0,
-          creditAmount: amount,
-          bankAccountId: bankAccount._id as mongoose.Types.ObjectId,
-          paymentMode: rawItem.paysysId || 'NEFT',
-          narration: fullLineNarration,
-          voucherGroupId: String(voucherId),
-          voucherNo,
-          voucherType: 'PAYMENT',
-          createdBy: user.username || user.email || 'system'
-        }
-      ];
-
-      await LedgerService.postVoucherToLedger(
-        {
-          firmId: firmIdObj,
-          voucherId,
-          voucherType: 'PAYMENT',
-          voucherNo,
-          transactionDate: effectiveDate,
-          narration: fullLineNarration,
-          entries: ledgerEntries,
-          createdBy: user.username || user.email || 'system',
-          session
-        },
-        user.username || user.email || 'system'
-      );
+      // Double-entry via UnifiedPostingService:
+      // Leg 1: Debit Party/Expense Account
+      // Leg 2: Credit Firm Bank Account
+      const postResult = await UnifiedPostingService.postVoucher({
+        firmId: firmIdObj,
+        voucherType: 'PAYMENT',
+        transactionDate: effectiveDate,
+        narration: fullLineNarration,
+        legs: [
+          {
+            accountHead: rawItem.accountHead || rawItem.beneficiaryName,
+            accountType: rawItem.accountType || 'EXPENSE',
+            debitAmount: amount,
+            creditAmount: 0,
+            partyId: partyIdObj,
+            narration: fullLineNarration,
+          },
+          {
+            accountHead: bankAccount.account_name,
+            accountType: 'BANK',
+            debitAmount: 0,
+            creditAmount: amount,
+            bankAccountId: bankAccount._id as mongoose.Types.ObjectId,
+            paymentMode: rawItem.paysysId || 'NEFT',
+            narration: fullLineNarration,
+          }
+        ],
+        createdBy: user.username || user.email || 'system',
+        refType: 'PAYMENT',
+        tags: { batchNo, beneficiaryName: rawItem.beneficiaryName },
+      }, session);
 
       processedItems.push({
         accountHead: rawItem.accountHead || rawItem.beneficiaryName,
@@ -138,8 +101,8 @@ export default defineEventHandler(async (event) => {
         paysysId: rawItem.paysysId || (amount >= 200000 ? 'RTGS' : 'NEFT'),
         amount,
         narration: rawItem.narration || '',
-        voucherGroupId: String(voucherId),
-        voucherNo
+        voucherGroupId: postResult.voucherGroupId,
+        voucherNo: postResult.voucherNo
       });
     }
 

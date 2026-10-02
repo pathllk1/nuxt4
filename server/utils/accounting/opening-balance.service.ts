@@ -128,40 +128,36 @@ export class OpeningBalanceService {
         { upsert: true, returnDocument: 'after', runValidators: true, session }
       );
 
-      // 4. Create balanced double-entry voucher pair in Ledger:
-      // Leg 1: The actual account head
-      const leg1 = {
+      // 4. Create balanced double-entry voucher pair in Ledger via UnifiedPostingService:
+      const { UnifiedPostingService } = await import('./unified-posting.service');
+      await UnifiedPostingService.postVoucher({
         firmId: firmIdObj,
-        transactionDate: fyStart,
-        accountHead,
-        accountType,
-        partyId: params.partyId ? new mongoose.Types.ObjectId(String(params.partyId)) : undefined,
-        bankAccountId: params.bankAccountId ? new mongoose.Types.ObjectId(String(params.bankAccountId)) : undefined,
-        debitAmount: balanceType === 'DR' ? amount : 0,
-        creditAmount: balanceType === 'CR' ? amount : 0,
-        narration: `Opening Balance for ${financialYear}`,
         voucherType: 'OPENING_BALANCE',
-        voucherNo,
-        voucherGroupId,
-        createdBy: userIdStr
-      };
-
-      // Leg 2: Dynamic Contra Head 'Difference in Opening Balances'
-      const leg2 = {
-        firmId: firmIdObj,
         transactionDate: fyStart,
-        accountHead: this.CONTRA_HEAD,
-        accountType: this.CONTRA_TYPE,
-        debitAmount: balanceType === 'CR' ? amount : 0, // Inverted for contra
-        creditAmount: balanceType === 'DR' ? amount : 0, // Inverted for contra
-        narration: `Contra - Opening Balance for ${accountHead} (${financialYear})`,
-        voucherType: 'OPENING_BALANCE',
-        voucherNo,
-        voucherGroupId,
-        createdBy: userIdStr
-      };
-
-      await (Ledger as any).insertMany([leg1, leg2], session ? { session } : {});
+        narration: `Opening Balance for ${accountHead} (${financialYear})`,
+        legs: [
+          {
+            accountHead,
+            accountType,
+            partyId: params.partyId ? new mongoose.Types.ObjectId(String(params.partyId)) : undefined,
+            bankAccountId: params.bankAccountId ? new mongoose.Types.ObjectId(String(params.bankAccountId)) : undefined,
+            debitAmount: balanceType === 'DR' ? amount : 0,
+            creditAmount: balanceType === 'CR' ? amount : 0,
+            narration: `Opening Balance for ${financialYear}`,
+          },
+          {
+            accountHead: this.CONTRA_HEAD,
+            accountType: this.CONTRA_TYPE,
+            debitAmount: balanceType === 'CR' ? amount : 0,
+            creditAmount: balanceType === 'DR' ? amount : 0,
+            narration: `Contra - Opening Balance for ${accountHead} (${financialYear})`,
+          }
+        ],
+        createdBy: userIdStr,
+        refType: 'OPENING_BALANCE',
+        externalVoucherGroupId: voucherGroupId,
+        externalVoucherNo: voucherNo,
+      }, session);
     } else {
       // Amount is 0: clear the OpeningBalance document
       obDoc = await (OpeningBalance as any).findOneAndUpdate(

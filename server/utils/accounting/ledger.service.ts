@@ -39,6 +39,55 @@ export class LedgerService {
     }
   }
 
+  /**
+   * Internal helper that translates LedgerEntryParams into IVoucherPayload
+   * and routes posting through UnifiedPostingService.
+   */
+  private static async executeUnifiedPost(params: {
+    firmId: mongoose.Types.ObjectId;
+    voucherType: string;
+    voucherGroupId: string;
+    voucherNo: string;
+    transactionDate: string;
+    narration: string;
+    docs: LedgerEntryParams[];
+    createdBy: string;
+    refType?: string;
+    refId?: mongoose.Types.ObjectId;
+    session?: mongoose.ClientSession;
+  }): Promise<any> {
+    const { UnifiedPostingService } = await import('./unified-posting.service');
+    const { mapLegacyVoucherType } = await import('./posting-adapter');
+
+    const legs = params.docs.map(d => ({
+      accountHead: d.accountHead,
+      accountType: d.accountType,
+      debitAmount: d.debitAmount || 0,
+      creditAmount: d.creditAmount || 0,
+      partyId: d.partyId || null,
+      bankAccountId: d.bankAccountId || null,
+      stockId: d.stockId || null,
+      stockRegId: d.stockRegId || null,
+      narration: d.narration || params.narration,
+      paymentMode: d.paymentMode || null,
+    }));
+
+    const mappedVtype = mapLegacyVoucherType(params.voucherType);
+
+    return await UnifiedPostingService.postVoucher({
+      firmId: params.firmId,
+      voucherType: mappedVtype,
+      transactionDate: params.transactionDate || (new Date().toISOString().split('T')[0] as string),
+      narration: params.narration,
+      legs,
+      createdBy: params.createdBy || 'system',
+      refType: params.refType || 'BILL',
+      refId: params.refId,
+      externalVoucherGroupId: params.voucherGroupId,
+      externalVoucherNo: params.voucherNo,
+    }, params.session);
+  }
+
   static async initializeChartOfAccounts(
     firmId: mongoose.Types.ObjectId,
     userId: mongoose.Types.ObjectId | string,
@@ -154,7 +203,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'PURCHASE', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'PURCHASE',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Purchase Bill No: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postSalesLedger(params: any) {
@@ -196,7 +257,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'SALES', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'SALES',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Sales Bill No: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postAccountingSalesLedger(params: any) {
@@ -240,7 +313,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_SALES', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'SALES',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Service Sales Invoice: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postAccountingPurchaseLedger(params: any) {
@@ -308,7 +393,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_PURCHASE', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'PURCHASE',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Service Purchase Bill: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postAccountingDebitNoteLedger(params: any) {
@@ -353,7 +450,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_PURCHASE', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'DEBIT_NOTE',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Purchase Return / Debit Note: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postCreditNoteLedger(params: any) {
@@ -386,7 +495,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'CREDIT_NOTE', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'CREDIT_NOTE',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Credit Note No: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postDebitNoteLedger(params: any) {
@@ -414,7 +535,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'DEBIT_NOTE', billNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'DEBIT_NOTE',
+      voucherGroupId: voucherId,
+      voucherNo: billNo,
+      transactionDate: billDate,
+      narration: `Debit Note No: ${billNo}`,
+      docs,
+      createdBy,
+      refType: 'BILL',
+      refId: billId,
+      session,
+    });
   }
 
   static async postStockAdjustmentLedger(params: any) {
@@ -431,7 +564,19 @@ export class LedgerService {
     docs.push({ ...base, accountHead: adjL.accountHead, accountType: adjL.accountType, debitAmount: 0, creditAmount: total, narration: `${type} of ${item}: ${qty} units - ${reference || 'Manual Adjustment'}` });
 
     this.assertBalanced(docs, 'STOCK_ADJUSTMENT', base.voucherNo);
-    await (Ledger as any).insertMany(docs, session ? { session } : {});
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType: 'STOCK_ADJUSTMENT',
+      voucherGroupId: voucherId,
+      voucherNo: base.voucherNo,
+      transactionDate: base.transactionDate,
+      narration: docs[0]?.narration || 'Stock Adjustment',
+      docs,
+      createdBy,
+      refType: 'STOCK_MOVEMENT',
+      refId: stockRegId,
+      session,
+    });
   }
 
   static async postVoucherToLedger(voucherData: any, createdBy: string): Promise<ILedger[]> {
@@ -445,7 +590,19 @@ export class LedgerService {
     }
 
     this.assertBalanced(ledgerEntries, voucherType, voucherNo);
-    return await (Ledger as any).insertMany(ledgerEntries, session ? { session } : {}) as any;
+    await this.executeUnifiedPost({
+      firmId,
+      voucherType,
+      voucherGroupId: voucherId.toString(),
+      voucherNo,
+      transactionDate: transactionDate || new Date().toISOString().split('T')[0] || '',
+      narration,
+      docs: ledgerEntries,
+      createdBy,
+      refType: 'VOUCHER',
+      session,
+    });
+    return [] as any;
   }
 
   static async getAccountBalance(firmId: mongoose.Types.ObjectId, accountHead: string, toDate?: string) {
@@ -649,34 +806,78 @@ export class LedgerService {
     const expense = plAccounts.filter(a => isExpenseType(a.type));
     const general = plAccounts.filter(a => a.type === 'GENERAL');
 
-    const drCOGS = expense.filter(a => isCOGS(a.head, a.type) && a.netDr > 0);
-    const drOpex = expense.filter(a => !isCOGS(a.head, a.type) && a.netDr > 0);
-    const crRevenue = income.filter(a => a.netCr > 0);
-    const crGeneral = general.filter(a => a.netCr > 0);
-    const drGeneral = general.filter(a => a.netDr > 0);
+    const cogs = expense.filter(a => isCOGS(a.head, a.type));
+    const opex = expense.filter(a => !isCOGS(a.head, a.type));
 
-    const totalCOGS = drCOGS.reduce((s, a) => s + a.netDr, 0);
-    const totalOpex = drOpex.reduce((s, a) => s + a.netDr, 0) + drGeneral.reduce((s, a) => s + a.netDr, 0);
+    const crIncome = income.filter(a => a.netCr >= 0);
+    const drContraIncome = income.filter(a => a.netCr < 0);
+    const drCOGS = cogs.filter(a => a.netCr <= 0);
+    const crCOGS = cogs.filter(a => a.netCr > 0);
+    const drOpex = opex.filter(a => a.netCr <= 0);
+    const crOpex = opex.filter(a => a.netCr > 0);
+    const crGeneral = general.filter(a => a.netCr >= 0);
+    const drGeneral = general.filter(a => a.netCr < 0);
 
-    // Exact net totals accounting for returns, discounts, adjustments
-    let totalRevenueCr = income.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
-    let totalExpensesDr = expense.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
+    const sumDrCOGS = drCOGS.reduce((s, a) => s + Math.abs(a.netCr), 0);
+    const sumCrCOGS = crCOGS.reduce((s, a) => s + a.netCr, 0);
+    const sumDrOpex = drOpex.reduce((s, a) => s + Math.abs(a.netCr), 0);
+    const sumCrOpex = crOpex.reduce((s, a) => s + a.netCr, 0);
+    const sumDrGeneral = drGeneral.reduce((s, a) => s + Math.abs(a.netCr), 0);
+    const sumCrGeneral = crGeneral.reduce((s, a) => s + a.netCr, 0);
+    const sumContraExpense = sumCrCOGS + sumCrOpex;
 
-    for (const g of general) {
-      const netCr = g.totalCredit - g.totalDebit;
-      if (netCr > 0) totalRevenueCr += netCr;
-      else totalExpensesDr += Math.abs(netCr);
-    }
+    const totalRevenueCr = crIncome.reduce((s, a) => s + a.netCr, 0);
+    const totalContraInc = drContraIncome.reduce((s, a) => s + Math.abs(a.netCr), 0);
+    const totalCOGS = sumDrCOGS - sumCrCOGS;
+    const totalOpex = sumDrOpex - sumCrOpex;
+    const totalGeneralNet = sumCrGeneral - sumDrGeneral;
 
-    const totalIncomeCr = totalRevenueCr;
-    const netProfit = totalIncomeCr - totalExpensesDr;
-    const drGrand = totalExpensesDr + (netProfit > 0 ? netProfit : 0);
-    const crGrand = totalIncomeCr + (netProfit < 0 ? Math.abs(netProfit) : 0);
+    const effectiveRevenue = totalRevenueCr - totalContraInc;
+    const grossProfit = effectiveRevenue - totalCOGS;
+    const netProfit = grossProfit - totalOpex + totalGeneralNet;
+    const gpMargin = effectiveRevenue ? (grossProfit / effectiveRevenue) * 100 : 0;
+    const npMargin = effectiveRevenue ? (netProfit / effectiveRevenue) * 100 : 0;
+
+    // The Debit side T-table displays drCOGS, drContraIncome, drOpex, drGeneral
+    const drItems = sumDrCOGS + totalContraInc + sumDrOpex + sumDrGeneral;
+
+    // The Credit side T-table displays crIncome, crGeneral, and contra expense credit balances (crCOGS + crOpex)
+    const crItems = totalRevenueCr + sumCrGeneral + sumContraExpense;
+
+    const drGrand = drItems + Math.max(netProfit, 0);
+    const crGrand = crItems + Math.max(-netProfit, 0);
 
     return {
-      drCOGS, drOpex, crRevenue, crGeneral, drGeneral,
-      totalCOGS, totalOpex, totalRevenueCr, totalIncomeCr, totalExpensesDr,
-      netProfit, drGrand, crGrand
+      crIncome,
+      crRevenue: crIncome,
+      drContraIncome,
+      drCOGS,
+      crCOGS,
+      drOpex,
+      crOpex,
+      crGeneral,
+      drGeneral,
+      totalRevenueCr,
+      totalIncomeCr: totalRevenueCr,
+      totalExpensesDr: sumDrCOGS + sumDrOpex + totalContraInc + sumDrGeneral,
+      totalContraInc,
+      effectiveRevenue,
+      totalCOGS,
+      totalOpex,
+      totalGeneralNet,
+      sumDrCOGS,
+      sumCrCOGS,
+      sumDrOpex,
+      sumCrOpex,
+      sumContraExpense,
+      sumCrGeneral,
+      sumDrGeneral,
+      grossProfit,
+      netProfit,
+      gpMargin,
+      npMargin,
+      drGrand,
+      crGrand,
     };
   }
 
@@ -684,95 +885,84 @@ export class LedgerService {
     const trialBalance = await this.getTrialBalance(firmId, undefined, asOfDate);
     const plModel = await this.getProfitAndLossModel(firmId, undefined, asOfDate);
 
-    // Filter out accounts belonging to P&L
-    const plTypes = ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL'];
-    const bsAccounts = trialBalance.filter(a => !plTypes.includes(a.accountType));
+    const isDebtorType = (type: string) => ['DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(type?.toUpperCase() || '');
+    const isCreditorType = (type: string) => ['CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE'].includes(type?.toUpperCase() || '');
+    const isCashBankType = (type: string) => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(type?.toUpperCase() || '');
+    const isStock = (head: string) => ['inventory', 'stock'].some(k => head.toLowerCase().includes(k));
+    const isGSTRec = (head: string) => ['gst', 'cgst', 'sgst', 'igst', 'tax receivable', 'input credit', 'input tax'].some(k => head.toLowerCase().includes(k));
+    const isDiffOb = (head: string) => head === 'Difference in Opening Balances' || head === 'Opening Balance';
 
-    // Categorization into mutually exclusive Balance Sheet buckets
-    const debtorAccounts = bsAccounts.filter(a =>
-      ['RECEIVABLE', 'SUNDRY_DEBTORS'].includes(a.accountType) ||
-      (a.accountHead && a.accountHead.toLowerCase().includes('debtor')) ||
-      (a.accountType === 'PARTY' && a.totalDebit > a.totalCredit)
-    );
+    const bsAccounts = trialBalance.filter(a => 
+      ['ASSET', 'LIABILITY', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'CAPITAL', 'LABOR_LEADER'].includes(a.accountType)
+    ).map(a => {
+      const netDr = a.totalDebit - a.totalCredit;
+      const netCr = a.totalCredit - a.totalDebit;
+      return {
+        head: a.accountHead,
+        type: a.accountType,
+        netDr,
+        netCr,
+        totalDebit: a.totalDebit,
+        totalCredit: a.totalCredit,
+      };
+    });
 
-    const creditorAccounts = bsAccounts.filter(a =>
-      ['PAYABLE', 'SUNDRY_CREDITORS'].includes(a.accountType) ||
-      (a.accountHead && a.accountHead.toLowerCase().includes('creditor')) ||
-      (a.accountType === 'PARTY' && a.totalCredit > a.totalDebit)
-    );
+    const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(a.type));
+    const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL'].includes(a.type));
 
-    const cashBankAccounts = bsAccounts.filter(a => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(a.accountType));
-    const stockAccounts = bsAccounts.filter(a =>
-      a.accountHead === 'Inventory' ||
-      a.accountType === 'INVENTORY' ||
-      (a.accountHead && a.accountHead.toLowerCase().includes('stock'))
-    );
-
-    const equityAccounts = bsAccounts.filter(a => ['EQUITY', 'CAPITAL'].includes(a.accountType));
-    const externalLiabAccounts = bsAccounts.filter(a =>
-      ['LIABILITY', 'LOAN', 'SECURED_LOANS', 'UNSECURED_LOANS', 'CURRENT_LIABILITY', 'NON_CURRENT_LIABILITY'].includes(a.accountType) &&
-      !creditorAccounts.includes(a) &&
-      !equityAccounts.includes(a)
-    );
-
-    const otherAssetAccounts = bsAccounts.filter(a =>
-      !debtorAccounts.includes(a) &&
-      !creditorAccounts.includes(a) &&
-      !cashBankAccounts.includes(a) &&
-      !stockAccounts.includes(a) &&
-      !equityAccounts.includes(a) &&
-      !externalLiabAccounts.includes(a)
-    );
-
-    // Calculate Closing Stock
-    const stockLedgerVal = stockAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
-    const StockModel = (Stock || mongoose.models.Stock) as any;
-    const stockDocs = await StockModel.find({
-      $or: [{ firm_id: firmId }, { firmId: firmId }]
-    }).select('total qty rate').lean();
-    const totalStockFromModel = (stockDocs || []).reduce((s: number, st: any) => s + (st.qty > 0 ? (st.total || (st.qty * st.rate)) : 0), 0);
-
-    const totalStock = Math.max(0, stockLedgerVal > 0 ? stockLedgerVal : totalStockFromModel);
-    const totalStockDeficit = Math.abs(Math.min(0, stockLedgerVal)); // When stock is negative (sales precede purchases)
-
-    // Debtors and Creditors (including advances where customer has credit balance or supplier has debit balance)
-    const totalDebtors = debtorAccounts.reduce((s, a) => s + Math.max(0, a.totalDebit - a.totalCredit), 0);
-    const debtorCreditBalances = debtorAccounts.reduce((s, a) => s + Math.max(0, a.totalCredit - a.totalDebit), 0);
-
-    const creditorDebitBalances = creditorAccounts.reduce((s, a) => s + Math.max(0, a.totalDebit - a.totalCredit), 0);
-    const totalCred = creditorAccounts.reduce((s, a) => s + Math.max(0, a.totalCredit - a.totalDebit), 0) + debtorCreditBalances;
-
-    // Cash and Bank (Positive balance = Asset; Overdraft/Credit balance = Liability)
-    const netCashBank = cashBankAccounts.reduce((s, a) => s + (a.totalDebit - a.totalCredit), 0);
-    const totalCashBank = Math.max(0, netCashBank);
-    const totalBankOverdraft = Math.abs(Math.min(0, netCashBank));
-
-    // Separate Opening Balance Difference accounts from pure Equity
-    const diffObAccounts = equityAccounts.filter(a =>
-      a.accountHead === 'Difference in Opening Balances' || a.accountHead === 'Opening Balance'
-    );
-    const pureEquityAccounts = equityAccounts.filter(a => !diffObAccounts.includes(a));
-
-    const diffObNet = diffObAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
+    const diffObAccount = bsAccounts.find(a => isDiffOb(a.head));
+    const diffObNet = diffObAccount ? diffObAccount.netCr : 0;
     const diffObCr = diffObNet > 0 ? diffObNet : 0;
     const diffObDr = diffObNet < 0 ? Math.abs(diffObNet) : 0;
 
-    // Fixed & Other Assets
-    const totalOtherA = otherAssetAccounts.reduce((s, a) => s + Math.max(0, a.totalDebit - a.totalCredit), 0);
+    const stockAssets = assetsRaw.filter(a => isStock(a.head) && a.netDr > 0);
+    const gstAssets = assetsRaw.filter(a => !isStock(a.head) && isGSTRec(a.head) && a.netDr > 0);
+    const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type === 'ASSET' && !isDiffOb(a.head) && a.netDr > 0);
+    const debtors = assetsRaw.filter(a => isDebtorType(a.type) && a.netDr > 0);
+    const cashBank = assetsRaw.filter(a => isCashBankType(a.type) && a.netDr > 0);
+    const liabilityDebitBalances = liabilitiesRaw.filter(a => !isDiffOb(a.head) && a.netDr > 0);
 
-    // Equity and External Liabilities
-    const pureCapital = pureEquityAccounts.reduce((s, a) => s + (a.totalCredit - a.totalDebit), 0);
-    const capital = pureCapital + diffObCr;
-    const totalExternalLiab = externalLiabAccounts.reduce((s, a) => s + Math.max(0, a.totalCredit - a.totalDebit), 0);
-    const totalLiab = totalExternalLiab + totalBankOverdraft + totalStockDeficit;
+    const totalStock = stockAssets.reduce((s, a) => s + a.netDr, 0);
+    const totalGST = gstAssets.reduce((s, a) => s + a.netDr, 0);
+    const totalOtherA = otherAssets.reduce((s, a) => s + a.netDr, 0);
+    const totalDebtors = debtors.reduce((s, a) => s + a.netDr, 0);
+    const totalCashBank = cashBank.reduce((s, a) => s + a.netDr, 0);
+    const totalLiabilityDebitBalances = liabilityDebitBalances.reduce((s, a) => s + a.netDr, 0);
 
-    // Both sides balance to the exact paisa
-    const totalAssets = totalOtherA + totalStock + totalDebtors + totalCashBank + creditorDebitBalances + diffObDr;
-    const totalLiabSide = capital + plModel.netProfit + totalLiab + totalCred;
+    const totalAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank + totalLiabilityDebitBalances + diffObDr;
+
+    const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER'].includes(a.type) && a.netCr > 0);
+    const creditors = liabilitiesRaw.filter(a => isCreditorType(a.type) && a.netCr > 0);
+    const assetCreditBalances = assetsRaw.filter(a => a.type === 'ASSET' && !isDiffOb(a.head) && a.netCr > 0);
+    const debtorCreditBalances = assetsRaw.filter(a => isDebtorType(a.type) && a.netCr > 0);
+    const cashBankCreditBalances = assetsRaw.filter(a => isCashBankType(a.type) && a.netCr > 0);
+
+    const totalLiab = liabilities.reduce((s, a) => s + a.netCr, 0);
+    const totalCred = creditors.reduce((s, a) => s + a.netCr, 0);
+    const totalAssetCreditBalances = assetCreditBalances.reduce((s, a) => s + a.netCr, 0);
+    const totalDebtorCreditBalances = debtorCreditBalances.reduce((s, a) => s + a.netCr, 0);
+    const totalCashBankCreditBalances = cashBankCreditBalances.reduce((s, a) => s + a.netCr, 0);
+
+    const totalExtLib = totalLiab + totalCred + totalAssetCreditBalances + totalDebtorCreditBalances + totalCashBankCreditBalances;
+
+    const netProfit = plModel.netProfit;
+    const capital = totalAssets - totalExtLib - netProfit;
+    const totalLiabSide = totalExtLib + capital + netProfit;
+
+    const balanced = Math.abs(totalAssets - totalLiabSide) < 0.02;
+
+    const currentAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank;
+    const currentLiabilities = totalLiab + totalCred + totalDebtorCreditBalances + totalCashBankCreditBalances;
+    const currentRatio = currentLiabilities > 0 ? (currentAssets / currentLiabilities) : (currentAssets > 0 ? 99 : 0);
+    const quickRatio = currentLiabilities > 0 ? ((currentAssets - totalStock) / currentLiabilities) : (currentAssets - totalStock > 0 ? 99 : 0);
+    const workingCapital = currentAssets - currentLiabilities;
+
+    const assetSideCount = stockAssets.length + gstAssets.length + otherAssets.length + debtors.length + cashBank.length + liabilityDebitBalances.length + (diffObDr > 0 ? 1 : 0);
+    const liabilitySideCount = liabilities.length + creditors.length + assetCreditBalances.length + debtorCreditBalances.length + cashBankCreditBalances.length + (diffObCr > 0 ? 1 : 0);
 
     return {
       capital,
-      pureCapital,
+      netProfit,
       diffObCr,
       diffObDr,
       differenceInOpeningBalances: {
@@ -782,17 +972,40 @@ export class LedgerService {
         isDebit: diffObNet < 0,
         isZero: Math.abs(diffObNet) < 0.01
       },
-      totalLiab,
-      totalAssets,
-      totalOtherA,
+      stockAssets,
+      gstAssets,
+      otherAssets,
+      debtors,
+      cashBank,
+      liabilityDebitBalances,
       totalStock,
-      totalCred,
-      totalDebtors: totalDebtors + creditorDebitBalances,
+      totalGST,
+      totalOtherA,
+      totalDebtors,
       totalCashBank,
-      totalDebtorCreditBalances: debtorCreditBalances,
-      totalCashBankCreditBalances: totalBankOverdraft,
+      totalLiabilityDebitBalances,
+      totalAssets,
+      liabilities,
+      creditors,
+      assetCreditBalances,
+      debtorCreditBalances,
+      cashBankCreditBalances,
+      totalLiab,
+      totalCred,
+      totalAssetCreditBalances,
+      totalDebtorCreditBalances,
+      totalCashBankCreditBalances,
+      totalExtLib,
       totalLiabSide,
-      netProfit: plModel.netProfit
+      balanced,
+      currentAssets,
+      currentLiabilities,
+      currentRatio,
+      quickRatio,
+      workingCapital,
+      assetSideCount,
+      liabilitySideCount,
+      isEmpty: bsAccounts.length === 0,
     };
   }
 

@@ -5,6 +5,9 @@ export interface IChartOfAccounts extends Document {
   firmId?: mongoose.Types.ObjectId;
   account_name: string;
   account_type: string;
+  /** P&L vs Balance Sheet classification. Used by year-end closing wizard.
+   *  When null, the engine derives this from account_type at runtime. */
+  bs_classification?: 'PNL' | 'BALANCE_SHEET' | null;
   pan?: string | null;
   aadhaar_number?: string | null;
   gstin?: string | null;
@@ -46,6 +49,11 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
     account_type: {
       type: String,
       required: true,
+    },
+    bs_classification: {
+      type: String,
+      enum: ['PNL', 'BALANCE_SHEET', null],
+      default: null,
     },
     pan: {
       type: String,

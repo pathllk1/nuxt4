@@ -462,41 +462,46 @@ export async function generateProfitLossExcel(data: {
     };
   });
 
-  const drList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'TOTAL' | 'NET_PROFIT' }[] = [];
-  drList.push({ label: 'To Cost of Goods Sold', val: data.plModel.totalCOGS, type: 'HEADER' });
+  const drList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'SUBTOTAL' | 'NET_PROFIT' }[] = [];
+  drList.push({ label: 'To Cost of Goods Sold', val: '', type: 'HEADER' });
   (data.plModel.drCOGS || []).forEach((a: any) => drList.push({ label: `  ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
-  (data.plModel.crCOGS || []).forEach((a: any) => drList.push({ label: `  ${a.head} (Contra)`, val: -a.netCr, type: 'ITEM' }));
+  drList.push({ label: '  Total Cost of Sales', val: data.plModel.sumDrCOGS, type: 'SUBTOTAL' });
 
   if ((data.plModel.drContraIncome || []).length > 0) {
-    drList.push({ label: 'To Returns / Contra Income', val: data.plModel.totalContraInc, type: 'HEADER' });
+    drList.push({ label: 'To Returns / Contra Income', val: '', type: 'HEADER' });
     data.plModel.drContraIncome.forEach((a: any) => drList.push({ label: `  ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
+    drList.push({ label: '  Total Contra Income', val: data.plModel.totalContraInc, type: 'SUBTOTAL' });
   }
 
-  drList.push({ label: 'To Operating Expenses', val: data.plModel.totalOpex, type: 'HEADER' });
+  drList.push({ label: 'To Operating Expenses', val: '', type: 'HEADER' });
   (data.plModel.drOpex || []).forEach((a: any) => drList.push({ label: `  ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
-  (data.plModel.crOpex || []).forEach((a: any) => drList.push({ label: `  ${a.head} (Contra)`, val: -a.netCr, type: 'ITEM' }));
+  drList.push({ label: '  Total Operating Expenses', val: data.plModel.sumDrOpex, type: 'SUBTOTAL' });
 
   if ((data.plModel.drGeneral || []).length > 0) {
-    drList.push({ label: 'To Miscellaneous Expenses', val: data.plModel.drGeneral.reduce((s:number,a:any)=>s+Math.abs(a.netCr),0), type: 'HEADER' });
+    drList.push({ label: 'To Miscellaneous Expenses', val: '', type: 'HEADER' });
     data.plModel.drGeneral.forEach((a: any) => drList.push({ label: `  ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
+    drList.push({ label: '  Total Misc Expenses', val: data.plModel.sumDrGeneral, type: 'SUBTOTAL' });
   }
 
   if (data.plModel.netProfit >= 0) {
     drList.push({ label: 'To Net Profit (Transferred to Capital)', val: data.plModel.netProfit, type: 'NET_PROFIT' });
   }
 
-  const crList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'TOTAL' | 'NET_LOSS' }[] = [];
-  crList.push({ label: 'By Revenue / Sales', val: data.plModel.totalRevenueCr, type: 'HEADER' });
+  const crList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'SUBTOTAL' | 'NET_LOSS' }[] = [];
+  crList.push({ label: 'By Revenue / Sales', val: '', type: 'HEADER' });
   (data.plModel.crIncome || []).forEach((a: any) => crList.push({ label: `  ${a.head}`, val: a.netCr, type: 'ITEM' }));
+  crList.push({ label: '  Total Revenue', val: data.plModel.totalRevenueCr, type: 'SUBTOTAL' });
 
   if ((data.plModel.crGeneral || []).length > 0) {
-    crList.push({ label: 'By Miscellaneous Income', val: data.plModel.crGeneral.reduce((s:number,a:any)=>s+a.netCr,0), type: 'HEADER' });
+    crList.push({ label: 'By Miscellaneous Income', val: '', type: 'HEADER' });
     data.plModel.crGeneral.forEach((a: any) => crList.push({ label: `  ${a.head}`, val: a.netCr, type: 'ITEM' }));
+    crList.push({ label: '  Total Misc Income', val: data.plModel.sumCrGeneral, type: 'SUBTOTAL' });
   }
 
   if ((data.plModel.crCOGS || []).length + (data.plModel.crOpex || []).length > 0) {
-    crList.push({ label: 'By Contra Expense Reversals', val: (data.plModel.crCOGS || []).reduce((s:number,a:any)=>s+a.netCr,0)+ (data.plModel.crOpex || []).reduce((s:number,a:any)=>s+a.netCr,0), type: 'HEADER' });
+    crList.push({ label: 'By Contra Expense', val: '', type: 'HEADER' });
     [...(data.plModel.crCOGS || []), ...(data.plModel.crOpex || [])].forEach((a: any) => crList.push({ label: `  ${a.head}`, val: a.netCr, type: 'ITEM' }));
+    crList.push({ label: '  Total Contra Expense', val: data.plModel.sumContraExpense, type: 'SUBTOTAL' });
   }
 
   if (data.plModel.netProfit < 0) {
@@ -538,6 +543,9 @@ export async function generateProfitLossExcel(data: {
 
       if (item && item.type === 'HEADER') {
         cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: colIdx <= 2 ? COLORS.navy : COLORS.greenText } };
+      } else if (item && item.type === 'SUBTOTAL') {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
       } else if (item && item.type === 'NET_PROFIT') {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD8B4FE' } };
         cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF5B21B6' } };
@@ -583,7 +591,7 @@ export async function generateProfitLossExcel(data: {
 }
 
 /**
- * 4. BALANCE SHEET EXPORT
+ * 4. BALANCE SHEET EXPORT (Schedule III / ICAI Standard with Annexures)
  */
 export async function generateBalanceSheetExcel(data: {
   firmName: string;
@@ -591,50 +599,86 @@ export async function generateBalanceSheetExcel(data: {
   bsModel: any;
 }): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  const ws = workbook.addWorksheet('Balance Sheet');
-  ws.views = [{ showGridLines: true }];
+  workbook.creator = 'BusinessPro Accounting';
 
-  styleTitleBlock(ws, 'BALANCE SHEET', data.periodText, data.firmName);
+  const { firmName, periodText, bsModel } = data;
 
-  const statusRow = ws.getRow(5);
-  ws.mergeCells('A5:D5');
+  const totalCapitalPool = (bsModel.capital || 0) + (bsModel.netProfit || 0) + (bsModel.diffObCr || 0);
+  const totalOtherLiab = (bsModel.totalDebtorCreditBalances || 0) + (bsModel.totalCashBankCreditBalances || 0) + (bsModel.totalAssetCreditBalances || 0);
+  const totalOtherDebits = (bsModel.totalLiabilityDebitBalances || 0) + (bsModel.diffObDr || 0);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHEET 1: MAIN STATUTORY BALANCE SHEET
+  // ═══════════════════════════════════════════════════════════════════════════
+  const wsMain = workbook.addWorksheet('Balance Sheet');
+  wsMain.views = [{ showGridLines: true }];
+
+  styleTitleBlock(wsMain, 'BALANCE SHEET STATEMENT', `(Prepared in accordance with ICAI Standards & Schedule III GAAP) — ${periodText}`, firmName);
+
+  // Status Banner
+  const statusRow = wsMain.getRow(5);
+  wsMain.mergeCells('A5:F5');
   const statusCell = statusRow.getCell(1);
-  if (data.bsModel.balanced) {
+  if (bsModel.balanced) {
     statusCell.value = 'STATUS: BALANCED (Total Capital & Liabilities matches Total Assets)';
     statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.greenBg } };
     statusCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF' + COLORS.greenText } };
   } else {
-    const diff = Math.abs((data.bsModel.totalAssets || 0) - (data.bsModel.totalLiabSide || 0));
+    const diff = Math.abs((bsModel.totalAssets || 0) - (bsModel.totalLiabSide || 0));
     statusCell.value = `STATUS: IMBALANCED (Difference of ₹${diff.toFixed(2)})`;
     statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.redBg } };
     statusCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF' + COLORS.redText } };
   }
   statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
   statusRow.height = 24;
-  applyBordersToRow(statusRow, 4, {
-    top: { style: 'medium', color: { argb: data.bsModel.balanced ? COLORS.greenText : COLORS.redText } },
-    bottom: { style: 'medium', color: { argb: data.bsModel.balanced ? COLORS.greenText : COLORS.redText } },
+  applyBordersToRow(statusRow, 6, {
+    top: { style: 'medium', color: { argb: bsModel.balanced ? COLORS.greenText : COLORS.redText } },
+    bottom: { style: 'medium', color: { argb: bsModel.balanced ? COLORS.greenText : COLORS.redText } },
   });
 
-  ws.addRow([]);
+  wsMain.addRow([]);
 
+  // Executive KPI Block
   const kpis = [
-    { title: 'Total Assets', val: data.bsModel.totalAssets, colorHex: COLORS.emerald, pText: `${data.bsModel.assetSideCount || 0} Asset A/Cs` },
-    { title: 'External Liabilities', val: data.bsModel.totalExtLib, colorHex: COLORS.rose, pText: `${data.bsModel.liabilitySideCount || 0} Liab A/Cs` },
-    { title: 'Capital Equity', val: data.bsModel.capital, colorHex: COLORS.navy, pText: data.bsModel.capital >= 0 ? 'Equity Surplus' : 'Equity Deficit' },
-    { title: 'Current Net Profit', val: data.bsModel.netProfit, colorHex: COLORS.indigo, pText: 'From P&L Statement' },
+    { title: 'Total Assets', val: bsModel.totalAssets, colorHex: COLORS.emerald, pText: `${bsModel.assetSideCount || 0} Asset Accounts` },
+    { title: 'External Liabilities', val: bsModel.totalExtLib, colorHex: COLORS.rose, pText: `${bsModel.liabilitySideCount || 0} Liability Accounts` },
+    { title: 'Capital Equity', val: bsModel.capital, colorHex: COLORS.navy, pText: bsModel.capital >= 0 ? 'Equity Surplus' : 'Equity Deficit' },
+    { title: 'Current Net Profit', val: bsModel.netProfit, colorHex: COLORS.indigo, pText: 'From Trading & P&L A/c' },
   ];
-  createKPIBlock(ws, 7, kpis);
+  createKPIBlock(wsMain, 7, kpis);
 
-  const tableStartRow = 11;
-  const headers = ['LIABILITIES & CAPITAL', 'AMOUNT', 'ASSETS', 'AMOUNT'];
-  const headerRow = ws.getRow(tableStartRow);
+  // Financial Ratios Block
+  const ratioRow = wsMain.getRow(10);
+  ratioRow.values = [
+    `Current Ratio: ${(bsModel.currentRatio || 0).toFixed(2)}`,
+    '',
+    `Quick Ratio: ${(bsModel.quickRatio || 0).toFixed(2)}`,
+    '',
+    `Working Capital: ₹${Number(bsModel.workingCapital || 0).toLocaleString('en-IN')}`,
+    bsModel.balanced ? 'STATUS: BALANCED' : 'STATUS: IMBALANCED'
+  ];
+  ratioRow.height = 22;
+  ratioRow.eachCell((cell, colIdx) => {
+    cell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: colIdx === 6 ? (bsModel.balanced ? 'FF059669' : 'FFDC2626') : 'FF334155' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colIdx === 6 ? (bsModel.balanced ? 'FFECFDF5' : 'FFFEF2F2') : 'FFF8FAFC' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    };
+  });
+
+  const tableStartRow = 12;
+  const headers = ['LIABILITIES & CAPITAL', 'SCH', 'AMOUNT (₹)', 'ASSETS', 'SCH', 'AMOUNT (₹)'];
+  const headerRow = wsMain.getRow(tableStartRow);
   headerRow.values = headers;
-  headerRow.height = 24;
+  headerRow.height = 26;
   headerRow.eachCell((cell, colIndex) => {
-    cell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + (colIndex <= 2 ? COLORS.slateDark : COLORS.navy) } };
-    cell.alignment = { horizontal: colIndex % 2 === 0 ? 'right' : 'left', vertical: 'middle' };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + (colIndex <= 3 ? COLORS.navy : '1E293B') } };
+    cell.alignment = { horizontal: (colIndex === 3 || colIndex === 6) ? 'right' : (colIndex === 2 || colIndex === 5 ? 'center' : 'left'), vertical: 'middle' };
     cell.border = {
       top: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
       bottom: { style: 'medium', color: { argb: 'FF' + COLORS.slateDark } },
@@ -643,75 +687,38 @@ export async function generateBalanceSheetExcel(data: {
     };
   });
 
-  const liabList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'TOTAL' }[] = [];
-  liabList.push({ label: 'Capital Account', val: data.bsModel.capital, type: 'HEADER' });
-  liabList.push({ label: '  Equity / Starting Capital', val: data.bsModel.capital, type: 'ITEM' });
-  liabList.push({ label: data.bsModel.netProfit >= 0 ? '  Add: Period Net Profit' : '  Less: Period Net Loss', val: data.bsModel.netProfit, type: 'ITEM' });
-  liabList.push({ label: '  Total Capital Pool', val: data.bsModel.capital + data.bsModel.netProfit, type: 'TOTAL' });
+  // Statutory Schedule Rows
+  const mainLiabRows: Array<{ label: string; sch: string; val: number | string; isBold?: boolean }> = [
+    { label: 'Capital Account / Equity Fund', sch: '1', val: totalCapitalPool, isBold: true },
+    { label: 'Loans & Borrowings (Liabilities)', sch: '2', val: bsModel.totalLiab || 0 },
+    { label: 'Trade Payables (Sundry Creditors)', sch: '3', val: bsModel.totalCred || 0, isBold: true },
+    { label: 'Other Current Liabilities & Provisions', sch: '4', val: totalOtherLiab },
+  ];
 
-  if ((data.bsModel.liabilities || []).length > 0) {
-    liabList.push({ label: 'Loans & Liabilities', val: data.bsModel.totalLiab, type: 'HEADER' });
-    data.bsModel.liabilities.forEach((a: any) => liabList.push({ label: `  ${a.head}`, val: a.netCr, type: 'ITEM' }));
+  const mainAssetRows: Array<{ label: string; sch: string; val: number | string; isBold?: boolean }> = [
+    { label: 'Fixed & Non-Current Assets', sch: '5', val: bsModel.totalOtherA || 0 },
+    { label: 'Inventories (Closing Stock)', sch: '6', val: bsModel.totalStock || 0 },
+    { label: 'Trade Receivables (Sundry Debtors)', sch: '7', val: bsModel.totalDebtors || 0, isBold: true },
+    { label: 'Cash & Cash Equivalents', sch: '8', val: bsModel.totalCashBank || 0 },
+    { label: 'Tax Receivables (GST Input Credit)', sch: '9', val: bsModel.totalGST || 0 },
+  ];
+
+  if (totalOtherDebits > 0) {
+    mainAssetRows.push({ label: 'Other Debit Balances & Advances', sch: '10', val: totalOtherDebits });
   }
 
-  if ((data.bsModel.creditors || []).length > 0) {
-    liabList.push({ label: 'Sundry Creditors', val: data.bsModel.totalCred, type: 'HEADER' });
-    data.bsModel.creditors.forEach((a: any) => liabList.push({ label: `  ${a.head}`, val: a.netCr, type: 'ITEM' }));
-  }
+  const maxMainLen = Math.max(mainLiabRows.length, mainAssetRows.length);
+  while (mainLiabRows.length < maxMainLen) mainLiabRows.push({ label: '', sch: '', val: '' });
+  while (mainAssetRows.length < maxMainLen) mainAssetRows.push({ label: '', sch: '', val: '' });
 
-  if (((data.bsModel.debtorCreditBalances || []).length + (data.bsModel.cashBankCreditBalances || []).length + (data.bsModel.assetCreditBalances || []).length) > 0) {
-    liabList.push({ label: 'Other Credit Balances', val: (data.bsModel.totalDebtorCreditBalances || 0) + (data.bsModel.totalCashBankCreditBalances || 0) + (data.bsModel.totalAssetCreditBalances || 0), type: 'HEADER' });
-    (data.bsModel.debtorCreditBalances || []).forEach((a: any) => liabList.push({ label: `  ${a.head} (Credit)`, val: a.netCr, type: 'ITEM' }));
-    (data.bsModel.cashBankCreditBalances || []).forEach((a: any) => liabList.push({ label: `  ${a.head} (OD)`, val: a.netCr, type: 'ITEM' }));
-    (data.bsModel.assetCreditBalances || []).forEach((a: any) => liabList.push({ label: `  ${a.head} (Credit)`, val: a.netCr, type: 'ITEM' }));
-  }
+  for (let i = 0; i < maxMainLen; i++) {
+    const l = mainLiabRows[i]!;
+    const a = mainAssetRows[i]!;
+    const row = wsMain.addRow([l.label, l.sch, l.val, a.label, a.sch, a.val]);
+    row.height = 22;
 
-  const assetList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'TOTAL' }[] = [];
-
-  if ((data.bsModel.otherAssets || []).length > 0) {
-    assetList.push({ label: 'Fixed & Other Assets', val: data.bsModel.totalOtherA, type: 'HEADER' });
-    data.bsModel.otherAssets.forEach((a: any) => assetList.push({ label: `  ${a.head}`, val: a.netDr, type: 'ITEM' }));
-  }
-
-  if ((data.bsModel.stockAssets || []).length > 0) {
-    assetList.push({ label: 'Stock & Inventory', val: data.bsModel.totalStock, type: 'HEADER' });
-    data.bsModel.stockAssets.forEach((a: any) => assetList.push({ label: `  ${a.head}`, val: a.netDr, type: 'ITEM' }));
-  }
-
-  if ((data.bsModel.gstAssets || []).length > 0) {
-    assetList.push({ label: 'Tax Receivables (GST Credit)', val: data.bsModel.totalGST, type: 'HEADER' });
-    data.bsModel.gstAssets.forEach((a: any) => assetList.push({ label: `  ${a.head}`, val: a.netDr, type: 'ITEM' }));
-  }
-
-  if ((data.bsModel.debtors || []).length > 0) {
-    assetList.push({ label: 'Sundry Debtors', val: data.bsModel.totalDebtors, type: 'HEADER' });
-    data.bsModel.debtors.forEach((a: any) => assetList.push({ label: `  ${a.head}`, val: a.netDr, type: 'ITEM' }));
-  }
-
-  if ((data.bsModel.cashBank || []).length > 0) {
-    assetList.push({ label: 'Cash & Bank Balances', val: data.bsModel.totalCashBank, type: 'HEADER' });
-    data.bsModel.cashBank.forEach((a: any) => assetList.push({ label: `  ${a.head}`, val: a.netDr, type: 'ITEM' }));
-  }
-
-  if ((data.bsModel.liabilityDebitBalances || []).length > 0) {
-    assetList.push({ label: 'Other Debit Balances', val: data.bsModel.totalLiabilityDebitBalances, type: 'HEADER' });
-    data.bsModel.liabilityDebitBalances.forEach((a: any) => assetList.push({ label: `  ${a.head} (Debit)`, val: a.netDr, type: 'ITEM' }));
-  }
-
-  const maxLen = Math.max(liabList.length, assetList.length);
-  while (liabList.length < maxLen) liabList.push({ label: '', val: '', type: 'ITEM' });
-  while (assetList.length < maxLen) assetList.push({ label: '', val: '', type: 'ITEM' });
-
-  for (let i = 0; i < maxLen; i++) {
-    const liab = liabList[i] || { label: '', val: '', type: 'ITEM' };
-    const asset = assetList[i] || { label: '', val: '', type: 'ITEM' };
-    const newRow = ws.addRow([liab.label, liab.val, asset.label, asset.val]);
-    newRow.height = 20;
-
-    const isEven = i % 2 === 0;
-    const rowBg = isEven ? 'FFFFFFFF' : 'FF' + COLORS.slateLight;
-
-    newRow.eachCell((cell, colIdx) => {
+    const rowBg = i % 2 === 0 ? 'FFFFFFFF' : 'FF' + COLORS.slateLight;
+    row.eachCell((cell, colIdx) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
       cell.border = {
         top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -720,56 +727,296 @@ export async function generateBalanceSheetExcel(data: {
         right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
       };
 
-      const item = colIdx <= 2 ? liab : asset;
+      const isLiab = colIdx <= 3;
+      const item = isLiab ? l : a;
 
-      if (colIdx === 2 || colIdx === 4) {
+      if (colIdx === 2 || colIdx === 5) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF475569' } };
+      } else if (colIdx === 3 || colIdx === 6) {
         if (typeof cell.value === 'number') {
           formatCurrencyCell(cell);
           cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.font = { name: 'Segoe UI', size: 9.5, bold: !!item.isBold, color: { argb: 'FF0F172A' } };
         }
       } else {
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
-      }
-
-      if (item && item.type === 'HEADER') {
-        cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: colIdx <= 2 ? COLORS.navy : COLORS.greenText } };
-      } else if (item && item.type === 'TOTAL') {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.grayBg } };
-        cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF' + COLORS.slateDark } };
-      } else {
-        cell.font = { name: 'Segoe UI', size: 9.5, color: { argb: 'FF475569' } };
+        cell.font = { name: 'Segoe UI', size: 9.5, bold: !!item.isBold, color: { argb: 'FF1E293B' } };
       }
     });
   }
 
-  const totalsRow = ws.addRow([
-    'TOTAL LIABILITIES & CAPITAL',
-    data.bsModel.totalLiabSide,
+  // Grand Totals Row
+  const totalsRow = wsMain.addRow([
+    'TOTAL CAPITAL & LIABILITIES',
+    '',
+    bsModel.totalLiabSide,
     'TOTAL ASSETS',
-    data.bsModel.totalAssets,
+    '',
+    bsModel.totalAssets,
   ]);
-  totalsRow.height = 24;
+  totalsRow.height = 26;
   totalsRow.eachCell((cell, colIndex) => {
-    cell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + (colIndex <= 2 ? COLORS.navy : COLORS.greenText) } };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.slateDark } };
     cell.border = {
       top: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
-      bottom: { style: 'double', color: { argb: COLORS.slateDark } },
+      bottom: { style: 'double', color: { argb: 'FFFFFFFF' } },
       left: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
       right: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
     };
 
-    if (colIndex === 2 || colIndex === 4) {
+    if (colIndex === 3 || colIndex === 6) {
       formatCurrencyCell(cell);
       cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    } else if (colIndex === 2 || colIndex === 5) {
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
     } else {
       cell.alignment = { horizontal: 'left', vertical: 'middle' };
     }
   });
 
-  autoFitColumns(ws, 15);
-  ws.getColumn(1).width = 30;
-  ws.getColumn(3).width = 30;
+  // Note row
+  wsMain.addRow([]);
+  const noteRow = wsMain.addRow(['Note: Please refer to the "Annexures & Schedules" worksheet for detailed party-wise and account-level breakdown.']);
+  wsMain.mergeCells(`A${noteRow.number}:F${noteRow.number}`);
+  noteRow.getCell(1).font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF64748B' } };
+
+  // Set explicit column widths on wsMain
+  wsMain.getColumn(1).width = 38;
+  wsMain.getColumn(2).width = 8;
+  wsMain.getColumn(3).width = 18;
+  wsMain.getColumn(4).width = 38;
+  wsMain.getColumn(5).width = 8;
+  wsMain.getColumn(6).width = 18;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHEET 2: ANNEXURES & SCHEDULES (RAW DATA BREAKDOWN)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const wsAnnex = workbook.addWorksheet('Annexures & Schedules');
+  wsAnnex.views = [{ showGridLines: true }];
+
+  // Sheet 2 Title Block
+  styleTitleBlock(wsAnnex, 'ANNEXURES FORMING PART OF THE BALANCE SHEET', `Detailed Supporting Schedules for the Period: ${periodText}`, firmName);
+
+  const addScheduleTable = (
+    scheduleNo: string,
+    title: string,
+    rows: Array<{ sno: string | number; name: string; type: string; amount: number }>,
+    totalLabel: string,
+    totalVal: number
+  ) => {
+    // Schedule Title Bar
+    const titleRow = wsAnnex.addRow([`SCHEDULE / ANNEXURE ${scheduleNo}: ${title.toUpperCase()}`]);
+    titleRow.height = 22;
+    wsAnnex.mergeCells(`A${titleRow.number}:D${titleRow.number}`);
+    const tCell = titleRow.getCell(1);
+    tCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    tCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.navy } };
+    tCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+    // Sub-header Row
+    const subHdrRow = wsAnnex.addRow(['#', 'PARTICULARS / ACCOUNT HEAD', 'ACCOUNT CLASSIFICATION / NATURE', 'AMOUNT (₹)']);
+    subHdrRow.height = 20;
+    subHdrRow.eachCell((cell, colIdx) => {
+      cell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FF1E293B' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+      cell.alignment = { horizontal: colIdx === 4 ? 'right' : (colIdx === 1 ? 'center' : 'left'), vertical: 'middle' };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin', color: { argb: 'FF94A3B8' } },
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      };
+    });
+
+    // Data rows
+    rows.forEach((r, idx) => {
+      const dataRow = wsAnnex.addRow([r.sno, r.name, r.type, r.amount]);
+      dataRow.height = 19;
+      const isEven = idx % 2 === 0;
+      const bg = isEven ? 'FFFFFFFF' : 'FFF8FAFC';
+
+      dataRow.eachCell((cell, colIdx) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        };
+
+        if (colIdx === 1) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.font = { name: 'Segoe UI', size: 9, color: { argb: 'FF64748B' } };
+        } else if (colIdx === 4) {
+          formatCurrencyCell(cell);
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.font = { name: 'Segoe UI', size: 9, color: { argb: 'FF0F172A' } };
+        } else {
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.font = { name: 'Segoe UI', size: 9, color: { argb: 'FF1E293B' } };
+        }
+      });
+    });
+
+    // Schedule Total Row
+    const totRow = wsAnnex.addRow(['', totalLabel, '', totalVal]);
+    totRow.height = 22;
+    wsAnnex.mergeCells(`B${totRow.number}:C${totRow.number}`);
+    totRow.eachCell((cell, colIdx) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+        bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      };
+
+      if (colIdx === 2) {
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FF0F172A' } };
+      } else if (colIdx === 4) {
+        formatCurrencyCell(cell);
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
+      }
+    });
+
+    wsAnnex.addRow([]); // Blank spacer
+  };
+
+  // 1. Capital Fund Schedule
+  const capItems: Array<{ sno: string | number; name: string; type: string; amount: number }> = [
+    { sno: 1, name: "Opening Capital / Proprietor's Equity", type: 'Capital Fund', amount: Math.abs(bsModel.capital || 0) },
+    { sno: 2, name: (bsModel.netProfit || 0) >= 0 ? 'Add: Net Profit for the period (from P&L)' : 'Less: Net Loss for the period (from P&L)', type: 'Period Profit/Loss', amount: Math.abs(bsModel.netProfit || 0) },
+  ];
+  if ((bsModel.diffObCr || 0) > 0) {
+    capItems.push({ sno: 3, name: 'Add: Difference in Opening Balances', type: 'Opening Balance Contra', amount: bsModel.diffObCr });
+  }
+  addScheduleTable('1', 'Capital Account / Equity Fund', capItems, 'TOTAL CAPITAL FUND (Carried to Balance Sheet Sch 1)', totalCapitalPool);
+
+  // 2. Loans & Borrowings
+  const liabilities = bsModel.liabilities || [];
+  if (liabilities.length > 0) {
+    const liabItems = liabilities.map((l: any, idx: number) => ({
+      sno: idx + 1,
+      name: l.head,
+      type: l.type?.replace(/_/g, ' ') || 'Loan / Borrowing',
+      amount: l.netCr,
+    }));
+    addScheduleTable('2', 'Loans & Borrowings (Liabilities)', liabItems, 'TOTAL LOANS & BORROWINGS (Carried to Sch 2)', bsModel.totalLiab);
+  }
+
+  // 3. Trade Payables (Sundry Creditors)
+  const creditors = bsModel.creditors || [];
+  if (creditors.length > 0) {
+    const credItems = creditors.map((c: any, idx: number) => ({
+      sno: idx + 1,
+      name: c.head,
+      type: c.type?.replace(/_/g, ' ') || 'Sundry Creditor',
+      amount: c.netCr,
+    }));
+    addScheduleTable('3', 'Trade Payables (Sundry Creditors)', credItems, `TOTAL SUNDRY CREDITORS (${creditors.length} Suppliers - Carried to Sch 3)`, bsModel.totalCred);
+  }
+
+  // 4. Other Current Liabilities
+  const otherLiabItems = [
+    ...(bsModel.debtorCreditBalances || []).map((a: any) => ({ name: `${a.head} (Customer Advance)`, type: 'Customer Credit', amount: a.netCr })),
+    ...(bsModel.cashBankCreditBalances || []).map((a: any) => ({ name: `${a.head} (Bank OD)`, type: 'Bank Overdraft', amount: a.netCr })),
+    ...(bsModel.assetCreditBalances || []).map((a: any) => ({ name: a.head, type: 'Credit Balance', amount: a.netCr })),
+  ];
+  if (otherLiabItems.length > 0) {
+    const olItems = otherLiabItems.map((o: any, idx: number) => ({
+      sno: idx + 1,
+      name: o.name,
+      type: o.type,
+      amount: o.amount,
+    }));
+    addScheduleTable('4', 'Other Current Liabilities & Provisions', olItems, 'TOTAL OTHER LIABILITIES (Carried to Sch 4)', totalOtherLiab);
+  }
+
+  // 5. Fixed Assets
+  const otherAssets = bsModel.otherAssets || [];
+  if (otherAssets.length > 0) {
+    const oaItems = otherAssets.map((a: any, idx: number) => ({
+      sno: idx + 1,
+      name: a.head,
+      type: a.type?.replace(/_/g, ' ') || 'Fixed Asset',
+      amount: a.netDr,
+    }));
+    addScheduleTable('5', 'Fixed & Non-Current Assets', oaItems, 'TOTAL FIXED ASSETS (Carried to Sch 5)', bsModel.totalOtherA);
+  }
+
+  // 6. Inventories (Closing Stock)
+  const stockAssets = bsModel.stockAssets || [];
+  if (stockAssets.length > 0) {
+    const stItems = stockAssets.map((s: any, idx: number) => ({
+      sno: idx + 1,
+      name: s.head,
+      type: 'Inventory / Stock Ledger',
+      amount: s.netDr,
+    }));
+    addScheduleTable('6', 'Inventories (Closing Stock)', stItems, 'TOTAL INVENTORIES (Carried to Sch 6)', bsModel.totalStock);
+  }
+
+  // 7. Trade Receivables (Sundry Debtors)
+  const debtors = bsModel.debtors || [];
+  if (debtors.length > 0) {
+    const debItems = debtors.map((d: any, idx: number) => ({
+      sno: idx + 1,
+      name: d.head,
+      type: d.type?.replace(/_/g, ' ') || 'Sundry Debtor',
+      amount: d.netDr,
+    }));
+    addScheduleTable('7', 'Trade Receivables (Sundry Debtors)', debItems, `TOTAL SUNDRY DEBTORS (${debtors.length} Customers - Carried to Sch 7)`, bsModel.totalDebtors);
+  }
+
+  // 8. Cash & Bank Balances
+  const cashBank = bsModel.cashBank || [];
+  if (cashBank.length > 0) {
+    const cbItems = cashBank.map((b: any, idx: number) => ({
+      sno: idx + 1,
+      name: b.head,
+      type: b.type?.replace(/_/g, ' ') || 'Bank Account',
+      amount: b.netDr,
+    }));
+    addScheduleTable('8', 'Cash & Bank Balances', cbItems, 'TOTAL CASH & BANK BALANCES (Carried to Sch 8)', bsModel.totalCashBank);
+  }
+
+  // 9. Tax Receivables (GST Input Credit)
+  const gstAssets = bsModel.gstAssets || [];
+  if (gstAssets.length > 0) {
+    const gstItems = gstAssets.map((g: any, idx: number) => ({
+      sno: idx + 1,
+      name: g.head,
+      type: 'Tax Receivable / Input Tax Credit',
+      amount: g.netDr,
+    }));
+    addScheduleTable('9', 'Tax Receivables (GST Input Credit)', gstItems, 'TOTAL TAX RECEIVABLES (Carried to Sch 9)', bsModel.totalGST);
+  }
+
+  // 10. Other Debit Balances & Advances
+  const otherDebitItems = [
+    ...(bsModel.liabilityDebitBalances || []).map((a: any) => ({ name: `${a.head} (Advance / Dr)`, type: 'Liability Debit', amount: a.netDr })),
+    ...(bsModel.diffObDr > 0 ? [{ name: 'Difference in Opening Balances', type: 'Opening Balance Contra', amount: bsModel.diffObDr }] : []),
+  ];
+  if (otherDebitItems.length > 0) {
+    const odItems = otherDebitItems.map((o: any, idx: number) => ({
+      sno: idx + 1,
+      name: o.name,
+      type: o.type,
+      amount: o.amount,
+    }));
+    addScheduleTable('10', 'Other Debit Balances & Advances', odItems, 'TOTAL OTHER DEBITS (Carried to Sch 10)', totalOtherDebits);
+  }
+
+  // Set explicit column widths on wsAnnex
+  wsAnnex.getColumn(1).width = 6;
+  wsAnnex.getColumn(2).width = 44;
+  wsAnnex.getColumn(3).width = 30;
+  wsAnnex.getColumn(4).width = 20;
+
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }

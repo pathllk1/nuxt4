@@ -1038,57 +1038,285 @@ export async function exportProfitLossToPdfBuffer(data: {
   periodText: string;
   plModel: any;
 }): Promise<Buffer> {
+  const { firmName, periodText, plModel } = data;
+
+  type RowItemType = 'HEADER' | 'ITEM' | 'SUBTOTAL' | 'NET_PROFIT' | 'NET_LOSS' | 'EMPTY';
+  interface PlStatementRow {
+    label: string;
+    amount: string;
+    type: RowItemType;
+    subtotalColor?: string;
+  }
+
+  // 1. Build Debit Side rows (Expenses & Losses)
+  const drRows: PlStatementRow[] = [];
+
+  // COGS
+  drRows.push({ label: 'TO COST OF GOODS SOLD', amount: '', type: 'HEADER' });
+  const drCOGS = plModel.drCOGS || [];
+  if (drCOGS.length > 0) {
+    drCOGS.forEach((a: any) => {
+      drRows.push({ label: `    ${a.head}`, amount: formatCurrency(Math.abs(a.netCr)), type: 'ITEM' });
+    });
+  } else {
+    drRows.push({ label: '    (No COGS accounts)', amount: formatCurrency(0), type: 'ITEM' });
+  }
+  drRows.push({ label: 'TOTAL COST OF SALES', amount: formatCurrency(plModel.sumDrCOGS), type: 'SUBTOTAL', subtotalColor: '#FEF3C7' });
+
+  // Contra Income (if any)
+  const drContraIncome = plModel.drContraIncome || [];
+  if (drContraIncome.length > 0) {
+    drRows.push({ label: 'TO RETURNS / CONTRA INCOME', amount: '', type: 'HEADER' });
+    drContraIncome.forEach((a: any) => {
+      drRows.push({ label: `    ${a.head}`, amount: formatCurrency(Math.abs(a.netCr)), type: 'ITEM' });
+    });
+    drRows.push({ label: 'TOTAL CONTRA INCOME', amount: formatCurrency(plModel.totalContraInc), type: 'SUBTOTAL', subtotalColor: '#FFEDD5' });
+  }
+
+  // Operating Expenses
+  drRows.push({ label: 'TO OPERATING EXPENSES', amount: '', type: 'HEADER' });
+  const drOpex = plModel.drOpex || [];
+  if (drOpex.length > 0) {
+    drOpex.forEach((a: any) => {
+      drRows.push({ label: `    ${a.head}`, amount: formatCurrency(Math.abs(a.netCr)), type: 'ITEM' });
+    });
+  } else {
+    drRows.push({ label: '    (No operating expenses)', amount: formatCurrency(0), type: 'ITEM' });
+  }
+  drRows.push({ label: 'TOTAL OPERATING EXPENSES', amount: formatCurrency(plModel.sumDrOpex), type: 'SUBTOTAL', subtotalColor: '#FFE4E6' });
+
+  // Misc Expenses (if any)
+  const drGeneral = plModel.drGeneral || [];
+  if (drGeneral.length > 0) {
+    drRows.push({ label: 'TO MISCELLANEOUS EXPENSES', amount: '', type: 'HEADER' });
+    drGeneral.forEach((a: any) => {
+      drRows.push({ label: `    ${a.head}`, amount: formatCurrency(Math.abs(a.netCr)), type: 'ITEM' });
+    });
+    drRows.push({ label: 'TOTAL MISC EXPENSES', amount: formatCurrency(plModel.sumDrGeneral), type: 'SUBTOTAL', subtotalColor: '#F1F5F9' });
+  }
+
+  // 2. Build Credit Side rows (Incomes & Revenues)
+  const crRows: PlStatementRow[] = [];
+
+  // Revenue / Sales
+  crRows.push({ label: 'BY REVENUE / SALES', amount: '', type: 'HEADER' });
+  const crIncome = plModel.crIncome || [];
+  if (crIncome.length > 0) {
+    crIncome.forEach((a: any) => {
+      crRows.push({ label: `    ${a.head}`, amount: formatCurrency(a.netCr), type: 'ITEM' });
+    });
+  } else {
+    crRows.push({ label: '    (No sales accounts)', amount: formatCurrency(0), type: 'ITEM' });
+  }
+  crRows.push({ label: 'TOTAL REVENUE', amount: formatCurrency(plModel.totalRevenueCr), type: 'SUBTOTAL', subtotalColor: '#D1FAE5' });
+
+  // Misc Income (if any)
+  const crGeneral = plModel.crGeneral || [];
+  if (crGeneral.length > 0) {
+    crRows.push({ label: 'BY MISCELLANEOUS INCOME', amount: '', type: 'HEADER' });
+    crGeneral.forEach((a: any) => {
+      crRows.push({ label: `    ${a.head}`, amount: formatCurrency(a.netCr), type: 'ITEM' });
+    });
+    crRows.push({ label: 'TOTAL MISC INCOME', amount: formatCurrency(plModel.sumCrGeneral), type: 'SUBTOTAL', subtotalColor: '#CCFBF1' });
+  }
+
+  // Contra Expense (Fare, Round Off, etc.)
+  const contraExpenses = [...(plModel.crCOGS || []), ...(plModel.crOpex || [])];
+  if (contraExpenses.length > 0) {
+    crRows.push({ label: 'BY CONTRA EXPENSE', amount: '', type: 'HEADER' });
+    contraExpenses.forEach((a: any) => {
+      crRows.push({ label: `    ${a.head}`, amount: formatCurrency(a.netCr), type: 'ITEM' });
+    });
+    crRows.push({ label: 'TOTAL CONTRA EXPENSE', amount: formatCurrency(plModel.sumContraExpense), type: 'SUBTOTAL', subtotalColor: '#E0F2FE' });
+  }
+
+  // 3. Align rows before adding Net Profit / Loss
+  const maxLen = Math.max(drRows.length, crRows.length);
+  while (drRows.length < maxLen) {
+    drRows.push({ label: '', amount: '', type: 'EMPTY' });
+  }
+  while (crRows.length < maxLen) {
+    crRows.push({ label: '', amount: '', type: 'EMPTY' });
+  }
+
+  // 4. Net Profit / Net Loss balancing row
+  if (plModel.netProfit >= 0) {
+    drRows.push({ label: 'TO NET PROFIT (Transferred to Capital)', amount: formatCurrency(plModel.netProfit), type: 'NET_PROFIT' });
+    crRows.push({ label: '', amount: '', type: 'EMPTY' });
+  } else {
+    drRows.push({ label: '', amount: '', type: 'EMPTY' });
+    crRows.push({ label: 'BY NET LOSS (Transferred to Capital)', amount: formatCurrency(Math.abs(plModel.netProfit)), type: 'NET_LOSS' });
+  }
+
+  // 5. Construct Table Body
+  const tableBody: any[] = [
+    [
+      { text: 'DEBIT SIDE (DR)', style: 'tblHdrDr' },
+      { text: 'AMOUNT (₹)', style: 'tblHdrDr', alignment: 'right' },
+      { text: 'CREDIT SIDE (CR)', style: 'tblHdrCr' },
+      { text: 'AMOUNT (₹)', style: 'tblHdrCr', alignment: 'right' },
+    ]
+  ];
+
+  for (let i = 0; i < drRows.length; i++) {
+    const dr = drRows[i]!;
+    const cr = crRows[i]!;
+
+    const formatCell = (item: PlStatementRow) => {
+      const isHeader = item.type === 'HEADER';
+      const isSubtotal = item.type === 'SUBTOTAL';
+      const isNetProfit = item.type === 'NET_PROFIT';
+      const isNetLoss = item.type === 'NET_LOSS';
+      const isEmpty = item.type === 'EMPTY';
+
+      let bg = i % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+      let fontColor = C.textDark;
+      let isBold = false;
+      let fontSize = 8;
+
+      if (isHeader) {
+        bg = '#F1F5F9';
+        fontColor = '#334155';
+        isBold = true;
+        fontSize = 7.5;
+      } else if (isSubtotal) {
+        bg = item.subtotalColor || '#F8FAFC';
+        fontColor = '#0F172A';
+        isBold = true;
+        fontSize = 8;
+      } else if (isNetProfit) {
+        bg = '#EDE9FE';
+        fontColor = '#5B21B6';
+        isBold = true;
+        fontSize = 8.5;
+      } else if (isNetLoss) {
+        bg = '#FEE2E2';
+        fontColor = '#991B1B';
+        isBold = true;
+        fontSize = 8.5;
+      } else if (isEmpty) {
+        bg = '#FFFFFF';
+      }
+
+      return [
+        {
+          text: item.label,
+          fontSize,
+          bold: isBold,
+          color: fontColor,
+          fillColor: bg,
+          margin: [2, 2.5, 2, 2.5]
+        },
+        {
+          text: item.amount,
+          fontSize,
+          bold: isBold,
+          alignment: 'right',
+          color: fontColor,
+          fillColor: bg,
+          margin: [2, 2.5, 2, 2.5]
+        }
+      ];
+    };
+
+    const [drLabel, drAmount] = formatCell(dr);
+    const [crLabel, crAmount] = formatCell(cr);
+
+    tableBody.push([drLabel, drAmount, crLabel, crAmount]);
+  }
+
+  // Footer Grand Totals
+  tableBody.push([
+    { text: 'DR TOTAL', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
+    { text: formatCurrency(plModel.drGrand), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
+    { text: 'CR TOTAL', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
+    { text: formatCurrency(plModel.crGrand), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
+  ]);
+
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 25, 30, 25],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
     content: [
-      { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
+      { text: (firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
       { text: 'TRADING AND PROFIT & LOSS STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: data.periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      { text: periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+
+      // Executive KPI Cards
       {
+        margin: [0, 0, 0, 9],
         table: {
-          widths: ['*', 90, '*', 90],
+          widths: ['*', '*', '*', '*'],
           body: [
             [
-              { text: 'EXPENSES (DEBIT)', style: 'tblHdr' },
-              { text: 'AMOUNT (₹)', style: 'tblHdr', alignment: 'right' },
-              { text: 'INCOMES (CREDIT)', style: 'tblHdr' },
-              { text: 'AMOUNT (₹)', style: 'tblHdr', alignment: 'right' },
-            ],
-            [
-              { text: 'Cost of Goods Sold', bold: true },
-              { text: formatCurrency(data.plModel.totalCOGS), alignment: 'right', bold: true },
-              { text: 'Revenue / Sales', bold: true },
-              { text: formatCurrency(data.plModel.totalRevenueCr), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'Operating Expenses', bold: true },
-              { text: formatCurrency(data.plModel.totalOpex), alignment: 'right', bold: true },
-              { text: 'Other Incomes', bold: true },
-              { text: formatCurrency(data.plModel.crGeneral?.reduce((s:number,a:any)=>s+a.netCr,0) || 0), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'Net Profit', bold: true },
-              { text: formatCurrency(data.plModel.netProfit >= 0 ? data.plModel.netProfit : 0), alignment: 'right', bold: true },
-              { text: 'Net Loss', bold: true },
-              { text: formatCurrency(data.plModel.netProfit < 0 ? Math.abs(data.plModel.netProfit) : 0), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'GRAND TOTAL', bold: true },
-              { text: formatCurrency(data.plModel.drGrand), alignment: 'right', bold: true },
-              { text: 'GRAND TOTAL', bold: true },
-              { text: formatCurrency(data.plModel.crGrand), alignment: 'right', bold: true },
+              {
+                fillColor: '#F0FDF4',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'REVENUE', fontSize: 7, bold: true, color: '#166534' },
+                  { text: formatCurrency(plModel.totalRevenueCr), fontSize: 10, bold: true, color: '#14532D', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.crIncome || []).length} account(s)`, fontSize: 6.5, color: '#166534' }
+                ]
+              },
+              {
+                fillColor: '#F0F9FF',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'GROSS PROFIT', fontSize: 7, bold: true, color: '#0369A1' },
+                  { text: formatCurrency(plModel.grossProfit), fontSize: 10, bold: true, color: plModel.grossProfit >= 0 ? '#075985' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.gpMargin || 0).toFixed(1)}% GP Margin`, fontSize: 6.5, color: '#0369A1' }
+                ]
+              },
+              {
+                fillColor: '#FFFBEB',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'TOTAL OPEX', fontSize: 7, bold: true, color: '#B45309' },
+                  { text: formatCurrency(plModel.totalOpex), fontSize: 10, bold: true, color: '#78350F', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.drOpex || []).length} account(s)`, fontSize: 6.5, color: '#B45309' }
+                ]
+              },
+              {
+                fillColor: plModel.netProfit >= 0 ? '#FAF5FF' : '#FEF2F2',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'NET PROFIT', fontSize: 7, bold: true, color: plModel.netProfit >= 0 ? '#6B21A8' : '#991B1B' },
+                  { text: formatCurrency(plModel.netProfit), fontSize: 10, bold: true, color: plModel.netProfit >= 0 ? '#581C87' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.npMargin || 0).toFixed(1)}% NP Margin`, fontSize: 6.5, color: plModel.netProfit >= 0 ? '#6B21A8' : '#991B1B' }
+                ]
+              }
             ]
           ]
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: () => '#E2E8F0',
+          vLineColor: () => '#E2E8F0',
+        }
+      },
+
+      // Statement Table
+      {
+        table: {
+          widths: ['*', 105, '*', 105],
+          body: tableBody
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
+          vLineWidth: (i: number) => (i === 0 || i === 2 || i === 4 ? 1 : 0.5),
+          hLineColor: () => '#E2E8F0',
+          vLineColor: () => '#E2E8F0',
         }
       }
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
+      tblHdrDr: { bold: true, fontSize: 8.5, fillColor: '#BE123C', color: '#FFFFFF', margin: [2, 3, 2, 3] },
+      tblHdrCr: { bold: true, fontSize: 8.5, fillColor: '#047857', color: '#FFFFFF', margin: [2, 3, 2, 3] },
     }
   };
+
   return createPdfBufferFromDocDef(docDefinition);
 }
 
@@ -1097,63 +1325,501 @@ export async function exportBalanceSheetToPdfBuffer(data: {
   periodText: string;
   bsModel: any;
 }): Promise<Buffer> {
+  const { firmName, periodText, bsModel } = data;
+
+  const totalCapitalPool = (bsModel.capital || 0) + (bsModel.netProfit || 0) + (bsModel.diffObCr || 0);
+  const totalOtherLiab = (bsModel.totalDebtorCreditBalances || 0) + (bsModel.totalCashBankCreditBalances || 0) + (bsModel.totalAssetCreditBalances || 0);
+  const totalOtherDebits = (bsModel.totalLiabilityDebitBalances || 0) + (bsModel.diffObDr || 0);
+
+  // 1. Main Statutory Balance Sheet Rows (Page 1)
+  const mainLiabRows: Array<{ label: string; sch: string; amount: string; isBold?: boolean }> = [
+    { label: 'Capital Account / Equity Fund', sch: '1', amount: formatCurrency(totalCapitalPool), isBold: true },
+    { label: 'Loans & Borrowings (Liabilities)', sch: '2', amount: formatCurrency(bsModel.totalLiab || 0) },
+    { label: 'Trade Payables (Sundry Creditors)', sch: '3', amount: formatCurrency(bsModel.totalCred || 0), isBold: true },
+    { label: 'Other Current Liabilities & Provisions', sch: '4', amount: formatCurrency(totalOtherLiab) },
+  ];
+
+  const mainAssetRows: Array<{ label: string; sch: string; amount: string; isBold?: boolean }> = [
+    { label: 'Fixed & Non-Current Assets', sch: '5', amount: formatCurrency(bsModel.totalOtherA || 0) },
+    { label: 'Inventories (Closing Stock)', sch: '6', amount: formatCurrency(bsModel.totalStock || 0) },
+    { label: 'Trade Receivables (Sundry Debtors)', sch: '7', amount: formatCurrency(bsModel.totalDebtors || 0), isBold: true },
+    { label: 'Cash & Cash Equivalents', sch: '8', amount: formatCurrency(bsModel.totalCashBank || 0) },
+    { label: 'Tax Receivables (GST Input Credit)', sch: '9', amount: formatCurrency(bsModel.totalGST || 0) },
+  ];
+
+  if (totalOtherDebits > 0) {
+    mainAssetRows.push({ label: 'Other Debit Balances & Advances', sch: '10', amount: formatCurrency(totalOtherDebits) });
+  }
+
+  // Pad main table rows to equal length
+  const maxMainLen = Math.max(mainLiabRows.length, mainAssetRows.length);
+  while (mainLiabRows.length < maxMainLen) {
+    mainLiabRows.push({ label: '', sch: '', amount: '' });
+  }
+  while (mainAssetRows.length < maxMainLen) {
+    mainAssetRows.push({ label: '', sch: '', amount: '' });
+  }
+
+  const mainTableBody: any[] = [
+    [
+      { text: 'LIABILITIES & CAPITAL', style: 'tblHdrLiab' },
+      { text: 'SCH', style: 'tblHdrLiab', alignment: 'center' },
+      { text: 'AMOUNT (₹)', style: 'tblHdrLiab', alignment: 'right' },
+      { text: 'ASSETS', style: 'tblHdrAsset' },
+      { text: 'SCH', style: 'tblHdrAsset', alignment: 'center' },
+      { text: 'AMOUNT (₹)', style: 'tblHdrAsset', alignment: 'right' },
+    ]
+  ];
+
+  for (let i = 0; i < maxMainLen; i++) {
+    const l = mainLiabRows[i]!;
+    const a = mainAssetRows[i]!;
+    const bg = i % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+
+    mainTableBody.push([
+      { text: l.label, fontSize: 8, bold: l.isBold, color: C.textDark, fillColor: bg, margin: [2, 3, 2, 3] },
+      { text: l.sch, fontSize: 8, bold: true, color: '#475569', fillColor: bg, alignment: 'center', margin: [2, 3, 2, 3] },
+      { text: l.amount, fontSize: 8, bold: l.isBold, color: C.textDark, fillColor: bg, alignment: 'right', margin: [2, 3, 2, 3] },
+      { text: a.label, fontSize: 8, bold: a.isBold, color: C.textDark, fillColor: bg, margin: [2, 3, 2, 3] },
+      { text: a.sch, fontSize: 8, bold: true, color: '#475569', fillColor: bg, alignment: 'center', margin: [2, 3, 2, 3] },
+      { text: a.amount, fontSize: 8, bold: a.isBold, color: C.textDark, fillColor: bg, alignment: 'right', margin: [2, 3, 2, 3] },
+    ]);
+  }
+
+  // Footer Grand Totals
+  mainTableBody.push([
+    { text: 'TOTAL CAPITAL & LIABILITIES', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
+    { text: '', fillColor: '#1E293B' },
+    { text: formatCurrency(bsModel.totalLiabSide), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
+    { text: 'TOTAL ASSETS', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
+    { text: '', fillColor: '#1E293B' },
+    { text: formatCurrency(bsModel.totalAssets), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
+  ]);
+
+  // 2. Build Detailed Annexures (Pages 2+)
+  const annexureContent: any[] = [
+    { text: '', pageBreak: 'before' },
+    { text: (firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
+    { text: 'ANNEXURES FORMING PART OF THE BALANCE SHEET', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
+    { text: `${periodText} — Detailed Supporting Schedules`, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 12] },
+  ];
+
+  const buildAnnexureTable = (
+    title: string,
+    scheduleNo: string,
+    columns: { header: string; width: any; align?: string }[],
+    rows: any[][],
+    totalLabel: string,
+    totalVal: number
+  ) => {
+    return [
+      {
+        margin: [0, 6, 0, 3],
+        text: `SCHEDULE / ANNEXURE ${scheduleNo}: ${title.toUpperCase()}`,
+        fontSize: 8.5,
+        bold: true,
+        color: '#1E293B'
+      },
+      {
+        margin: [0, 0, 0, 8],
+        table: {
+          widths: columns.map(c => c.width),
+          body: [
+            columns.map(c => ({ text: c.header, style: 'tblHdrAnnex', alignment: c.align || 'left' })),
+            ...rows.map((row, idx) =>
+              row.map((cell, cIdx) => ({
+                text: cell,
+                fontSize: 7.5,
+                color: C.textDark,
+                fillColor: idx % 2 === 0 ? '#FFFFFF' : '#FBFBFB',
+                alignment: columns[cIdx]?.align || 'left',
+                margin: [2, 2, 2, 2]
+              }))
+            ),
+            [
+              {
+                text: totalLabel,
+                colSpan: columns.length - 1,
+                bold: true,
+                fontSize: 8,
+                fillColor: '#F1F5F9',
+                color: '#0F172A',
+                margin: [2, 3, 2, 3]
+              },
+              ...Array(columns.length - 2).fill({}),
+              {
+                text: formatCurrency(totalVal),
+                bold: true,
+                fontSize: 8,
+                alignment: 'right',
+                fillColor: '#F1F5F9',
+                color: '#0F172A',
+                margin: [2, 3, 2, 3]
+              }
+            ]
+          ]
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
+          vLineWidth: () => 0.5,
+          hLineColor: () => '#CBD5E1',
+          vLineColor: () => '#E2E8F0',
+        }
+      }
+    ];
+  };
+
+  // Annexure 1: Capital Account
+  const capRows = [
+    ['1', "Opening Capital / Proprietor's Equity", formatCurrency(Math.abs(bsModel.capital || 0))],
+    ['2', (bsModel.netProfit || 0) >= 0 ? 'Add: Net Profit for the period (from P&L)' : 'Less: Net Loss for the period (from P&L)', formatCurrency(Math.abs(bsModel.netProfit || 0))],
+  ];
+  if ((bsModel.diffObCr || 0) > 0) {
+    capRows.push(['3', 'Add: Difference in Opening Balances', formatCurrency(bsModel.diffObCr)]);
+  }
+  annexureContent.push(
+    ...buildAnnexureTable(
+      'Capital Account / Equity Fund',
+      '1',
+      [{ header: '#', width: 25, align: 'center' }, { header: 'Particulars', width: '*' }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+      capRows,
+      'TOTAL CAPITAL FUND (Carried to Balance Sheet Sch 1)',
+      totalCapitalPool
+    )
+  );
+
+  // Annexure 3: Sundry Creditors (Trade Payables)
+  const creditors = bsModel.creditors || [];
+  if (creditors.length > 0) {
+    const credRows = creditors.map((c: any, idx: number) => [
+      String(idx + 1),
+      c.head,
+      c.type?.replace(/_/g, ' ') || 'Sundry Creditor',
+      formatCurrency(c.netCr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Trade Payables (Sundry Creditors)',
+        '3',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Supplier / Party Name', width: '*' }, { header: 'Account Classification', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        credRows,
+        `TOTAL SUNDRY CREDITORS (${creditors.length} Accounts - Carried to Sch 3)`,
+        bsModel.totalCred
+      )
+    );
+  }
+
+  // Annexure 7: Sundry Debtors (Trade Receivables)
+  const debtors = bsModel.debtors || [];
+  if (debtors.length > 0) {
+    const debRows = debtors.map((d: any, idx: number) => [
+      String(idx + 1),
+      d.head,
+      d.type?.replace(/_/g, ' ') || 'Sundry Debtor',
+      formatCurrency(d.netDr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Trade Receivables (Sundry Debtors)',
+        '7',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Customer / Client Name', width: '*' }, { header: 'Account Classification', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        debRows,
+        `TOTAL SUNDRY DEBTORS (${debtors.length} Accounts - Carried to Sch 7)`,
+        bsModel.totalDebtors
+      )
+    );
+  }
+
+  // Annexure 9: Tax Receivables (GST Input Credit)
+  const gstAssets = bsModel.gstAssets || [];
+  if (gstAssets.length > 0) {
+    const gstRows = gstAssets.map((g: any, idx: number) => [
+      String(idx + 1),
+      g.head,
+      'Tax Receivable / Input Tax Credit',
+      formatCurrency(g.netDr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Tax Receivables (GST Input Credit)',
+        '9',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Tax Account Head', width: '*' }, { header: 'Nature', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        gstRows,
+        `TOTAL TAX RECEIVABLES (Carried to Sch 9)`,
+        bsModel.totalGST
+      )
+    );
+  }
+
+  // Annexure 8: Cash & Bank Balances
+  const cashBank = bsModel.cashBank || [];
+  if (cashBank.length > 0) {
+    const cbRows = cashBank.map((b: any, idx: number) => [
+      String(idx + 1),
+      b.head,
+      b.type?.replace(/_/g, ' ') || 'Bank Account',
+      formatCurrency(b.netDr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Cash & Bank Balances',
+        '8',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Bank / Cash Account Head', width: '*' }, { header: 'Nature', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        cbRows,
+        `TOTAL CASH & BANK BALANCES (Carried to Sch 8)`,
+        bsModel.totalCashBank
+      )
+    );
+  }
+
+  // Annexure 5: Fixed & Non-Current Assets
+  const otherAssets = bsModel.otherAssets || [];
+  if (otherAssets.length > 0) {
+    const oaRows = otherAssets.map((a: any, idx: number) => [
+      String(idx + 1),
+      a.head,
+      a.type?.replace(/_/g, ' ') || 'Fixed Asset',
+      formatCurrency(a.netDr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Fixed & Non-Current Assets',
+        '5',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Asset Head', width: '*' }, { header: 'Classification', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        oaRows,
+        `TOTAL FIXED ASSETS (Carried to Sch 5)`,
+        bsModel.totalOtherA
+      )
+    );
+  }
+
+  // Annexure 6: Inventories (Closing Stock)
+  const stockAssets = bsModel.stockAssets || [];
+  if (stockAssets.length > 0) {
+    const stRows = stockAssets.map((s: any, idx: number) => [
+      String(idx + 1),
+      s.head,
+      'Inventory / Stock Ledger',
+      formatCurrency(s.netDr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Inventories (Closing Stock)',
+        '6',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Stock Account', width: '*' }, { header: 'Valuation', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        stRows,
+        `TOTAL INVENTORIES (Carried to Sch 6)`,
+        bsModel.totalStock
+      )
+    );
+  }
+
+  // Annexure 2: Loans & Borrowings
+  const liabilities = bsModel.liabilities || [];
+  if (liabilities.length > 0) {
+    const liabRows = liabilities.map((l: any, idx: number) => [
+      String(idx + 1),
+      l.head,
+      l.type?.replace(/_/g, ' ') || 'Loan / Liability',
+      formatCurrency(l.netCr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Loans & Borrowings (Liabilities)',
+        '2',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Lender / Account Head', width: '*' }, { header: 'Classification', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        liabRows,
+        `TOTAL LOANS & BORROWINGS (Carried to Sch 2)`,
+        bsModel.totalLiab
+      )
+    );
+  }
+
+  // Annexure 4: Other Current Liabilities
+  const otherLiabItems = [
+    ...(bsModel.debtorCreditBalances || []).map((a: any) => ({ head: `${a.head} (Customer Advance)`, type: 'Customer Credit', netCr: a.netCr })),
+    ...(bsModel.cashBankCreditBalances || []).map((a: any) => ({ head: `${a.head} (Bank OD)`, type: 'Bank Overdraft', netCr: a.netCr })),
+    ...(bsModel.assetCreditBalances || []).map((a: any) => ({ head: a.head, type: 'Credit Balance', netCr: a.netCr })),
+  ];
+  if (otherLiabItems.length > 0) {
+    const olRows = otherLiabItems.map((o: any, idx: number) => [
+      String(idx + 1),
+      o.head,
+      o.type,
+      formatCurrency(o.netCr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Other Current Liabilities & Credit Balances',
+        '4',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Account Head', width: '*' }, { header: 'Nature', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        olRows,
+        `TOTAL OTHER LIABILITIES (Carried to Sch 4)`,
+        totalOtherLiab
+      )
+    );
+  }
+
+  // Annexure 10: Other Debit Balances & Advances
+  const otherDebitItems = [
+    ...(bsModel.liabilityDebitBalances || []).map((a: any) => ({ head: `${a.head} (Advance / Dr)`, type: 'Liability Debit', netDr: a.netDr })),
+    ...(bsModel.diffObDr > 0 ? [{ head: 'Difference in Opening Balances', type: 'Opening Balance Contra', netDr: bsModel.diffObDr }] : []),
+  ];
+  if (otherDebitItems.length > 0) {
+    const odRows = otherDebitItems.map((o: any, idx: number) => [
+      String(idx + 1),
+      o.head,
+      o.type,
+      formatCurrency(o.netDr)
+    ]);
+    annexureContent.push(
+      ...buildAnnexureTable(
+        'Other Debit Balances & Advances',
+        '10',
+        [{ header: '#', width: 25, align: 'center' }, { header: 'Account Head', width: '*' }, { header: 'Nature', width: 130 }, { header: 'Amount (₹)', width: 105, align: 'right' }],
+        odRows,
+        `TOTAL OTHER DEBITS (Carried to Sch 10)`,
+        totalOtherDebits
+      )
+    );
+  }
+
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 25, 30, 25],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
     content: [
-      { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
-      { text: 'BALANCE SHEET STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: data.periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      // PAGE 1: STATUTORY BALANCE SHEET
+      { text: (firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
+      { text: 'BALANCE SHEET STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 1] },
+      { text: `(Prepared in accordance with ICAI Standards & Schedule III GAAP) — ${periodText}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+
+      // Executive KPI Cards
       {
+        margin: [0, 0, 0, 8],
         table: {
-          widths: ['*', 90, '*', 90],
+          widths: ['*', '*', '*', '*'],
           body: [
             [
-              { text: 'LIABILITIES & CAPITAL', style: 'tblHdr' },
-              { text: 'AMOUNT (₹)', style: 'tblHdr', alignment: 'right' },
-              { text: 'ASSETS', style: 'tblHdr' },
-              { text: 'AMOUNT (₹)', style: 'tblHdr', alignment: 'right' },
-            ],
-            [
-              { text: 'Capital Pool (Equity + P&L)', bold: true },
-              { text: formatCurrency((data.bsModel.capital || 0) + (data.bsModel.netProfit || 0)), alignment: 'right', bold: true },
-              { text: 'Fixed & Other Assets', bold: true },
-              { text: formatCurrency(data.bsModel.totalOtherA), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'Loans & External Liabilities', bold: true },
-              { text: formatCurrency(data.bsModel.totalLiab), alignment: 'right', bold: true },
-              { text: 'Stock & Inventory', bold: true },
-              { text: formatCurrency(data.bsModel.totalStock), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'Sundry Creditors', bold: true },
-              { text: formatCurrency(data.bsModel.totalCred), alignment: 'right', bold: true },
-              { text: 'Sundry Debtors', bold: true },
-              { text: formatCurrency(data.bsModel.totalDebtors), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'Other Credit Balances', bold: true },
-              { text: formatCurrency((data.bsModel.totalDebtorCreditBalances || 0) + (data.bsModel.totalCashBankCreditBalances || 0)), alignment: 'right', bold: true },
-              { text: 'Cash & Bank Balances', bold: true },
-              { text: formatCurrency(data.bsModel.totalCashBank), alignment: 'right', bold: true },
-            ],
-            [
-              { text: 'TOTAL LIABILITIES & CAPITAL', bold: true },
-              { text: formatCurrency(data.bsModel.totalLiabSide), alignment: 'right', bold: true },
-              { text: 'TOTAL ASSETS', bold: true },
-              { text: formatCurrency(data.bsModel.totalAssets), alignment: 'right', bold: true },
+              {
+                fillColor: '#F0FDF4',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'TOTAL ASSETS', fontSize: 7, bold: true, color: '#166534' },
+                  { text: formatCurrency(bsModel.totalAssets), fontSize: 10, bold: true, color: '#14532D', margin: [0, 2, 0, 0] },
+                  { text: `${bsModel.assetSideCount || 0} asset A/Cs`, fontSize: 6.5, color: '#166534' }
+                ]
+              },
+              {
+                fillColor: '#FFF1F2',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'EXTERNAL LIABILITIES', fontSize: 7, bold: true, color: '#BE123C' },
+                  { text: formatCurrency(bsModel.totalExtLib), fontSize: 10, bold: true, color: '#9F1239', margin: [0, 2, 0, 0] },
+                  { text: `${bsModel.liabilitySideCount || 0} liability A/Cs`, fontSize: 6.5, color: '#BE123C' }
+                ]
+              },
+              {
+                fillColor: (bsModel.capital || 0) >= 0 ? '#F0F9FF' : '#FEF2F2',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'CAPITAL (EQUITY)', fontSize: 7, bold: true, color: (bsModel.capital || 0) >= 0 ? '#0369A1' : '#991B1B' },
+                  { text: formatCurrency(Math.abs(bsModel.capital || 0)), fontSize: 10, bold: true, color: (bsModel.capital || 0) >= 0 ? '#075985' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: (bsModel.capital || 0) >= 0 ? 'Owner Equity' : 'Equity Deficit', fontSize: 6.5, color: (bsModel.capital || 0) >= 0 ? '#0369A1' : '#991B1B' }
+                ]
+              },
+              {
+                fillColor: (bsModel.netProfit || 0) >= 0 ? '#FAF5FF' : '#FEF2F2',
+                margin: [4, 4, 4, 4],
+                stack: [
+                  { text: 'NET PROFIT / (LOSS)', fontSize: 7, bold: true, color: (bsModel.netProfit || 0) >= 0 ? '#6B21A8' : '#991B1B' },
+                  { text: formatCurrency(Math.abs(bsModel.netProfit || 0)), fontSize: 10, bold: true, color: (bsModel.netProfit || 0) >= 0 ? '#581C87' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: (bsModel.netProfit || 0) >= 0 ? 'Period Surplus' : 'Period Deficit', fontSize: 6.5, color: (bsModel.netProfit || 0) >= 0 ? '#6B21A8' : '#991B1B' }
+                ]
+              }
             ]
           ]
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: () => '#E2E8F0',
+          vLineColor: () => '#E2E8F0',
         }
-      }
+      },
+
+      // Financial Ratios Bar
+      {
+        margin: [0, 0, 0, 9],
+        table: {
+          widths: ['*', '*', '*', '*'],
+          body: [
+            [
+              { text: `Current Ratio: ${(bsModel.currentRatio || 0).toFixed(2)}`, fontSize: 7.5, bold: true, color: '#334155', fillColor: '#F8FAFC', alignment: 'center', margin: [2, 3, 2, 3] },
+              { text: `Quick Ratio: ${(bsModel.quickRatio || 0).toFixed(2)}`, fontSize: 7.5, bold: true, color: '#334155', fillColor: '#F8FAFC', alignment: 'center', margin: [2, 3, 2, 3] },
+              { text: `Working Capital: ${formatCurrency(bsModel.workingCapital || 0)}`, fontSize: 7.5, bold: true, color: '#334155', fillColor: '#F8FAFC', alignment: 'center', margin: [2, 3, 2, 3] },
+              { text: bsModel.balanced ? 'STATUS: BALANCED' : 'STATUS: IMBALANCED', fontSize: 7.5, bold: true, color: bsModel.balanced ? '#059669' : '#DC2626', fillColor: bsModel.balanced ? '#ECFDF5' : '#FEF2F2', alignment: 'center', margin: [2, 3, 2, 3] },
+            ]
+          ]
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: () => '#CBD5E1',
+          vLineColor: () => '#CBD5E1',
+        }
+      },
+
+      // Main Statutory Balance Sheet Table (with Schedule references)
+      {
+        table: {
+          widths: ['*', 32, 95, '*', 32, 95],
+          body: mainTableBody
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
+          vLineWidth: (i: number) => (i === 0 || i === 3 || i === 6 ? 1 : 0.5),
+          hLineColor: () => '#CBD5E1',
+          vLineColor: () => '#CBD5E1',
+        }
+      },
+
+      // Statutory Sign-off Block on Page 1
+      {
+        margin: [0, 16, 0, 0],
+        columns: [
+          {
+            width: '*',
+            stack: [
+              { text: 'Significant Accounting Policies and Notes & Annexures (1 to 10) form an integral part of this Balance Sheet.', fontSize: 7, italic: true, color: '#64748B' },
+              { text: 'As per our report of even date attached.', fontSize: 7, color: '#64748B', margin: [0, 2, 0, 14] },
+              { text: `For ${(firmName || 'THE FIRM').toUpperCase()}`, fontSize: 8, bold: true, color: '#0F172A' },
+              { text: '\n\nProprietor / Partner / Director', fontSize: 7.5, color: '#475569' }
+            ]
+          },
+          {
+            width: 240,
+            stack: [
+              { text: 'For Statutory Compliance & Audit Records', fontSize: 7, bold: true, alignment: 'right', color: '#64748B' },
+              { text: `Place: Siliguri, WB\nDate: ${periodText.replace(/As of /i, '')}`, fontSize: 7, alignment: 'right', color: '#64748B', margin: [0, 2, 0, 14] },
+              { text: 'Chartered Accountants / Authorised Signatory', fontSize: 8, bold: true, alignment: 'right', color: '#0F172A' },
+              { text: '\n\nFirm Reg No. / UDIN Applicable', fontSize: 7, alignment: 'right', color: '#64748B' }
+            ]
+          }
+        ]
+      },
+
+      // PAGES 2+: DETAILED ANNEXURES
+      ...annexureContent
     ],
     styles: {
-      tblHdr: { bold: true, fontSize: 8.5, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
+      tblHdrLiab: { bold: true, fontSize: 8.5, fillColor: '#BE123C', color: '#FFFFFF', margin: [2, 3, 2, 3] },
+      tblHdrAsset: { bold: true, fontSize: 8.5, fillColor: '#047857', color: '#FFFFFF', margin: [2, 3, 2, 3] },
+      tblHdrAnnex: { bold: true, fontSize: 8, fillColor: '#334155', color: '#FFFFFF', margin: [2, 3, 2, 3] },
     }
   };
+
   return createPdfBufferFromDocDef(docDefinition);
 }
 

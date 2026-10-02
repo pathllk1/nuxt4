@@ -46,28 +46,33 @@ export default defineEventHandler(async (event) => {
 
     if (originalEntries.length > 0) {
       const reversalVoucherGroupId = `CANCEL-${bill.voucherId || bill._id}`;
-      const reversalEntries = originalEntries.map((orig: any) => ({
-        firmId: orig.firmId || firmIdObj,
-        firm_id: orig.firm_id || firmIdObj,
-        transactionDate: new Date().toISOString().split('T')[0],
+      const reversalLegs = originalEntries.map((orig: any) => ({
         accountHead: orig.accountHead,
         accountType: orig.accountType,
         debitAmount: orig.creditAmount || 0, // Swap: original CR -> reversal DR
         creditAmount: orig.debitAmount || 0, // Swap: original DR -> reversal CR
         narration: `CANCELLATION REVERSAL: ${orig.narration || ''} [Original Bill: ${bill.bno}]`,
-        refType: 'BILL_CANCELLATION',
-        refId: bill._id,
-        voucherGroupId: reversalVoucherGroupId,
-        voucherNo: `CANCEL/${bill.bno}`,
-        voucherType: `${bill.btype || 'BILL'}_CANCELLATION`,
         partyId: orig.partyId || null,
         stockId: orig.stockId || null,
         stockRegId: orig.stockRegId || null,
         bankAccountId: orig.bankAccountId || null,
-        createdBy: user.username || user.email || 'system',
       }));
 
-      await Ledger.insertMany(reversalEntries, { session });
+      const { UnifiedPostingService } = await import('../../../../utils/accounting/unified-posting.service');
+      const { mapLegacyVoucherType } = await import('../../../../utils/accounting/posting-adapter');
+
+      await UnifiedPostingService.postVoucher({
+        firmId: firmIdObj,
+        voucherType: mapLegacyVoucherType(bill.btype || 'JOURNAL'),
+        transactionDate: (new Date().toISOString().split('T')[0] as string),
+        narration: `CANCELLATION REVERSAL: [Original Bill: ${bill.bno}] - ${body.reason || 'User cancellation'}`,
+        legs: reversalLegs,
+        createdBy: user.username || user.email || 'system',
+        refType: 'BILL_CANCELLATION',
+        refId: bill._id,
+        externalVoucherGroupId: reversalVoucherGroupId,
+        externalVoucherNo: `CANCEL/${bill.bno}`,
+      }, session);
 
       // Mark original ledger entries as reversed
       await Ledger.updateMany(

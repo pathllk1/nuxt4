@@ -176,7 +176,7 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
   const entries: any[] = [];
   const firmId = wage.firm_id;
   const userId = wage.created_by || wage.updated_by;
-  const transactionDate = wage.paid_date || new Date().toISOString().split('T')[0];
+  const transactionDate: string = wage.paid_date || (new Date().toISOString().split('T')[0] as string);
 
   try {
     const employee = await MasterRoll.findById(wage.master_roll_id).session(session).lean();
@@ -312,9 +312,30 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
       });
     }
 
-    await validateLedgerEntries(entries, firmId, session);
-    await Ledger.insertMany(entries, { session });
-    return voucherId;
+    const legs = entries.map(e => ({
+      accountHead: e.accountHead,
+      accountType: e.accountType,
+      debitAmount: e.debitAmount || 0,
+      creditAmount: e.creditAmount || 0,
+      bankAccountId: e.bankAccountId || null,
+      paymentMode: e.paymentMode || null,
+      narration: e.narration,
+    }));
+
+    const { UnifiedPostingService } = await import('./accounting/unified-posting.service');
+    const postResult = await UnifiedPostingService.postVoucher({
+      firmId,
+      voucherType: 'PAYMENT',
+      transactionDate,
+      narration: `Wages for ${wage.salary_month} - ${empName}`,
+      legs,
+      createdBy: String(userId || 'system'),
+      refType: 'WAGE',
+      refId: wage._id,
+      tags: { masterRollId: wage.master_roll_id, salaryMonth: wage.salary_month },
+    }, session);
+
+    return postResult.voucherGroupId;
 
   } catch (error: any) {
     throw new Error(`Ledger posting failed: ${error.message}`);
@@ -323,17 +344,33 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
 
 export async function deleteWageLedger(wageId: mongoose.Types.ObjectId, firmId: mongoose.Types.ObjectId, session: mongoose.ClientSession) {
   try {
-    const result = await Ledger.deleteMany(
-      {
-        refType: 'WAGE',
-        refId: wageId,
-        firmId: firmId,
-      },
+    const origEntries = await Ledger.find(
+      { refType: 'WAGE', refId: wageId, firmId },
+      null,
       { session }
-    );
-    return result.deletedCount;
+    ).lean();
+
+    const firstEntry = origEntries[0];
+    if (firstEntry && firstEntry.voucherGroupId) {
+      const vGroupId: string = firstEntry.voucherGroupId;
+      const { UnifiedPostingService } = await import('./accounting/unified-posting.service');
+      await UnifiedPostingService.reverseVoucher({
+        originalVoucherGroupId: vGroupId,
+        firmId,
+        reason: 'Wage record deleted/cancelled',
+        createdBy: 'system',
+        session
+      });
+
+      await Ledger.updateMany(
+        { refType: 'WAGE', refId: wageId, firmId },
+        { $set: { isReversed: true } },
+        { session }
+      );
+    }
+    return origEntries.length;
   } catch (error: any) {
-    throw new Error(`Ledger deletion failed: ${error.message}`);
+    throw new Error(`Ledger reversal failed: ${error.message}`);
   }
 }
 

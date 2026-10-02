@@ -14,6 +14,7 @@ import './Ledger';
 import './MasterRoll';
 import './OpeningBalance';
 import './Party';
+import './PeriodLock';
 import './SecurityLog';
 import './Session';
 import './Stock';

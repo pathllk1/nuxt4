@@ -8,7 +8,9 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "test:couchbase": "node scripts/test-couchbase.mjs"
+    "test:couchbase": "node scripts/test-couchbase.mjs",
+    "migrate:erp:dry": "node scripts/migrate-erp-unification.mjs --dry-run",
+    "migrate:erp": "node scripts/migrate-erp-unification.mjs"
   },
   "dependencies": {
     "@iconify-json/heroicons": "^1.2.3",
