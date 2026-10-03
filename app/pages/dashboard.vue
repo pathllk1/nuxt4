@@ -73,6 +73,7 @@ const memberForm = reactive({
   status: 'active',
   role: 'standard',
   phone: '',
+  panNumber: '',
   assignedProjectIds: '',
   coaLinkMode: 'AUTO_CREATE',
   existingLedgerHead: ''
@@ -99,7 +100,8 @@ const gradeOptions = computed(() => {
     { label: 'Admin', value: 'Admin' },
     { label: 'Manager', value: 'Manager' },
     { label: 'Staff', value: 'Staff' },
-    { label: 'Supervisor / Site Engineer', value: 'Supervisor' }
+    { label: 'Supervisor / Site Engineer', value: 'Supervisor' },
+    { label: 'Subcontractor (Direct Expense / TDS)', value: 'Subcontractor' }
   ]
   if (activeFirmGrade.value === 'Owner') {
     options.unshift({ label: 'Owner', value: 'Owner' })
@@ -208,7 +210,7 @@ const getSeverityIcon = (severity: string) => {
   return 'i-heroicons-information-circle'
 }
 
-const openMemberModal = (member: any = null) => {
+const openMemberModal = (member: any = null, defaultGrade: string = 'Staff') => {
   selectedMember.value = member
   if (member) {
     memberForm.name = member.name
@@ -218,6 +220,7 @@ const openMemberModal = (member: any = null) => {
     memberForm.status = member.status || 'active'
     memberForm.role = member.role || 'standard'
     memberForm.phone = member.phone || ''
+    memberForm.panNumber = member.panNumber || ''
     memberForm.assignedProjectIds = Array.isArray(member.assignedProjectIds) ? member.assignedProjectIds.join(', ') : ''
     memberForm.coaLinkMode = 'AUTO_CREATE'
     memberForm.existingLedgerHead = member.linkedLedgerHead || ''
@@ -225,10 +228,11 @@ const openMemberModal = (member: any = null) => {
     memberForm.name = ''
     memberForm.email = ''
     memberForm.password = ''
-    memberForm.grade = 'Staff'
+    memberForm.grade = defaultGrade
     memberForm.status = 'active'
     memberForm.role = 'standard'
     memberForm.phone = ''
+    memberForm.panNumber = ''
     memberForm.assignedProjectIds = ''
     memberForm.coaLinkMode = 'AUTO_CREATE'
     memberForm.existingLedgerHead = ''
@@ -247,10 +251,13 @@ const onMemberSubmit = async () => {
         status: memberForm.status,
         role: memberForm.role
       }
-      if (memberForm.grade === 'Supervisor') {
+      if (memberForm.grade === 'Supervisor' || memberForm.grade === 'Subcontractor') {
         payload.assignedProjectIds = memberForm.assignedProjectIds
           ? memberForm.assignedProjectIds.split(',').map((s: string) => s.trim()).filter(Boolean)
           : []
+        if (memberForm.grade === 'Subcontractor') {
+          payload.panNumber = memberForm.panNumber?.trim()?.toUpperCase() || undefined
+        }
       }
       const res = await api.put(`/firms/${selectedFirmId.value}/members/${selectedMember.value.userId}`, payload)
       toast.add({ title: 'Success', description: res.message || 'Member updated successfully', color: 'success' })
@@ -269,6 +276,14 @@ const onMemberSubmit = async () => {
         if (memberForm.coaLinkMode === 'LINK_EXISTING' && memberForm.existingLedgerHead) {
           payload.existingLedgerHead = memberForm.existingLedgerHead.trim()
         }
+        if (memberForm.assignedProjectIds) {
+          payload.assignedProjectIds = memberForm.assignedProjectIds
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        }
+      } else if (memberForm.grade === 'Subcontractor') {
+        payload.panNumber = memberForm.panNumber?.trim()?.toUpperCase() || undefined
         if (memberForm.assignedProjectIds) {
           payload.assignedProjectIds = memberForm.assignedProjectIds
             .split(',')
@@ -421,9 +436,12 @@ const deleteMember = async (userId: string) => {
         <div class="flex items-center justify-between">
           <div>
             <h3 class="font-bold text-sm text-slate-800 uppercase tracking-wider">Firm Team Members</h3>
-            <p class="text-[10px] text-slate-400 mt-0.5">Manage users, roles, and status for your firm</p>
+            <p class="text-[10px] text-slate-400 mt-0.5">Manage users, roles, supervisors and subcontractors for your firm</p>
           </div>
-          <UButton icon="i-heroicons-plus" label="Add Member" size="xs" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold" @click="openMemberModal()" />
+          <div class="flex items-center gap-2">
+            <UButton icon="i-heroicons-wrench-screwdriver" label="Register Subcontractor" size="xs" color="warning" variant="subtle" class="font-bold" @click="openMemberModal(null, 'Subcontractor')" />
+            <UButton icon="i-heroicons-plus" label="Add Member" size="xs" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold" @click="openMemberModal()" />
+          </div>
         </div>
       </template>
 
@@ -433,7 +451,7 @@ const deleteMember = async (userId: string) => {
             <div>
               <UBadge
                 variant="subtle"
-                :color="row.original.grade === 'Supervisor' ? 'warning' : row.original.grade === 'Owner' ? 'error' : row.original.grade === 'Admin' ? 'primary' : 'neutral'"
+                :color="row.original.grade === 'Supervisor' ? 'warning' : row.original.grade === 'Subcontractor' ? 'info' : row.original.grade === 'Owner' ? 'error' : row.original.grade === 'Admin' ? 'primary' : 'neutral'"
                 class="text-[9px] uppercase font-bold py-0.5 px-1.5"
               >
                 {{ row.original.grade }}
@@ -507,6 +525,32 @@ const deleteMember = async (userId: string) => {
 
             <div v-if="selectedMember && selectedMember.linkedLedgerHead" class="text-xs text-slate-600 dark:text-slate-300 pt-1">
               <span>Linked Imprest Head: </span>
+              <span class="font-mono font-bold text-slate-800 dark:text-slate-100">{{ selectedMember.linkedLedgerHead }}</span>
+            </div>
+          </div>
+
+          <!-- Subcontractor Direct Expense & TDS Settings -->
+          <div v-if="memberForm.grade === 'Subcontractor'" class="p-3.5 bg-indigo-50/80 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-3">
+            <div class="flex items-start gap-2">
+              <span class="text-base shrink-0">🏗️</span>
+              <div>
+                <p class="text-xs font-bold text-indigo-900 dark:text-indigo-200">Subcontractor Direct Expense & TDS Setup</p>
+                <p class="text-[11px] text-indigo-800 dark:text-indigo-300 mt-0.5 leading-snug">
+                  A dedicated Direct Expense head <code class="font-mono font-bold bg-indigo-100 dark:bg-indigo-900/60 px-1 rounded">Subcontract - {{ memberForm.name || 'Contractor' }}</code> will be auto-created in Chart of Accounts (P&L). All contractor site slips will be sandboxed off-core with <strong>zero impact on Core GL</strong>.
+                </p>
+              </div>
+            </div>
+
+            <UFormField label="Income Tax PAN (Optional, for 194C TDS Rate)" class="w-full">
+              <UInput v-model="memberForm.panNumber" placeholder="e.g. ABCDE1234F (1% Indv, 2% Co, 20% None)" class="w-full bg-white border-slate-200 uppercase font-mono" />
+            </UFormField>
+
+            <UFormField label="Assigned Projects / Sites (Optional, comma-separated)" class="w-full">
+              <UInput v-model="memberForm.assignedProjectIds" placeholder="e.g. Metro-Site-4, Flyover-North" class="w-full bg-white border-slate-200" />
+            </UFormField>
+
+            <div v-if="selectedMember && selectedMember.linkedLedgerHead" class="text-xs text-slate-600 dark:text-slate-300 pt-1">
+              <span>Linked Direct Expense Head: </span>
               <span class="font-mono font-bold text-slate-800 dark:text-slate-100">{{ selectedMember.linkedLedgerHead }}</span>
             </div>
           </div>

@@ -67,7 +67,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const body = await readBody(event) || {};
-    const { grade, assignedProjectIds, status, role, name } = body;
+    const { grade, assignedProjectIds, status, role, name, panNumber } = body;
 
     if (targetUserId === currentUserId) {
       if (grade && grade !== targetFirmAssignment.grade) {
@@ -87,16 +87,21 @@ export default defineEventHandler(async (event) => {
       targetUser.role = role;
     }
 
+    if (panNumber !== undefined) {
+      targetFirmAssignment.panNumber = panNumber ? String(panNumber).trim().toUpperCase() : undefined;
+    }
+
     if (grade) {
-      if (!['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor'].includes(grade)) {
+      if (!['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor', 'Subcontractor'].includes(grade)) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid grade' });
       }
       targetFirmAssignment.grade = grade as any;
 
+      const firmIdObj = new mongoose.Types.ObjectId(firmId);
+      const sanitizedName = (targetUser.name || 'Member').trim().replace(/\s+/g, ' ');
+
       // Auto-provision COA imprest account if transitioning to Supervisor
       if (grade === 'Supervisor' && !targetFirmAssignment.linkedLedgerHead) {
-        const firmIdObj = new mongoose.Types.ObjectId(firmId);
-        const sanitizedName = (targetUser.name || 'Supervisor').trim().replace(/\s+/g, ' ');
         let targetAccountHead = `Advance - ${sanitizedName} (Site)`;
 
         let existingAccount = await ChartOfAccounts.findOne({
@@ -109,7 +114,7 @@ export default defineEventHandler(async (event) => {
           targetAccountHead = `Advance - ${sanitizedName} [${suffix}] (Site)`;
         }
 
-        const coaAccount = await ChartOfAccounts.findOneAndUpdate(
+        await ChartOfAccounts.findOneAndUpdate(
           {
             $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
             account_name: targetAccountHead
@@ -131,11 +136,60 @@ export default defineEventHandler(async (event) => {
         );
 
         targetFirmAssignment.linkedLedgerHead = targetAccountHead;
+      } else if (grade === 'Subcontractor' && !targetFirmAssignment.linkedLedgerHead) {
+        // Auto-provision COA Direct Expense account if transitioning to Subcontractor
+        let targetAccountHead = `Subcontract - ${sanitizedName}`;
+
+        let existingAccount = await ChartOfAccounts.findOne({
+          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+          account_name: targetAccountHead
+        });
+
+        if (existingAccount) {
+          const disambiguator = targetFirmAssignment.panNumber ? targetFirmAssignment.panNumber.slice(-4) : (targetUser.email || '').split('@')[0]?.slice(-4);
+          targetAccountHead = `Subcontract - ${sanitizedName} [${disambiguator}]`;
+        }
+
+        await ChartOfAccounts.findOneAndUpdate(
+          {
+            $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+            account_name: targetAccountHead
+          },
+          {
+            $setOnInsert: {
+              firm_id: firmIdObj,
+              firmId: firmIdObj,
+              account_name: targetAccountHead,
+              account_type: 'DIRECT_EXPENSE',
+              bs_classification: 'PNL',
+              pan: targetFirmAssignment.panNumber || null,
+              description: `Direct Subcontract Works Cost for ${sanitizedName}`,
+              is_system: false,
+              is_active: true,
+              created_by: currentUserId
+            }
+          },
+          { upsert: true, new: true }
+        );
+
+        targetFirmAssignment.linkedLedgerHead = targetAccountHead;
       }
     }
 
     if (Array.isArray(assignedProjectIds)) {
       targetFirmAssignment.assignedProjectIds = assignedProjectIds;
+    }
+
+    // Keep linked COA head's PAN synchronized
+    if (targetFirmAssignment.linkedLedgerHead && targetFirmAssignment.panNumber) {
+      const firmIdObj = new mongoose.Types.ObjectId(firmId);
+      await ChartOfAccounts.updateOne(
+        {
+          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+          account_name: targetFirmAssignment.linkedLedgerHead
+        },
+        { $set: { pan: targetFirmAssignment.panNumber } }
+      );
     }
 
     await targetUser.save();
@@ -149,6 +203,7 @@ export default defineEventHandler(async (event) => {
         email: targetUser.email,
         name: targetUser.name,
         grade: targetFirmAssignment.grade,
+        panNumber: targetFirmAssignment.panNumber,
         linkedLedgerHead: targetFirmAssignment.linkedLedgerHead,
         assignedProjectIds: targetFirmAssignment.assignedProjectIds,
         status: targetUser.status,

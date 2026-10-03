@@ -20,6 +20,7 @@ import './Session';
 import './SiteExpenseClaim';
 import './Stock';
 import './StockReg';
+import './SubcontractorExpense';
 import './TokenBlacklist';
 import './User';
 import './VoucherSequence';

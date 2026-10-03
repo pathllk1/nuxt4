@@ -140,8 +140,8 @@ const onSubmit = async () => {
               />
               <USelect
                 v-model="fa.grade"
-                :items="['Owner', 'Admin', 'Manager', 'Staff']"
-                class="w-28"
+                :items="['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor', 'Subcontractor']"
+                class="w-36"
               />
               <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeFirmAssignment(idx)" />
             </div>

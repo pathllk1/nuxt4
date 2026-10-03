@@ -2,10 +2,13 @@ import mongoose, { Schema, Document } from 'mongoose';
 import Firm from './Firm';
 import { hashPassword, verifyPassword } from '../utils/crypto-hash';
 
+export type UserGrade = 'Owner' | 'Admin' | 'Manager' | 'Staff' | 'Supervisor' | 'Subcontractor';
+
 export interface IUserFirm {
   firm: mongoose.Types.ObjectId;
-  grade: 'Owner' | 'Admin' | 'Manager' | 'Staff' | 'Supervisor';
+  grade: UserGrade;
   linkedLedgerHead?: string;
+  panNumber?: string;
   assignedProjectIds?: string[];
 }
 
@@ -59,10 +62,11 @@ const UserSchema: Schema = new Schema({
       firm: { type: Schema.Types.ObjectId, ref: Firm, required: true },
       grade: {
         type: String,
-        enum: ['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor'],
+        enum: ['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor', 'Subcontractor'],
         default: 'Staff'
       },
       linkedLedgerHead: { type: String, default: null },
+      panNumber: { type: String, default: null },
       assignedProjectIds: [{ type: String }]
     }
   ],

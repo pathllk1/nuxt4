@@ -184,5 +184,23 @@ export default defineEventHandler(async (event) => {
     });
   }
 
+  // 6. Dual-Sync User.firms if linked to a Subcontractor or Supervisor
+  if (account.pan && (finalType === 'DIRECT_EXPENSE' || finalType === 'LOANS_ADVANCES')) {
+    try {
+      const User = (await import('../../../models/User')).default;
+      await User.updateMany(
+        {
+          'firms.firm': firmIdObj,
+          'firms.linkedLedgerHead': { $in: [prevAccount.account_name, finalName] }
+        },
+        {
+          $set: { 'firms.$.panNumber': account.pan }
+        }
+      );
+    } catch (err) {
+      console.error('Failed to sync PAN to User.firms:', err);
+    }
+  }
+
   return { success: true, message: 'Account head updated successfully', data: account };
 });

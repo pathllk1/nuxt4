@@ -138,10 +138,10 @@
                 />
               </div>
 
-              <!-- PAN Number (For Party, Labor, Staff, Loans, Capital, Payees) -->
+              <!-- PAN Number (For Party, Labor, Staff, Loans, Capital, Payees, Subcontractors) -->
               <div class="flex-1 min-w-[160px] space-y-1" v-if="requiresPan">
                 <label class="block text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-                  {{ isStaff ? 'Employee PAN' : (isLoan ? 'Lender / Borrower PAN' : 'PAN Number') }}
+                  {{ isStaff ? 'Employee PAN' : (isLoan ? 'Lender / Borrower PAN' : (isTaxOrExpense ? 'Contractor / Payee PAN (for TDS)' : 'PAN Number')) }}
                 </label>
                 <input
                   type="text"
@@ -670,7 +670,7 @@ const isTaxOrExpense = computed(() => [
 ].includes(form.value.account_type));
 
 const requiresContact = computed(() => !isCash.value && form.value.account_type !== 'DUTIES_AND_TAXES');
-const requiresPan = computed(() => isParty.value || isLaborLeader.value || isStaff.value || isLoan.value || isCapital.value || requiresBankSection.value);
+const requiresPan = computed(() => isParty.value || isLaborLeader.value || isStaff.value || isLoan.value || isCapital.value || isTaxOrExpense.value || requiresBankSection.value);
 const requiresAadhaar = computed(() => isLaborLeader.value || isCasualLabor.value || isStaff.value);
 const requiresGstSection = computed(() => isParty.value);
 const requiresTaxHsnSection = computed(() => isTaxOrExpense.value || form.value.account_type === 'TRANSPORTER');

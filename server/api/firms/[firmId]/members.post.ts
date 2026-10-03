@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
 
     const {
       email, grade, name, password,
-      phone, assignedProjectIds,
+      phone, assignedProjectIds, panNumber,
       coaLinkMode, existingLedgerHead
     } = await readBody(event) || {};
 
@@ -60,23 +60,25 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    if (!['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor'].includes(grade)) {
+    if (!['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor', 'Subcontractor'].includes(grade)) {
       throw createError({
         statusCode: 400,
         statusMessage: 'Invalid grade'
       });
     }
 
-    // Supervisor-specific validation: Name is mandatory for COA provisioning
-    if (grade === 'Supervisor' && !name) {
+    // Name is mandatory for Supervisor and Subcontractor COA provisioning
+    if ((grade === 'Supervisor' || grade === 'Subcontractor') && !name) {
       throw createError({
         statusCode: 400,
-        statusMessage: 'Full Name is required for Supervisor registration'
+        statusMessage: `Full Name is required for ${grade} registration`
       });
     }
 
     let user = await User.findOne({ email: email.toLowerCase() });
     let isNewUser = false;
+
+    const cleanPan = panNumber ? String(panNumber).trim().toUpperCase() : null;
 
     if (!user) {
       // Security: Generate a secure cryptographic temporary password instead of static default
@@ -91,7 +93,8 @@ export default defineEventHandler(async (event) => {
         firms: [{
           firm: firmId,
           grade,
-          ...(grade === 'Supervisor' && assignedProjectIds ? { assignedProjectIds } : {})
+          panNumber: cleanPan,
+          ...((grade === 'Supervisor' || grade === 'Subcontractor') && assignedProjectIds ? { assignedProjectIds } : {})
         }],
         securitySettings: {
           failedLoginAttempts: 0,
@@ -113,19 +116,19 @@ export default defineEventHandler(async (event) => {
       user.firms.push({
         firm: firmId as any,
         grade: grade as any,
-        ...(grade === 'Supervisor' && assignedProjectIds ? { assignedProjectIds } : {})
+        panNumber: cleanPan,
+        ...((grade === 'Supervisor' || grade === 'Subcontractor') && assignedProjectIds ? { assignedProjectIds } : {})
       } as any);
       // Security: Do NOT mutate global account status (e.g. un-suspending suspended users)
       await user.save();
     }
 
-    // ── Supervisor COA Auto-Provisioning ──
+    // ── Supervisor & Subcontractor COA Auto-Provisioning ──
     let linkedLedgerHead: string | null = null;
+    const firmIdObj = new mongoose.Types.ObjectId(firmId);
+    const sanitizedName = (name || '').trim().replace(/\s+/g, ' ');
 
     if (grade === 'Supervisor') {
-      const firmIdObj = new mongoose.Types.ObjectId(firmId);
-      const sanitizedName = (name || '').trim().replace(/\s+/g, ' ');
-
       if (coaLinkMode === 'LINK_EXISTING' && existingLedgerHead) {
         // Manual link to existing COA head (Tally/legacy migration)
         const existing = await ChartOfAccounts.findOne({
@@ -152,13 +155,11 @@ export default defineEventHandler(async (event) => {
         }).lean();
 
         if (collision) {
-          // Disambiguate using last 4 chars of email prefix
           const emailPrefix = email.split('@')[0];
           const disambiguator = emailPrefix.slice(-4);
           targetAccountHead = `Advance - ${sanitizedName} [${disambiguator}] (Site)`;
         }
 
-        // Create COA entry if it doesn't already exist
         const existingAccount = await ChartOfAccounts.findOne({
           $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
           account_name: targetAccountHead
@@ -208,6 +209,71 @@ export default defineEventHandler(async (event) => {
             created_by: new mongoose.Types.ObjectId(currentUserId)
           });
         }
+      }
+    } else if (grade === 'Subcontractor') {
+      // ── Subcontractor COA Auto-Provisioning (Direct Expense) ──
+      let targetAccountHead = `Subcontract - ${sanitizedName}`;
+
+      // Check collision
+      const collision = await ChartOfAccounts.findOne({
+        $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+        account_name: targetAccountHead
+      }).lean();
+
+      if (collision) {
+        const disambiguator = cleanPan ? cleanPan.slice(-4) : email.split('@')[0].slice(-4);
+        targetAccountHead = `Subcontract - ${sanitizedName} [${disambiguator}]`;
+      }
+
+      const existingAccount = await ChartOfAccounts.findOne({
+        $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+        account_name: targetAccountHead
+      }).lean();
+
+      if (!existingAccount) {
+        await ChartOfAccounts.create({
+          firm_id: firmIdObj,
+          firmId: firmIdObj,
+          account_name: targetAccountHead,
+          account_type: 'DIRECT_EXPENSE',
+          bs_classification: 'PNL',
+          description: `Direct Subcontract Works Cost for ${sanitizedName}`,
+          is_system: false,
+          is_active: true,
+          created_by: new mongoose.Types.ObjectId(currentUserId)
+        });
+      }
+
+      linkedLedgerHead = targetAccountHead;
+
+      // Bind linkedLedgerHead to the user's firm assignment
+      const targetFirmAssignment = user.firms.find(f => f.firm.toString() === firmId);
+      if (targetFirmAssignment) {
+        (targetFirmAssignment as any).linkedLedgerHead = linkedLedgerHead;
+        if (cleanPan) {
+          (targetFirmAssignment as any).panNumber = cleanPan;
+        }
+        await user.save();
+      }
+
+      // Ensure 'TDS Payable u/s 194C' exists in Chart of Accounts
+      const tdsHeadExists = await ChartOfAccounts.findOne({
+        $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+        account_name: 'TDS Payable u/s 194C'
+      }).lean();
+
+      if (!tdsHeadExists) {
+        await ChartOfAccounts.create({
+          firm_id: firmIdObj,
+          firmId: firmIdObj,
+          account_name: 'TDS Payable u/s 194C',
+          account_type: 'DUTIES_TAXES',
+          bs_classification: 'BALANCE_SHEET',
+          description: 'Statutory TDS on Payments to Contractors u/s 194C',
+          is_system: false,
+          is_active: true,
+          created_by: new mongoose.Types.ObjectId(currentUserId)
+        });
       }
     }
 

@@ -158,6 +158,7 @@ export const useAuth = () => {
 
   const currentGrade = computed(() => currentFirmAssignment.value?.grade || 'Staff');
   const isSupervisor = computed(() => currentGrade.value === 'Supervisor');
+  const isSubcontractor = computed(() => currentGrade.value === 'Subcontractor');
   const isChecker = computed(() => ['Owner', 'Admin', 'Manager'].includes(currentGrade.value) || user.value?.role === 'superadmin');
 
   const selectFirm = (firmId: string) => {
@@ -368,6 +369,7 @@ export const useAuth = () => {
     currentFirmAssignment,
     currentGrade,
     isSupervisor,
+    isSubcontractor,
     isChecker
   };
 };

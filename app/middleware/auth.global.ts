@@ -15,11 +15,19 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return navigateTo('/login');
   }
 
-  // Route protection for Supervisors vs Back-Office roles
+  // Route protection for Supervisors, Subcontractors vs Back-Office roles
   if (isAuthenticated.value) {
-    const { isSupervisor } = useAuth();
+    const { isSupervisor, isSubcontractor } = useAuth();
 
-    if (isSupervisor.value) {
+    if (isSubcontractor.value) {
+      // Allowed routes for subcontractors (mobile-first sandboxed wallet)
+      const isAllowedSubconRoute = to.path.startsWith('/subcontractor') || 
+        ['/weather', '/about', '/contact', '/privacy', '/terms'].includes(to.path);
+
+      if (to.path === '/login' || to.path === '/signup' || to.path === '/dashboard' || !isAllowedSubconRoute) {
+        return navigateTo('/subcontractor/wallet');
+      }
+    } else if (isSupervisor.value) {
       // Allowed routes for site supervisors
       const isAllowedSupervisorRoute = to.path.startsWith('/field') || 
         ['/weather', '/ai-chat', '/about', '/contact', '/privacy', '/terms'].includes(to.path);
