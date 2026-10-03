@@ -120,14 +120,22 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     await clientSql`
       ALTER TABLE labor_advances 
       ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
-      ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100);
+      ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
+      ADD COLUMN IF NOT EXISTS tds_amount DECIMAL(12, 2),
+      ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
     `;
 
     await clientSql`
       ALTER TABLE labor_settlements 
       ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
       ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS adjustment_reason VARCHAR(255);
+      ADD COLUMN IF NOT EXISTS adjustment_reason VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
+      ADD COLUMN IF NOT EXISTS tds_amount DECIMAL(12, 2),
+      ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
     `;
 
     // Performance Indexes

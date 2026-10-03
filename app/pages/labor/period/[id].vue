@@ -449,9 +449,13 @@
                 <span v-if="adv.ledger_voucher_group_id === 'ALLOCATED_FROM_LEDGER'" class="text-[8px] font-extrabold bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded">
                   ⚡ Allocated from Ledger
                 </span>
+                <span v-if="adv.tds_mode && adv.tds_mode !== 'NONE'" class="text-[8px] font-extrabold bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 px-1.5 py-0.5 rounded">
+                  {{ adv.tds_mode === 'GROSS_UP' ? '⚡ TDS Gross-Up' : '⚡ TDS Deducted' }} (₹{{ formatINR(adv.tds_amount) }})
+                </span>
               </div>
               <div class="text-[9px] text-amber-600 dark:text-amber-400">
                 Paid on {{ formatDate(adv.payment_date) }} • {{ adv.paid_from_bank_account_id ? 'Bank Account' : (adv.ledger_voucher_group_id === 'ALLOCATED_FROM_LEDGER' ? 'General Ledger Advance' : 'Cash') }}
+                <span v-if="adv.gross_amount && Number(adv.gross_amount) !== Number(adv.amount)"> • Gross: ₹{{ formatINR(adv.gross_amount) }}</span>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -502,6 +506,119 @@
             <div v-if="advanceForm.payment_mode !== 'CASH'" class="space-y-1">
               <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Paid From Bank Account*</label>
               <USelect v-model="advanceForm.bank_account_id" :items="bankAccountOptions" size="sm" class="w-full font-semibold cursor-pointer" />
+            </div>
+
+            <!-- Section 194C / 195A TDS Option -->
+            <div class="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl space-y-2.5">
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    v-model="applyAdvanceTds" 
+                    type="checkbox" 
+                    class="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 dark:border-gray-700 cursor-pointer" 
+                  />
+                  <span class="text-xs font-bold text-amber-900 dark:text-amber-200">
+                    ⚡ Apply Income Tax TDS u/s 194C
+                  </span>
+                </label>
+                <span v-if="applyAdvanceTds && advanceTdsData?.pan" class="text-[9px] font-mono font-bold bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded">
+                  PAN: {{ advanceTdsData.pan }}
+                </span>
+              </div>
+
+              <!-- TDS Details if checked -->
+              <div v-if="applyAdvanceTds" class="space-y-2 pt-1 border-t border-amber-200/60 dark:border-amber-900/40 text-xs">
+                <!-- Loading -->
+                <div v-if="loadingAdvanceTds" class="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5 py-1">
+                  <UIcon name="i-lucide-loader-2" class="w-3.5 h-3.5 animate-spin" />
+                  <span>Checking Financial Year TDS turnover u/s 194C...</span>
+                </div>
+
+                <template v-else-if="advanceTdsData">
+                  <!-- Threshold Banner -->
+                  <div 
+                    v-if="advanceTdsData.threshold.requiresCatchUp"
+                    class="p-2 bg-rose-100 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-lg text-rose-800 dark:text-rose-200 text-[10px]"
+                  >
+                    🚨 <strong>₹1,00,000 Annual Limit Breached!</strong> Catch-up TDS required on prior ₹{{ formatINR(advanceTdsData.threshold.catchUpBase) }} payments.
+                  </div>
+                  <div 
+                    v-else-if="advanceTdsData.threshold.isThresholdBreached"
+                    class="p-1.5 bg-amber-100/70 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 rounded text-[10px] flex items-center gap-1"
+                  >
+                    <span>⚠️</span>
+                    <span>Threshold exceeded (YTD: ₹{{ formatINR(advanceTdsData.newYtd) }}). Applicable Rate: <strong>{{ advanceTdsData.applicableRate }}%</strong></span>
+                  </div>
+                  <div 
+                    v-else
+                    class="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 rounded text-[10px] flex items-center gap-1"
+                  >
+                    <span>ℹ️</span>
+                    <span>Below ₹30k/₹1L threshold. (Applicable Rate: {{ advanceTdsData.applicableRate }}%)</span>
+                  </div>
+
+                  <!-- TDS Mode Selection -->
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <label 
+                      class="p-2 rounded-lg border cursor-pointer transition-all flex flex-col justify-between"
+                      :class="advanceTdsMode === 'GROSS_UP' 
+                        ? 'border-amber-500 bg-white dark:bg-gray-800 ring-2 ring-amber-500/20 shadow-xs' 
+                        : 'border-amber-200 dark:border-amber-900/60 bg-amber-50/30 dark:bg-amber-950/20'"
+                    >
+                      <div class="flex items-center gap-1.5">
+                        <input v-model="advanceTdsMode" type="radio" value="GROSS_UP" class="text-amber-600 focus:ring-amber-500 cursor-pointer" />
+                        <span class="text-[11px] font-bold text-amber-950 dark:text-amber-200">Firm Bears Tax</span>
+                      </div>
+                      <p class="text-[9px] text-gray-500 dark:text-gray-400 mt-1">
+                        Leader gets full ₹{{ formatINR(advanceForm.amount) }}.
+                      </p>
+                      <div class="mt-1 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
+                        Gross: ₹{{ formatINR(advanceTdsData.grossUpOption.grossAmount) }}
+                      </div>
+                    </label>
+
+                    <label 
+                      class="p-2 rounded-lg border cursor-pointer transition-all flex flex-col justify-between"
+                      :class="advanceTdsMode === 'DEDUCT' 
+                        ? 'border-amber-500 bg-white dark:bg-gray-800 ring-2 ring-amber-500/20 shadow-xs' 
+                        : 'border-amber-200 dark:border-amber-900/60 bg-amber-50/30 dark:bg-amber-950/20'"
+                    >
+                      <div class="flex items-center gap-1.5">
+                        <input v-model="advanceTdsMode" type="radio" value="DEDUCT" class="text-amber-600 focus:ring-amber-500 cursor-pointer" />
+                        <span class="text-[11px] font-bold text-amber-950 dark:text-amber-200">Deduct from Leader</span>
+                      </div>
+                      <p class="text-[9px] text-gray-500 dark:text-gray-400 mt-1">
+                        Leader gets net payout.
+                      </p>
+                      <div class="mt-1 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                        Net: ₹{{ formatINR(advanceTdsData.standardOption.netAmount) }}
+                      </div>
+                    </label>
+                  </div>
+
+                  <!-- Breakdown Summary Box -->
+                  <div class="p-2 bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-900/60 text-[11px] font-mono space-y-1">
+                    <div class="flex justify-between text-gray-500 dark:text-gray-400">
+                      <span>Gross Contract Debit:</span>
+                      <span class="font-bold text-gray-900 dark:text-white">
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.grossAmount : advanceTdsData.standardOption.grossAmount) }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-rose-600 dark:text-rose-400 font-bold">
+                      <span>TDS Liability (Sec 194C):</span>
+                      <span>
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.tdsAmount : advanceTdsData.standardOption.tdsAmount) }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-emerald-600 dark:text-emerald-400 font-black border-t border-gray-100 dark:border-gray-700 pt-1">
+                      <span>Actual Cash Payout:</span>
+                      <span>
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.netAmount : advanceTdsData.standardOption.netAmount) }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
+              </div>
             </div>
 
             <div class="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
@@ -634,9 +751,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, onMounted, reactive, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useLabor } from '~/composables/useLabor';
+import { useAccounting } from '~/composables/useAccounting';
 import { useToast } from '#imports';
 
 definePageMeta({
@@ -646,6 +764,7 @@ definePageMeta({
 const route = useRoute();
 const toast = useToast();
 const lastSavedTime = ref<string | null>(null);
+const { checkTdsThreshold } = useAccounting();
 const { 
   fetchPeriodDetails, 
   periodDetails, 
@@ -681,6 +800,40 @@ const advanceForm = reactive({
   payment_date: new Date().toISOString().split('T')[0],
   payment_mode: 'CASH',
   bank_account_id: ''
+});
+
+const applyAdvanceTds = ref(false);
+const advanceTdsMode = ref<'GROSS_UP' | 'DEDUCT'>('GROSS_UP');
+const advanceTdsData = ref<any>(null);
+const loadingAdvanceTds = ref(false);
+
+const fetchAdvanceTds = async () => {
+  if (!applyAdvanceTds.value || !period.value || !advanceForm.amount || advanceForm.amount <= 0) {
+    advanceTdsData.value = null;
+    return;
+  }
+  loadingAdvanceTds.value = true;
+  try {
+    const res: any = await checkTdsThreshold({
+      leaderId: period.value.leader_id,
+      accountHead: period.value.leader_name,
+      amount: Number(advanceForm.amount) || 0,
+      paymentDate: advanceForm.payment_date
+    });
+    if (res.success && res.data) {
+      advanceTdsData.value = res.data;
+    }
+  } catch (err) {
+    console.warn('Advance TDS check notice:', err);
+  } finally {
+    loadingAdvanceTds.value = false;
+  }
+};
+
+watch([applyAdvanceTds, () => advanceForm.amount, () => advanceForm.payment_date], () => {
+  if (applyAdvanceTds.value) {
+    fetchAdvanceTds();
+  }
 });
 
 const isSettlementModalOpen = ref(false);
@@ -976,6 +1129,9 @@ const openAdvanceModal = () => {
   advanceForm.payment_date = new Date().toISOString().split('T')[0];
   advanceForm.payment_mode = 'CASH';
   advanceForm.bank_account_id = bankAccountOptions.value[0]?.value || '';
+  applyAdvanceTds.value = false;
+  advanceTdsMode.value = 'GROSS_UP';
+  advanceTdsData.value = null;
   isAdvanceModalOpen.value = true;
 };
 
@@ -983,13 +1139,25 @@ const submitAdvance = async () => {
   if (!advanceForm.amount || advanceForm.amount <= 0) return;
   postingAdvance.value = true;
   try {
-    await payAdvance({
+    let payload: any = {
       period_id: period.value.id,
-      amount: advanceForm.amount,
+      amount: Number(advanceForm.amount),
       payment_date: advanceForm.payment_date,
       payment_mode: advanceForm.payment_mode,
       bank_account_id: advanceForm.payment_mode === 'CASH' ? null : advanceForm.bank_account_id
-    });
+    };
+
+    if (applyAdvanceTds.value && advanceTdsData.value) {
+      const isGrossUp = advanceTdsMode.value === 'GROSS_UP';
+      const opt = isGrossUp ? advanceTdsData.value.grossUpOption : advanceTdsData.value.standardOption;
+      payload.tds_mode = advanceTdsMode.value;
+      payload.tds_rate = advanceTdsData.value.applicableRate;
+      payload.tds_amount = opt.tdsAmount;
+      payload.gross_amount = opt.grossAmount;
+      payload.amount = opt.netAmount;
+    }
+
+    await payAdvance(payload);
     isAdvanceModalOpen.value = false;
     await loadDetails();
   } catch (err: any) {

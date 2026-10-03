@@ -11,7 +11,10 @@ export default defineEventHandler(async (event) => {
     if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
 
     const body = await readBody(event);
-    const { period_id, amount, payment_date, payment_mode = 'CASH', bank_account_id } = body;
+    const {
+      period_id, amount, payment_date, payment_mode = 'CASH', bank_account_id,
+      tds_mode = 'NONE', tds_rate = 1, tds_amount = 0, gross_amount = amount
+    } = body;
 
     const numAmount = Number(amount);
     if (!period_id || !numAmount || numAmount <= 0 || !payment_date) {
@@ -33,6 +36,9 @@ export default defineEventHandler(async (event) => {
     if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found' });
     if (period.status === 'Settled') throw createError({ statusCode: 400, statusMessage: 'Cannot add advances to a settled work period' });
 
+    const numTdsAmount = Number(tds_amount) || 0;
+    const numGrossAmount = Number(gross_amount) || numAmount;
+
     // 1. Post to MongoDB Ledger
     const voucherGroupId = await laborLedgerHelper.postLaborAdvance({
       firm_id: period.firm_id,
@@ -42,6 +48,10 @@ export default defineEventHandler(async (event) => {
       payment_mode: payment_mode,
       leader_name: period.leader_name,
       created_by: String(session._id),
+      tds_mode,
+      tds_rate: Number(tds_rate) || 1,
+      tds_amount: numTdsAmount,
+      gross_amount: numGrossAmount
     });
 
     // Ensure schema has newly added columns before inserting
@@ -49,14 +59,25 @@ export default defineEventHandler(async (event) => {
       await sql`
         ALTER TABLE labor_advances 
         ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
-        ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100);
+        ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
+        ADD COLUMN IF NOT EXISTS tds_amount DECIMAL(12, 2),
+        ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
       `;
     } catch (_) {}
 
     // 2. Insert into PostgreSQL labor_advances
     const [advance] = await sql`
-      INSERT INTO labor_advances (firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id)
-      VALUES (${period.firm_id}, ${period_id}, ${numAmount}, ${payment_date}, ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId})
+      INSERT INTO labor_advances (
+        firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
+        tds_mode, tds_rate, tds_amount, gross_amount
+      )
+      VALUES (
+        ${period.firm_id}, ${period_id}, ${numAmount}, ${payment_date},
+        ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
+        ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
+      )
       RETURNING *
     `;
 

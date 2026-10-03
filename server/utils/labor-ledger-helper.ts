@@ -11,6 +11,10 @@ interface PostLaborAdvanceParams {
   payment_mode?: string;
   leader_name: string;
   created_by?: string;
+  tds_mode?: 'NONE' | 'DEDUCT' | 'GROSS_UP';
+  tds_rate?: number;
+  tds_amount?: number;
+  gross_amount?: number;
 }
 
 interface PostLaborSettlementParams {
@@ -33,7 +37,11 @@ export const laborLedgerHelper = {
    * Post Labor Advance Payment to MongoDB Ledger via UnifiedPostingService
    */
   async postLaborAdvance(params: PostLaborAdvanceParams): Promise<string> {
-    const { firm_id, amount, payment_date, bank_account_id, payment_mode = 'CASH', leader_name, created_by } = params;
+    const {
+      firm_id, amount, payment_date, bank_account_id, payment_mode = 'CASH',
+      leader_name, created_by, tds_mode = 'NONE', tds_rate = 1, tds_amount = 0,
+      gross_amount = amount
+    } = params;
 
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -60,36 +68,70 @@ export const laborLedgerHelper = {
       const transactionDate: string = payment_date || (new Date().toISOString().split('T')[0] as string);
       const bankIdObj = mongoBankAccountId ? new mongoose.Types.ObjectId(String(mongoBankAccountId)) : null;
 
-      const legs: IVoucherLeg[] = [
-        // Debit: Labor Leader Account (advance given)
-        {
-          accountHead: leader_name,
-          accountType: 'LABOR_LEADER',
-          debitAmount: amount,
-          creditAmount: 0,
-          narration: `Labor Advance to ${leader_name} (${payment_mode})`,
-        },
-        // Credit: Cash / Bank Account (Funds leaving firm)
-        {
-          accountHead: paymentPostAccountHead,
-          accountType: paymentPostAccountType,
-          debitAmount: 0,
-          creditAmount: amount,
-          bankAccountId: bankIdObj,
-          paymentMode: payment_mode,
-          narration: `Labor Advance to ${leader_name} (${payment_mode})`,
-        },
-      ];
+      let legs: IVoucherLeg[] = [];
+
+      if ((tds_mode === 'GROSS_UP' || tds_mode === 'DEDUCT') && tds_amount > 0) {
+        legs = [
+          // Debit: Labor Leader Account (Gross contract value)
+          {
+            accountHead: leader_name,
+            accountType: 'LABOR_LEADER',
+            debitAmount: gross_amount,
+            creditAmount: 0,
+            narration: `Labor Advance to ${leader_name} (${tds_mode === 'GROSS_UP' ? 'Gross-Up' : 'TDS Deducted'} u/s 194C @ ${tds_rate}%)`,
+          },
+          // Credit: TDS Payable Liability
+          {
+            accountHead: 'TDS Payable u/s 194C',
+            accountType: 'LIABILITY',
+            debitAmount: 0,
+            creditAmount: tds_amount,
+            narration: `TDS 194C on Advance to ${leader_name} (${tds_rate}%)`,
+          },
+          // Credit: Cash / Bank Account (Net cash paid)
+          {
+            accountHead: paymentPostAccountHead,
+            accountType: paymentPostAccountType,
+            debitAmount: 0,
+            creditAmount: amount,
+            bankAccountId: bankIdObj,
+            paymentMode: payment_mode,
+            narration: `Labor Advance net payout to ${leader_name} (${payment_mode})`,
+          },
+        ];
+      } else {
+        // Standard 2-leg Advance without TDS
+        legs = [
+          // Debit: Labor Leader Account (advance given)
+          {
+            accountHead: leader_name,
+            accountType: 'LABOR_LEADER',
+            debitAmount: amount,
+            creditAmount: 0,
+            narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+          },
+          // Credit: Cash / Bank Account (Funds leaving firm)
+          {
+            accountHead: paymentPostAccountHead,
+            accountType: paymentPostAccountType,
+            debitAmount: 0,
+            creditAmount: amount,
+            bankAccountId: bankIdObj,
+            paymentMode: payment_mode,
+            narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+          },
+        ];
+      }
 
       const postResult = await UnifiedPostingService.postVoucher({
         firmId: firmIdObj,
         voucherType: 'PAYMENT',
         transactionDate,
-        narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+        narration: `Labor Advance to ${leader_name} (${payment_mode})${tds_mode === 'GROSS_UP' ? ' [TDS Gross-Up]' : ''}`,
         legs,
         createdBy: created_by || 'system',
         refType: 'ADVANCE',
-        tags: { laborLeaderName: leader_name },
+        tags: { laborLeaderName: leader_name, tdsMode: tds_mode, tdsRate: tds_rate, tdsAmount: tds_amount },
       }, session);
 
       await session.commitTransaction();

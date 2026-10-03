@@ -215,6 +215,217 @@
                   </select>
                 </div>
               </div>
+
+              <!-- TDS 194C / Gross-Up Assistant for Payment Lines -->
+              <div 
+                v-if="form.vtype === 'PAYMENT' && !entry.isDeduction && entry.accountHead && (Number(entry.amount) > 0 || isLaborLeader(entry.accountHead))"
+                class="pt-1 space-y-2"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <button 
+                      type="button" 
+                      @click="toggleTdsAssistant(index)" 
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold tracking-wide transition-all shadow-xs cursor-pointer"
+                      :class="activeTdsLineIndex === index 
+                        ? 'bg-indigo-600 text-white shadow-indigo-500/20' 
+                        : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 hover:bg-indigo-100 dark:hover:bg-indigo-900/50'"
+                    >
+                      <span>⚡ TDS 194C & Gross-Up Assistant</span>
+                      <span class="text-[9px]">{{ activeTdsLineIndex === index ? '▲' : '▼' }}</span>
+                    </button>
+                    <span v-if="hasTdsDeductionLine()" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span>✓</span> TDS Liability Booked
+                    </span>
+                  </div>
+                  <button 
+                    v-if="hasTdsDeductionLine()"
+                    type="button" 
+                    @click="clearTdsForLine(index)" 
+                    class="text-[10px] text-rose-600 dark:text-rose-400 hover:underline font-semibold cursor-pointer"
+                  >
+                    Remove TDS Line
+                  </button>
+                </div>
+
+                <!-- TDS Calculator & Breakdown Panel -->
+                <div 
+                  v-if="activeTdsLineIndex === index" 
+                  class="p-3.5 bg-gradient-to-br from-indigo-50/90 via-slate-50 to-blue-50/40 dark:from-zinc-900 dark:via-zinc-850 dark:to-indigo-950/30 border-2 border-indigo-300 dark:border-indigo-800/80 rounded-xl space-y-3 shadow-md animate-fadeIn text-xs"
+                >
+                  <div class="flex items-start justify-between border-b border-indigo-200 dark:border-zinc-700 pb-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                          Income Tax TDS Assistant (Sec 194C / 195A)
+                        </span>
+                        <span 
+                          v-if="tdsResult" 
+                          class="px-2 py-0.5 rounded text-[10px] font-bold"
+                          :class="tdsResult.isPanValid 
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'"
+                        >
+                          PAN: {{ tdsResult.pan || 'Missing (20% Rate u/s 206AA)' }}
+                        </span>
+                      </div>
+                      <p class="text-[11px] text-slate-600 dark:text-zinc-400 mt-0.5">
+                        Statutory threshold tracking: Single contract ₹30,000 | Cumulative annual aggregate ₹1,00,000.
+                      </p>
+                    </div>
+                    <button type="button" @click="closeTdsAssistant" class="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 p-1 cursor-pointer">
+                      <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <!-- Loading state -->
+                  <div v-if="tdsLoading" class="py-4 text-center text-slate-500 dark:text-zinc-400 flex items-center justify-center gap-2">
+                    <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
+                    <span>Analyzing Section 194C financial year ledger turnover & PAN rates...</span>
+                  </div>
+
+                  <!-- Error state -->
+                  <div v-else-if="tdsError" class="p-2 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-lg text-xs">
+                    {{ tdsError }}
+                  </div>
+
+                  <!-- Data loaded -->
+                  <div v-else-if="tdsResult" class="space-y-3">
+                    <!-- Turnover & Threshold Badges -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 p-2.5 bg-white dark:bg-zinc-800/80 rounded-lg border border-slate-200 dark:border-zinc-700">
+                      <div>
+                        <div class="text-[10px] text-slate-500 dark:text-zinc-400 font-semibold uppercase">Prior FY Turnover</div>
+                        <div class="text-sm font-black font-mono text-slate-800 dark:text-zinc-200">
+                          ₹{{ formatINR(tdsResult.priorYtd) }}
+                        </div>
+                      </div>
+                      <div>
+                        <div class="text-[10px] text-slate-500 dark:text-zinc-400 font-semibold uppercase">New Cumulative YTD</div>
+                        <div class="text-sm font-black font-mono text-indigo-600 dark:text-indigo-400">
+                          ₹{{ formatINR(tdsResult.newYtd) }}
+                        </div>
+                      </div>
+                      <div>
+                        <div class="text-[10px] text-slate-500 dark:text-zinc-400 font-semibold uppercase">Applicable Rate</div>
+                        <div class="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400">
+                          {{ tdsResult.applicableRate }}% ({{ tdsResult.entityType }})
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Threshold Notice Alert -->
+                    <div 
+                      v-if="tdsResult.threshold.requiresCatchUp"
+                      class="p-2.5 bg-rose-100 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-lg text-rose-800 dark:text-rose-200 flex items-start gap-2"
+                    >
+                      <span class="text-base shrink-0">🚨</span>
+                      <div>
+                        <span class="font-bold">Annual ₹1,00,000 Threshold Breached on this Voucher!</span>
+                        <p class="text-[11px] mt-0.5">
+                          Per Sec 194C(5), earlier payments of ₹{{ formatINR(tdsResult.threshold.catchUpBase) }} become subject to catch-up TDS. The calculation below automatically includes catch-up TDS.
+                        </p>
+                      </div>
+                    </div>
+                    <div 
+                      v-else-if="tdsResult.threshold.isThresholdBreached"
+                      class="p-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg text-amber-800 dark:text-amber-200 flex items-center gap-2"
+                    >
+                      <span class="text-sm shrink-0">⚠️</span>
+                      <span class="font-medium text-[11px]">
+                        Statutory threshold exceeded ({{ tdsResult.threshold.singleExceeded ? 'Single bill > ₹30,000' : 'Aggregate > ₹1,00,000' }}). TDS deduction is mandatory.
+                      </span>
+                    </div>
+                    <div 
+                      v-else
+                      class="p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-lg text-emerald-800 dark:text-emerald-200 flex items-center gap-2"
+                    >
+                      <span class="text-sm shrink-0">ℹ️</span>
+                      <span class="font-medium text-[11px]">
+                        Payment is below statutory limits (₹30k single / ₹1L aggregate). TDS is optional unless contracted.
+                      </span>
+                    </div>
+
+                    <!-- Two Action Cards: Gross-Up vs Standard Deduction -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                      <!-- Mode A: Tax Borne by Firm (Gross-Up u/s 195A) -->
+                      <div class="p-3 bg-white dark:bg-zinc-800 rounded-xl border-2 border-indigo-200 dark:border-indigo-900/60 flex flex-col justify-between space-y-2.5 shadow-xs hover:border-indigo-400 transition-colors">
+                        <div>
+                          <div class="flex items-center justify-between">
+                            <span class="font-extrabold text-indigo-900 dark:text-indigo-300 text-xs">
+                              ⭐ Tax Borne by Firm (Sec 195A)
+                            </span>
+                            <span class="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 px-1.5 py-0.5 rounded font-bold uppercase">
+                              Gross-Up
+                            </span>
+                          </div>
+                          <p class="text-[11px] text-slate-500 dark:text-zinc-400 mt-1">
+                            Payee demands exact ₹{{ formatINR(originalAmounts[index] || entry.amount) }} net cash in hand. Firm bears the tax cost.
+                          </p>
+                          <div class="mt-2.5 space-y-1 text-[11px] border-t border-slate-100 dark:border-zinc-700 pt-2 font-mono">
+                            <div class="flex justify-between text-slate-600 dark:text-zinc-400">
+                              <span>Payee Gross Debit:</span>
+                              <span class="font-bold text-slate-900 dark:text-white">₹{{ formatINR(tdsResult.grossUpOption.grossAmount) }}</span>
+                            </div>
+                            <div class="flex justify-between text-rose-600 dark:text-rose-400">
+                              <span>TDS Liability (Credit):</span>
+                              <span class="font-bold">₹{{ formatINR(tdsResult.grossUpOption.tdsAmount) }}</span>
+                            </div>
+                            <div class="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold border-t border-slate-100 dark:border-zinc-700 pt-1">
+                              <span>Net Bank Outflow:</span>
+                              <span>₹{{ formatINR(tdsResult.grossUpOption.netAmount) }}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button 
+                          type="button" 
+                          @click="applyTdsOption('GROSS_UP', index)" 
+                          class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-sm transition-colors cursor-pointer"
+                        >
+                          Apply Gross-Up Line (₹{{ formatINR(tdsResult.grossUpOption.grossAmount) }})
+                        </button>
+                      </div>
+
+                      <!-- Mode B: Standard Deduction from Payee -->
+                      <div class="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-slate-200 dark:border-zinc-700 flex flex-col justify-between space-y-2.5 shadow-xs hover:border-slate-400 transition-colors">
+                        <div>
+                          <div class="flex items-center justify-between">
+                            <span class="font-extrabold text-slate-800 dark:text-zinc-200 text-xs">
+                              Standard TDS Deduction (Sec 194C)
+                            </span>
+                            <span class="text-[9px] bg-slate-100 dark:bg-zinc-700 text-slate-700 dark:text-zinc-300 px-1.5 py-0.5 rounded font-bold uppercase">
+                              Standard
+                            </span>
+                          </div>
+                          <p class="text-[11px] text-slate-500 dark:text-zinc-400 mt-1">
+                            Payee absorbs TDS. Tax is subtracted from payee's payout and paid to the IT department.
+                          </p>
+                          <div class="mt-2.5 space-y-1 text-[11px] border-t border-slate-100 dark:border-zinc-700 pt-2 font-mono">
+                            <div class="flex justify-between text-slate-600 dark:text-zinc-400">
+                              <span>Payee Gross Debit:</span>
+                              <span class="font-bold text-slate-900 dark:text-white">₹{{ formatINR(tdsResult.standardOption.grossAmount) }}</span>
+                            </div>
+                            <div class="flex justify-between text-rose-600 dark:text-rose-400">
+                              <span>TDS Deduction (Credit):</span>
+                              <span class="font-bold">-₹{{ formatINR(tdsResult.standardOption.tdsAmount) }}</span>
+                            </div>
+                            <div class="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold border-t border-slate-100 dark:border-zinc-700 pt-1">
+                              <span>Net Bank Outflow:</span>
+                              <span>₹{{ formatINR(tdsResult.standardOption.netAmount) }}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button 
+                          type="button" 
+                          @click="applyTdsOption('STANDARD', index)" 
+                          class="w-full py-2 bg-slate-800 hover:bg-slate-900 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-white rounded-lg font-bold text-xs shadow-sm transition-colors cursor-pointer"
+                        >
+                          Apply Deduction Line (-₹{{ formatINR(tdsResult.standardOption.tdsAmount) }})
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -307,9 +518,15 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits(['update:modelValue', 'saved']);
 
-const { createVoucher, updateVoucher, loading, fetchCOA, chartOfAccounts } = useAccounting();
+const { createVoucher, updateVoucher, loading, fetchCOA, chartOfAccounts, checkTdsThreshold } = useAccounting();
 const { fetchBankAccounts, bankAccounts } = useBanking();
 const { fetchPeriods, periods } = useLabor();
+
+const activeTdsLineIndex = ref<number | null>(null);
+const tdsLoading = ref(false);
+const tdsResult = ref<any>(null);
+const tdsError = ref<string | null>(null);
+const originalAmounts = reactive<Record<number, number>>({});
 
 const form = reactive({
   voucherNo: '',
@@ -503,6 +720,124 @@ function toggleDeduction(entry: LocalVoucherEntry) {
 function onAmountInput(entry: LocalVoucherEntry, rawValue: string) {
   const val = Math.abs(parseFloat(rawValue) || 0);
   entry.amount = entry.isDeduction ? -val : val;
+}
+
+function formatINR(val: number) {
+  return Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function hasTdsDeductionLine() {
+  return form.entries.some(e => 
+    (e.accountHead || '').toLowerCase().includes('tds payable') && 
+    (Number(e.amount) < 0 || e.isDeduction)
+  );
+}
+
+function closeTdsAssistant() {
+  activeTdsLineIndex.value = null;
+  tdsResult.value = null;
+  tdsError.value = null;
+}
+
+async function toggleTdsAssistant(index: number) {
+  if (activeTdsLineIndex.value === index) {
+    closeTdsAssistant();
+    return;
+  }
+  activeTdsLineIndex.value = index;
+  await fetchTdsForLine(index);
+}
+
+async function fetchTdsForLine(index: number) {
+  const entry = form.entries[index];
+  if (!entry || !entry.accountHead) return;
+  tdsLoading.value = true;
+  tdsError.value = null;
+  try {
+    const rawAmt = Math.abs(Number(entry.amount) || 0);
+    if (originalAmounts[index] === undefined || originalAmounts[index] === 0) {
+      originalAmounts[index] = rawAmt;
+    }
+    const res: any = await checkTdsThreshold({
+      accountHead: entry.accountHead,
+      amount: originalAmounts[index] || rawAmt,
+      paymentDate: form.vdate
+    });
+    if (res.success && res.data) {
+      tdsResult.value = res.data;
+    }
+  } catch (err: any) {
+    tdsError.value = err.message || 'Error checking TDS threshold';
+  } finally {
+    tdsLoading.value = false;
+  }
+}
+
+function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number) {
+  if (!tdsResult.value) return;
+  const entry = form.entries[index];
+  if (!entry) return;
+
+  const baseline = originalAmounts[index] || Math.abs(Number(entry.amount) || 0);
+  let gross = baseline;
+  let tdsAmt = 0;
+  let modeName = '';
+
+  if (optionType === 'GROSS_UP') {
+    gross = tdsResult.value.grossUpOption.grossAmount;
+    tdsAmt = tdsResult.value.grossUpOption.tdsAmount;
+    modeName = `Grossed-up TDS u/s 195A @ ${tdsResult.value.applicableRate}%`;
+  } else {
+    gross = tdsResult.value.standardOption.grossAmount;
+    tdsAmt = tdsResult.value.standardOption.tdsAmount;
+    modeName = `TDS Deducted u/s 194C @ ${tdsResult.value.applicableRate}%`;
+  }
+
+  // 1. Update party entry amount to Gross
+  entry.amount = gross;
+  entry.isDeduction = false;
+
+  // 2. Find or create TDS deduction line
+  const existingTdsLine = form.entries.find(e => 
+    (e.accountHead || '').toLowerCase().includes('tds payable')
+  );
+
+  if (existingTdsLine) {
+    existingTdsLine.amount = -tdsAmt;
+    existingTdsLine.isDeduction = true;
+    existingTdsLine.accountHead = 'TDS Payable u/s 194C';
+  } else {
+    form.entries.push({
+      accountHead: 'TDS Payable u/s 194C',
+      amount: -tdsAmt,
+      isDeduction: true,
+      laborPeriodId: ''
+    });
+  }
+
+  // 3. Append mode to narration if not already present
+  if (!form.narration.includes('TDS')) {
+    form.narration = form.narration ? `${form.narration} (${modeName})` : modeName;
+  }
+
+  closeTdsAssistant();
+}
+
+function clearTdsForLine(index: number) {
+  const entry = form.entries[index];
+  if (entry && originalAmounts[index] !== undefined) {
+    entry.amount = originalAmounts[index];
+    entry.isDeduction = false;
+  }
+  // Remove TDS deduction line
+  const existingTdsIndex = form.entries.findIndex(e => 
+    (e.accountHead || '').toLowerCase().includes('tds payable')
+  );
+  if (existingTdsIndex >= 0) {
+    form.entries.splice(existingTdsIndex, 1);
+  }
+  delete originalAmounts[index];
+  closeTdsAssistant();
 }
 
 const grossAmount = computed(() => {

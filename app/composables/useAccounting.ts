@@ -204,6 +204,16 @@ export const useAccounting = () => {
     }
   };
 
+  const checkTdsThreshold = async (params: { accountHead?: string; partyId?: string; leaderId?: string; amount?: number; paymentDate?: string; rate?: number }) => {
+    try {
+      const response = await api.get('/accounting/tds/threshold-check', { params });
+      return response;
+    } catch (err: any) {
+      console.error('TDS threshold check failed', err);
+      throw err;
+    }
+  };
+
   const createOpeningBalance = async (data: any) => {
     loading.value = true;
     error.value = null;
@@ -444,6 +454,7 @@ export const useAccounting = () => {
     updateVoucher,
     deleteVoucher,
     createOpeningBalance,
+    checkTdsThreshold,
     exportTrialBalancePdf,
     exportProfitLossPdf,
     exportBalanceSheetPdf,
