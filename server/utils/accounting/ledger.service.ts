@@ -151,8 +151,8 @@ export class LedgerService {
     const cessVal = parseFloat(cess) || 0;
     const taxTotal = (cgst || 0) + (sgst || 0) + (igst || 0) + cessVal;
 
-    // Under RCM: Supplier does NOT collect GST. Vendor is only owed Base + Roundoff + Charges (netTotal - taxTotal)
-    const partyCredit = reverseCharge ? Number((netTotal - taxTotal).toFixed(2)) : netTotal;
+    // Vendor is credited the net bill amount (under RCM, netTotal does not include GST as taxes are self-paid to Govt)
+    const partyCredit = netTotal;
 
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_CREDITORS', partyId: party._id, session });
     docs.push({ ...base, accountHead: partyL.accountHead, accountType: partyL.accountType, partyId: party._id, debitAmount: 0, creditAmount: partyCredit, narration: `Purchase Bill No: ${billNo}` });
@@ -336,8 +336,8 @@ export class LedgerService {
     const cessVal = parseFloat(cess) || 0;
     const taxTotal = (cgst || 0) + (sgst || 0) + (igst || 0) + cessVal;
 
-    // Under RCM: Supplier does NOT collect GST. Vendor is only credited Base + Roundoff + Charges (netTotal - taxTotal)
-    const partyCredit = reverseCharge ? Number((netTotal - taxTotal).toFixed(2)) : netTotal;
+    // Vendor is credited the net bill amount (under RCM, netTotal does not include GST as taxes are self-paid to Govt)
+    const partyCredit = netTotal;
 
     // Cr Party (Sundry Creditors)
     const partyL = await resolveLedgerPostingAccount({ firmId, accountHead: party.name || party.firm, fallbackType: 'SUNDRY_CREDITORS', partyId: party._id, session });
@@ -623,6 +623,17 @@ export class LedgerService {
       if (toDate) query.transactionDate.$lte = toDate;
     }
 
+    // 1. Fetch COA master registry for the firm — Chart of Accounts is the single source of truth
+    const coaList = await ChartOfAccounts.find(
+      { $or: [{ firm_id: firmId }, { firmId: firmId }] },
+      'account_name account_type'
+    ).lean();
+
+    const canonicalCoaMap = new Map<string, string>();
+    for (const coa of coaList) {
+      canonicalCoaMap.set(coa.account_name.toLowerCase().trim(), coa.account_type);
+    }
+
     const balances = await Ledger.aggregate([
       { $match: query },
       {
@@ -638,9 +649,11 @@ export class LedgerService {
 
     return balances.map(b => {
       const balance = b.totalDebit - b.totalCredit;
+      // Resolve canonical accountType from Chart of Accounts master
+      const canonicalType = canonicalCoaMap.get(b._id.toLowerCase().trim()) || b.accountType;
       return {
         accountHead: b._id,
-        accountType: b.accountType,
+        accountType: canonicalType,
         totalDebit: b.totalDebit,
         totalCredit: b.totalCredit,
         balance: Math.abs(balance),
@@ -750,11 +763,82 @@ export class LedgerService {
     }
 
     const entries = await Ledger.find(query).sort({ transactionDate: 1, createdAt: 1 }).lean();
+
+    // Resolve opposing / contra account head(s) for each entry
+    const voucherGroupIds = Array.from(new Set(entries.map((e: any) => e.voucherGroupId).filter(Boolean)));
+    const voucherNos = Array.from(new Set(entries.filter((e: any) => !e.voucherGroupId && e.voucherNo).map((e: any) => e.voucherNo)));
+    const refIds = Array.from(new Set(entries.filter((e: any) => !e.voucherGroupId && !e.voucherNo && e.refId).map((e: any) => e.refId)));
+
+    const orClauses: any[] = [];
+    if (voucherGroupIds.length > 0) orClauses.push({ voucherGroupId: { $in: voucherGroupIds } });
+    if (voucherNos.length > 0) orClauses.push({ voucherNo: { $in: voucherNos } });
+    if (refIds.length > 0) orClauses.push({ refId: { $in: refIds } });
+
+    const byVoucherGroupId = new Map<string, any[]>();
+    const byVoucherNo = new Map<string, any[]>();
+    const byRefId = new Map<string, any[]>();
+
+    if (orClauses.length > 0) {
+      const opposingLegs = await Ledger.find({
+        firmId,
+        $or: orClauses,
+        accountHead: { $ne: accountHead }
+      }, 'voucherGroupId voucherNo refId accountHead debitAmount creditAmount narration').lean();
+
+      for (const leg of opposingLegs) {
+        if (leg.voucherGroupId) {
+          const list = byVoucherGroupId.get(leg.voucherGroupId) || [];
+          list.push(leg);
+          byVoucherGroupId.set(leg.voucherGroupId, list);
+        }
+        if (leg.voucherNo) {
+          const list = byVoucherNo.get(leg.voucherNo) || [];
+          list.push(leg);
+          byVoucherNo.set(leg.voucherNo, list);
+        }
+        if (leg.refId) {
+          const key = String(leg.refId);
+          const list = byRefId.get(key) || [];
+          list.push(leg);
+          byRefId.set(key, list);
+        }
+      }
+    }
+
     let runningBal = rawBal;
     const mappedEntries = entries.map((entry: any) => {
       runningBal += (entry.debitAmount || 0) - (entry.creditAmount || 0);
+
+      let matchedLegs: any[] = [];
+      if (entry.voucherGroupId && byVoucherGroupId.has(entry.voucherGroupId)) {
+        matchedLegs = byVoucherGroupId.get(entry.voucherGroupId)!;
+      } else if (entry.voucherNo && byVoucherNo.has(entry.voucherNo)) {
+        matchedLegs = byVoucherNo.get(entry.voucherNo)!;
+      } else if (entry.refId && byRefId.has(String(entry.refId))) {
+        matchedLegs = byRefId.get(String(entry.refId))!;
+      }
+
+      // Contra legs have opposite polarity (credit against debit, debit against credit)
+      const contraLegs = (entry.debitAmount > 0
+        ? matchedLegs.filter((l: any) => (l.creditAmount || 0) > 0)
+        : matchedLegs.filter((l: any) => (l.debitAmount || 0) > 0));
+
+      const candidateLegs = contraLegs.length > 0 ? contraLegs : matchedLegs;
+      const heads = Array.from(new Set(candidateLegs.map((l: any) => l.accountHead).filter(Boolean)));
+
+      let opposingAccountHead = heads.join(', ');
+      if (!opposingAccountHead) {
+        if (entry.voucherType === 'OPENING_BALANCE') {
+          opposingAccountHead = 'Opening Balance';
+        } else {
+          opposingAccountHead = '—';
+        }
+      }
+
       return {
         ...entry,
+        opposingAccountHead,
+        opposingAccountHeads: heads,
         runningBalance: Math.abs(runningBal),
         runningBalanceType: runningBal >= 0 ? 'DR' : 'CR'
       };
@@ -778,7 +862,7 @@ export class LedgerService {
   static async getProfitAndLossModel(firmId: mongoose.Types.ObjectId, fromDate?: string, toDate?: string) {
     const trialBalance = await this.getTrialBalance(firmId, fromDate, toDate);
     const isCOGS = (head: string, type: string) => {
-      if (type === 'COGS' || type === 'DIRECT_EXPENSE') return true;
+      if (type === 'COGS' || type === 'DIRECT_EXPENSE' || type === 'CASUAL_LABOR') return true;
       const h = head.trim().toLowerCase();
       return (
         h === 'cogs' ||
@@ -788,14 +872,14 @@ export class LedgerService {
         h === 'purchase' ||
         h.startsWith('cogs -') ||
         h.startsWith('cost of goods')
-      ) && (type === 'EXPENSE' || type === 'COGS');
+      ) && (type === 'EXPENSE' || type === 'COGS' || type === 'DIRECT_EXPENSE' || type === 'CASUAL_LABOR');
     };
 
     const isIncomeType = (type: string) => ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type?.toUpperCase() || '');
-    const isExpenseType = (type: string) => ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS'].includes(type?.toUpperCase() || '');
+    const isExpenseType = (type: string) => ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'CASUAL_LABOR'].includes(type?.toUpperCase() || '');
 
     const plAccounts = trialBalance.filter(a =>
-      ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL'].includes(a.accountType)
+      ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL', 'CASUAL_LABOR'].includes(a.accountType)
     ).map(a => {
       const netDr = a.totalDebit - a.totalCredit;
       const netCr = a.totalCredit - a.totalDebit;
@@ -844,6 +928,9 @@ export class LedgerService {
     // The Credit side T-table displays crIncome, crGeneral, and contra expense credit balances (crCOGS + crOpex)
     const crItems = totalRevenueCr + sumCrGeneral + sumContraExpense;
 
+    const casualLaborAccounts = drCOGS.filter(a => a.type === 'CASUAL_LABOR');
+    const casualLaborTotal = casualLaborAccounts.reduce((s, a) => s + Math.abs(a.netCr), 0);
+    const directCogsAccounts = drCOGS.filter(a => a.type !== 'CASUAL_LABOR');
     const drGrand = drItems + Math.max(netProfit, 0);
     const crGrand = crItems + Math.max(-netProfit, 0);
 
@@ -852,6 +939,9 @@ export class LedgerService {
       crRevenue: crIncome,
       drContraIncome,
       drCOGS,
+      casualLaborAccounts,
+      casualLaborTotal,
+      directCogsAccounts,
       crCOGS,
       drOpex,
       crOpex,
@@ -885,15 +975,16 @@ export class LedgerService {
     const trialBalance = await this.getTrialBalance(firmId, undefined, asOfDate);
     const plModel = await this.getProfitAndLossModel(firmId, undefined, asOfDate);
 
+    const isAssetType = (type: string) => ['ASSET', 'FIXED_ASSETS', 'LOANS_ADVANCES'].includes(type?.toUpperCase() || '');
     const isDebtorType = (type: string) => ['DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(type?.toUpperCase() || '');
-    const isCreditorType = (type: string) => ['CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE'].includes(type?.toUpperCase() || '');
+    const isCreditorType = (type: string) => ['CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'TRANSPORTER'].includes(type?.toUpperCase() || '');
     const isCashBankType = (type: string) => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(type?.toUpperCase() || '');
     const isStock = (head: string) => ['inventory', 'stock'].some(k => head.toLowerCase().includes(k));
     const isGSTRec = (head: string) => ['gst', 'cgst', 'sgst', 'igst', 'tax receivable', 'input credit', 'input tax'].some(k => head.toLowerCase().includes(k));
     const isDiffOb = (head: string) => head === 'Difference in Opening Balances' || head === 'Opening Balance';
 
     const bsAccounts = trialBalance.filter(a => 
-      ['ASSET', 'LIABILITY', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'CAPITAL', 'LABOR_LEADER'].includes(a.accountType)
+      ['ASSET', 'LIABILITY', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'CAPITAL', 'LABOR_LEADER', 'TRANSPORTER', 'STAFF', 'LOANS_BORROWINGS', 'LOANS_ADVANCES', 'DUTIES_AND_TAXES', 'FIXED_ASSETS'].includes(a.accountType)
     ).map(a => {
       const netDr = a.totalDebit - a.totalCredit;
       const netCr = a.totalCredit - a.totalDebit;
@@ -907,8 +998,8 @@ export class LedgerService {
       };
     });
 
-    const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(a.type));
-    const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL'].includes(a.type));
+    const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'FIXED_ASSETS', 'LOANS_ADVANCES', 'DUTIES_AND_TAXES'].includes(a.type));
+    const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL', 'TRANSPORTER', 'STAFF', 'LOANS_BORROWINGS', 'DUTIES_AND_TAXES'].includes(a.type));
 
     const diffObAccount = bsAccounts.find(a => isDiffOb(a.head));
     const diffObNet = diffObAccount ? diffObAccount.netCr : 0;
@@ -916,11 +1007,11 @@ export class LedgerService {
     const diffObDr = diffObNet < 0 ? Math.abs(diffObNet) : 0;
 
     const stockAssets = assetsRaw.filter(a => isStock(a.head) && a.netDr > 0);
-    const gstAssets = assetsRaw.filter(a => !isStock(a.head) && isGSTRec(a.head) && a.netDr > 0);
-    const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type === 'ASSET' && !isDiffOb(a.head) && a.netDr > 0);
+    const gstAssets = assetsRaw.filter(a => !isStock(a.head) && (isGSTRec(a.head) || a.type === 'DUTIES_AND_TAXES') && a.netDr > 0);
+    const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type !== 'DUTIES_AND_TAXES' && isAssetType(a.type) && !isDiffOb(a.head) && a.netDr > 0);
     const debtors = assetsRaw.filter(a => isDebtorType(a.type) && a.netDr > 0);
     const cashBank = assetsRaw.filter(a => isCashBankType(a.type) && a.netDr > 0);
-    const liabilityDebitBalances = liabilitiesRaw.filter(a => !isDiffOb(a.head) && a.netDr > 0);
+    const liabilityDebitBalances = liabilitiesRaw.filter(a => !isDiffOb(a.head) && a.type !== 'DUTIES_AND_TAXES' && a.netDr > 0);
 
     const totalStock = stockAssets.reduce((s, a) => s + a.netDr, 0);
     const totalGST = gstAssets.reduce((s, a) => s + a.netDr, 0);
@@ -931,9 +1022,9 @@ export class LedgerService {
 
     const totalAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank + totalLiabilityDebitBalances + diffObDr;
 
-    const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER'].includes(a.type) && a.netCr > 0);
+    const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER', 'STAFF', 'LOANS_BORROWINGS', 'DUTIES_AND_TAXES'].includes(a.type) && a.netCr > 0);
     const creditors = liabilitiesRaw.filter(a => isCreditorType(a.type) && a.netCr > 0);
-    const assetCreditBalances = assetsRaw.filter(a => a.type === 'ASSET' && !isDiffOb(a.head) && a.netCr > 0);
+    const assetCreditBalances = assetsRaw.filter(a => isAssetType(a.type) && !isDiffOb(a.head) && a.netCr > 0);
     const debtorCreditBalances = assetsRaw.filter(a => isDebtorType(a.type) && a.netCr > 0);
     const cashBankCreditBalances = assetsRaw.filter(a => isCashBankType(a.type) && a.netCr > 0);
 

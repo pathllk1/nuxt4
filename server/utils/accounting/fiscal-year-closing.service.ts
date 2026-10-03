@@ -112,7 +112,7 @@ export class FiscalYearClosingService {
         const netBalance = account.totalCredit - account.totalDebit;
 
         if (PNL_ACCOUNT_TYPES.has(account.accountType) &&
-            (account.accountType === 'INCOME' || account.accountType === 'INDIRECT_INCOME')) {
+            (account.accountType === 'INCOME' || account.accountType === 'INDIRECT_INCOME' || account.accountType === 'DIRECT_INCOME')) {
           totalIncome += Math.abs(netBalance);
         } else {
           totalExpense += Math.abs(account.totalDebit - account.totalCredit);

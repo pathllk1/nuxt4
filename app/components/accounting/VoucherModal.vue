@@ -4,8 +4,17 @@
       <!-- Header -->
       <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 flex justify-between items-center">
         <div>
-          <h2 class="text-lg font-bold">{{ form.vtype === 'PAYMENT' ? 'Payment Voucher' : form.vtype === 'RECEIPT' ? 'Receipt Voucher' : 'Journal Entry' }}</h2>
-          <p class="text-xs text-blue-100 mt-0.5">Tally Single-Entry & Double-Entry Financial Accounting</p>
+          <div class="flex items-center gap-2">
+            <h2 class="text-lg font-bold">
+              {{ isEdit ? 'Edit ' : '' }}{{ form.vtype === 'PAYMENT' ? 'Payment Voucher' : form.vtype === 'RECEIPT' ? 'Receipt Voucher' : form.vtype === 'CONTRA' ? 'Contra Voucher' : 'Journal Entry' }}
+            </h2>
+            <span v-if="isEdit && (form.voucherNo || voucherGroupId)" class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-white/20 text-white border border-white/30">
+              {{ form.voucherNo || voucherGroupId }}
+            </span>
+          </div>
+          <p class="text-xs text-blue-100 mt-0.5">
+            {{ isEdit ? 'Modify transaction date, accounts, amounts, or narration' : 'Tally Single-Entry & Double-Entry Financial Accounting' }}
+          </p>
         </div>
         <button @click="$emit('update:modelValue', false)" class="text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors cursor-pointer">
           <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
@@ -23,11 +32,15 @@
           </div>
           <!-- Voucher Type -->
           <div>
-            <label class="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1">Voucher Type</label>
-            <select v-model="form.vtype" class="w-full px-3 py-2 text-sm border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Voucher Type</label>
+              <span v-if="isEdit" class="text-[10px] text-amber-500 font-bold uppercase tracking-wider">Locked in Edit</span>
+            </div>
+            <select :disabled="isEdit" v-model="form.vtype" class="w-full px-3 py-2 text-sm border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:bg-slate-100 dark:disabled:bg-zinc-800/60 disabled:cursor-not-allowed">
               <option value="PAYMENT">💳 Payment Out</option>
               <option value="RECEIPT">💰 Receipt In</option>
               <option value="JOURNAL">📝 Journal Entry</option>
+              <option value="CONTRA">🔄 Contra Entry</option>
             </select>
           </div>
           <div></div>
@@ -259,7 +272,7 @@
         </button>
         <button @click="submitVoucher" :disabled="isSaveDisabled" class="px-6 py-2 text-xs font-bold bg-green-600 hover:bg-green-700 disabled:bg-slate-400 dark:disabled:bg-zinc-800 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center gap-2 cursor-pointer">
           <UIcon v-if="loading" name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
-          {{ loading ? 'Processing...' : 'Save Voucher' }}
+          {{ loading ? (isEdit ? 'Updating...' : 'Processing...') : (isEdit ? 'Update Voucher' : 'Save Voucher') }}
         </button>
       </div>
     </div>
@@ -282,18 +295,24 @@ interface LocalVoucherEntry {
   laborPeriodId?: string;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean;
   initialData?: any;
-}>();
+  isEdit?: boolean;
+  voucherGroupId?: string;
+}>(), {
+  isEdit: false,
+  voucherGroupId: ''
+});
 
 const emit = defineEmits(['update:modelValue', 'saved']);
 
-const { createVoucher, loading, fetchCOA, chartOfAccounts } = useAccounting();
+const { createVoucher, updateVoucher, loading, fetchCOA, chartOfAccounts } = useAccounting();
 const { fetchBankAccounts, bankAccounts } = useBanking();
 const { fetchPeriods, periods } = useLabor();
 
 const form = reactive({
+  voucherNo: '',
   mainAccount: '',
   vtype: 'PAYMENT',
   vdate: new Date().toISOString().split('T')[0],
@@ -303,18 +322,32 @@ const form = reactive({
   ] as LocalVoucherEntry[]
 });
 
+let isInitializing = false;
+
 watch(() => props.modelValue, (isOpen) => {
   if (isOpen) {
+    isInitializing = true;
     if (props.initialData) {
-      Object.assign(form, props.initialData);
+      form.vtype = props.initialData.vtype || 'PAYMENT';
+      form.voucherNo = props.initialData.voucherNo || '';
+      form.vdate = props.initialData.vdate || new Date().toISOString().split('T')[0];
+      form.narration = props.initialData.narration || '';
+      form.mainAccount = props.initialData.mainAccount || '';
+      if (Array.isArray(props.initialData.entries) && props.initialData.entries.length > 0) {
+        form.entries = JSON.parse(JSON.stringify(props.initialData.entries));
+      } else {
+        form.entries = [{ accountHead: '', amount: 0, isDeduction: false, laborPeriodId: '' }];
+      }
     } else {
       resetForm();
     }
     loadDependencies();
+    setTimeout(() => { isInitializing = false; }, 50);
   }
 });
 
 watch(() => form.vtype, (newType) => {
+  if (isInitializing) return;
   if (newType === 'JOURNAL') {
     form.mainAccount = '';
     form.entries = [
@@ -604,19 +637,24 @@ async function submitVoucher() {
       };
     }
 
-    const result = await createVoucher(payload as any);
+    const result = (props.isEdit && props.voucherGroupId)
+      ? await updateVoucher(props.voucherGroupId, payload as any)
+      : await createVoucher(payload as any);
+
     if (result.success) {
       emit('saved');
       emit('update:modelValue', false);
       resetForm();
     }
   } catch (err: any) {
-    alert(err.message || 'Failed to create voucher');
+    alert(err.message || 'Failed to save voucher');
   }
 }
 
 function resetForm() {
+  form.voucherNo = '';
   form.vtype = 'PAYMENT';
+  form.vdate = new Date().toISOString().split('T')[0];
   form.narration = '';
   form.mainAccount = bankAccounts.value.find(acc => acc.is_default)?._id || (bankAccounts.value[0]?._id || '');
   form.entries = [

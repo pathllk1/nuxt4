@@ -167,6 +167,39 @@ export interface IPostingResult {
 
 // ─────────────────────────────────────────────────────────────────────────
 // BALANCE SHEET CLASSIFICATION
+// ─────────────────────────────────────────────────────────────────────────
+// UNIVERSAL MASTER ACCOUNT TYPES
+// Canonical 16 Universal Master Account Types defined in ERP Chart of Accounts
+// ─────────────────────────────────────────────────────────────────────────
+
+export const UNIVERSAL_MASTER_ACCOUNT_TYPES = [
+  // 👥 Trade Parties
+  'SUNDRY_DEBTORS',
+  'SUNDRY_CREDITORS',
+  'TRANSPORTER',
+  // 👷 People & Labor
+  'CASUAL_LABOR',
+  'LABOR_LEADER',
+  'STAFF',
+  // 💼 Capital & Loans
+  'LOANS_BORROWINGS',
+  'LOANS_ADVANCES',
+  'CAPITAL',
+  // 📊 Expenses & Income
+  'DIRECT_EXPENSE',
+  'EXPENSE',
+  'INCOME',
+  // 🏦 Treasury & Assets
+  'BANK',
+  'CASH',
+  'DUTIES_AND_TAXES',
+  'FIXED_ASSETS',
+] as const;
+
+export type UniversalMasterAccountType = typeof UNIVERSAL_MASTER_ACCOUNT_TYPES[number];
+
+// ─────────────────────────────────────────────────────────────────────────
+// BALANCE SHEET & PROFIT AND LOSS CLASSIFICATION
 // Determines whether an account type is P&L (temporary) or BS (permanent).
 // This is critical for year-end closing: P&L accounts get zeroed, BS carry forward.
 // ─────────────────────────────────────────────────────────────────────────
@@ -177,6 +210,10 @@ export const PNL_ACCOUNT_TYPES = new Set([
   'EXPENSE',
   'INDIRECT_INCOME',
   'INDIRECT_EXPENSE',
+  'DIRECT_EXPENSE',
+  'DIRECT_INCOME',
+  'COGS',
+  'CASUAL_LABOR',
 ]);
 
 /** Account types that are Balance Sheet (permanent) — carry forward */
@@ -187,20 +224,31 @@ export const BALANCE_SHEET_ACCOUNT_TYPES = new Set([
   'PAYABLE',
   'CASH',
   'BANK',
+  'BANK_ACCOUNT',
   'SUNDRY_DEBTORS',
   'SUNDRY_CREDITORS',
+  'DEBTOR',
+  'CREDITOR',
+  'RECEIVABLE',
   'LABOR_LEADER',
-  'GENERAL', // Treated as BS unless explicitly classified otherwise
+  'TRANSPORTER',
+  'STAFF',
+  'LOANS_BORROWINGS',
+  'LOANS_ADVANCES',
+  'DUTIES_AND_TAXES',
+  'FIXED_ASSETS',
+  'GENERAL',
 ]);
 
 /**
- * Returns 'PNL' or 'BALANCE_SHEET' for a given account type.
- * Unknown types default to 'BALANCE_SHEET' for safety (never accidentally zero a permanent account).
+ * Strictly classifies an account type as 'PNL' or 'BALANCE_SHEET'.
+ * Throws an explicit error if an unrecognized account type is encountered (no silent fallbacks).
  */
 export function classifyAccountType(accountType: string): 'PNL' | 'BALANCE_SHEET' {
   const normalized = (accountType || '').toUpperCase().trim();
   if (PNL_ACCOUNT_TYPES.has(normalized)) return 'PNL';
-  return 'BALANCE_SHEET';
+  if (BALANCE_SHEET_ACCOUNT_TYPES.has(normalized)) return 'BALANCE_SHEET';
+  throw new Error(`[ERP Accounting Invariant] Unrecognized account type '${accountType}'. Every ledger account must belong to a registered Chart of Accounts category.`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

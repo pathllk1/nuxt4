@@ -119,6 +119,7 @@ const filteredEntries = computed(() => {
   if (!q) return entries.value;
   return entries.value.filter(e =>
     (e.voucherNo && e.voucherNo.toLowerCase().includes(q)) ||
+    (e.opposingAccountHead && e.opposingAccountHead.toLowerCase().includes(q)) ||
     (e.narration && e.narration.toLowerCase().includes(q)) ||
     (e.refType && e.refType.toLowerCase().includes(q)) ||
     (e.paymentMode && e.paymentMode.toLowerCase().includes(q))
@@ -162,7 +163,7 @@ const triggerPrint = () => {
 <template>
   <div v-if="isOpen" class="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md" @click.self="isOpen = false">
     <UCard 
-      class="w-full max-w-5xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-2xl flex flex-col bg-white dark:bg-zinc-900 rounded-2xl" 
+      class="w-full max-w-6xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-2xl flex flex-col bg-white dark:bg-zinc-900 rounded-2xl" 
       :ui="{ body: 'p-4 overflow-y-auto flex-1', header: 'p-4 py-3 bg-slate-900 text-white border-b border-slate-800 flex justify-between items-center' }"
     >
       <template #header>
@@ -281,6 +282,7 @@ const triggerPrint = () => {
             <tr class="bg-slate-50 dark:bg-zinc-800/60 text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
               <th class="py-2.5 px-3">Date</th>
               <th class="py-2.5 px-3">Voucher Type / No</th>
+              <th class="py-2.5 px-3">Account Head</th>
               <th class="py-2.5 px-3">Narration & Details</th>
               <th class="py-2.5 px-3 text-right">Debit (DR)</th>
               <th class="py-2.5 px-3 text-right">Credit (CR)</th>
@@ -300,6 +302,11 @@ const triggerPrint = () => {
                   </UBadge>
                   <span class="font-bold text-slate-900 dark:text-white font-mono">{{ e.voucherNo || '—' }}</span>
                 </div>
+              </td>
+              <td class="py-2 px-3">
+                <span class="text-xs font-bold text-slate-900 dark:text-white">
+                  {{ e.opposingAccountHead || '—' }}
+                </span>
               </td>
               <td class="py-2 px-3">
                 <p class="text-xs font-semibold text-slate-800 dark:text-zinc-200">{{ e.narration || e.refType || 'Ledger Posting' }}</p>

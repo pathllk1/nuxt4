@@ -56,6 +56,29 @@ export async function enforcePeriodLock(
 }
 
 /**
+ * Checks whether the given transactionDate is within a locked fiscal period.
+ * Returns true if locked, false if open. Does not throw an error.
+ */
+export async function isPeriodLocked(
+  firmId: mongoose.Types.ObjectId | string,
+  transactionDate: string,
+  session?: mongoose.ClientSession | null
+): Promise<boolean> {
+  if (!transactionDate) return false;
+  const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
+  const activeLock = await PeriodLock.findOne(
+    {
+      firmId: firmIdObj,
+      isActive: true,
+      lockDate: { $gte: transactionDate },
+    },
+    '_id',
+    { session: session || undefined }
+  ).lean();
+  return !!activeLock;
+}
+
+/**
  * Gets the current lock status for a firm. Returns the most restrictive
  * active lock (latest lockDate).
  */

@@ -69,10 +69,10 @@ const filteredAccounts = computed(() => {
     const cat = selectedCategoryTab.value;
     list = list.filter(a => {
       const type = (a.accountType || '').toUpperCase();
-      if (cat === 'ASSET') return ['ASSET', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CASH', 'BANK', 'BANK_ACCOUNT'].includes(type);
-      if (cat === 'LIABILITY') return ['LIABILITY', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CAPITAL', 'LABOR_LEADER'].includes(type);
-      if (cat === 'INCOME') return ['INCOME', 'INDIRECT_INCOME'].includes(type);
-      if (cat === 'EXPENSE') return ['EXPENSE', 'COGS', 'INDIRECT_EXPENSE'].includes(type);
+      if (cat === 'ASSET') return ['ASSET', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'FIXED_ASSETS', 'LOANS_ADVANCES'].includes(type);
+      if (cat === 'LIABILITY') return ['LIABILITY', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CAPITAL', 'LABOR_LEADER', 'TRANSPORTER', 'STAFF', 'LOANS_BORROWINGS', 'DUTIES_AND_TAXES'].includes(type);
+      if (cat === 'INCOME') return ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type);
+      if (cat === 'EXPENSE') return ['EXPENSE', 'COGS', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'CASUAL_LABOR'].includes(type);
       return true;
     });
   }

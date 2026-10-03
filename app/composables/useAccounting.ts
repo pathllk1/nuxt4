@@ -162,6 +162,48 @@ export const useAccounting = () => {
 
   const submitVoucher = createVoucher;
 
+  const getVoucher = async (voucherGroupId: string) => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await api.get(`/accounting/vouchers/${encodeURIComponent(voucherGroupId)}`);
+      return response;
+    } catch (err: any) {
+      error.value = err.message || 'Failed to fetch voucher details';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const updateVoucher = async (voucherGroupId: string, data: any) => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await api.put(`/accounting/vouchers/${encodeURIComponent(voucherGroupId)}`, data);
+      return response;
+    } catch (err: any) {
+      error.value = err.message || 'Failed to update voucher';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const deleteVoucher = async (voucherGroupId: string) => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await api.delete(`/accounting/vouchers/${encodeURIComponent(voucherGroupId)}`);
+      return response;
+    } catch (err: any) {
+      error.value = err.message || 'Failed to delete voucher';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const createOpeningBalance = async (data: any) => {
     loading.value = true;
     error.value = null;
@@ -398,6 +440,9 @@ export const useAccounting = () => {
     fetchDayBook,
     createVoucher,
     submitVoucher,
+    getVoucher,
+    updateVoucher,
+    deleteVoucher,
     createOpeningBalance,
     exportTrialBalancePdf,
     exportProfitLossPdf,

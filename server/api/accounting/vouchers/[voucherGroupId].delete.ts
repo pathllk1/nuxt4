@@ -80,6 +80,20 @@ export default defineEventHandler(async (event) => {
       mongoSession.endSession();
     }
 
+    // 6. Clean up any linked labor advances in PostgreSQL
+    try {
+      let sql = getSql();
+      if (!sql) sql = await connectPostgres();
+      if (sql) {
+        await sql`
+          DELETE FROM labor_advances 
+          WHERE ledger_voucher_group_id = ${voucherGroupId} AND firm_id = ${firmIdStr}
+        `;
+      }
+    } catch (laborSyncErr) {
+      console.warn('Cross-module labor advance cleanup notice:', laborSyncErr);
+    }
+
     return {
       success: true,
       message: `Voucher ${voucherGroupId} (${entries[0]?.voucherNo || voucherGroupId}) was deleted successfully.`,

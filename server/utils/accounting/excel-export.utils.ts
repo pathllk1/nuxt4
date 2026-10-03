@@ -227,28 +227,28 @@ export async function generateLedgerExcel(data: {
   styleTitleBlock(ws, `GENERAL LEDGER: ${data.accountHead.toUpperCase()}`, data.periodText, data.firmName);
 
   const obRow = ws.getRow(5);
-  ws.mergeCells('A5:F5');
+  ws.mergeCells('A5:G5');
   const obCell = obRow.getCell(1);
   obCell.value = `STARTING POSITION (Prior to Statement Period): ${data.startingBal.balanceType} BALANCE OF ₹${data.startingBal.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
   obCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.grayBg } };
   obCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF' + COLORS.slateDark } };
   obCell.alignment = { horizontal: 'center', vertical: 'middle' };
   obRow.height = 24;
-  applyBordersToRow(obRow, 6, {
+  applyBordersToRow(obRow, 7, {
     top: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
     bottom: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
   });
 
   ws.addRow([]);
 
-  const headers = ['DATE', 'VOUCHER / REF', 'NARRATION', 'DEBIT (DR)', 'CREDIT (CR)', 'RUNNING BAL'];
+  const headers = ['DATE', 'VOUCHER / REF', 'ACCOUNT HEAD', 'NARRATION', 'DEBIT (DR)', 'CREDIT (CR)', 'RUNNING BAL'];
   const headerRow = ws.addRow(headers);
   headerRow.height = 26;
   headerRow.eachCell((cell, colIndex) => {
     cell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORS.navy } };
     cell.alignment = {
-      horizontal: colIndex > 3 ? 'right' : (colIndex === 1 ? 'center' : 'left'),
+      horizontal: colIndex > 4 ? 'right' : (colIndex === 1 ? 'center' : 'left'),
       vertical: 'middle',
     };
     cell.border = {
@@ -263,6 +263,7 @@ export async function generateLedgerExcel(data: {
     const opRow = ws.addRow([
       data.periodText.includes('to') ? data.periodText.split('to')[0]?.trim() || '—' : '—',
       'OPENING BAL',
+      'Opening Balance',
       'Brought forward balance',
       data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? data.startingBal.balance : '',
       data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? data.startingBal.balance : '',
@@ -279,8 +280,8 @@ export async function generateLedgerExcel(data: {
         right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
       };
       if (colIdx === 1) formatCenterDateCell(cell);
-      if (colIdx === 4 || colIdx === 5) formatCurrencyCell(cell);
-      if (colIdx === 6) {
+      if (colIdx === 5 || colIdx === 6) formatCurrencyCell(cell);
+      if (colIdx === 7) {
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
         cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: data.startingBal.balanceType === 'DR' ? 'FF' + COLORS.greenText : 'FF' + COLORS.redText } };
       }
@@ -304,6 +305,7 @@ export async function generateLedgerExcel(data: {
     const docRow = ws.addRow([
       dateVal,
       `${row.voucherNo || row.refType || 'N/A'}${row.voucherType ? ` (${row.voucherType})` : ''}`,
+      row.opposingAccountHead || '—',
       row.narration || '',
       row.debitAmount > 0 ? row.debitAmount : '',
       row.creditAmount > 0 ? row.creditAmount : '',
@@ -322,13 +324,13 @@ export async function generateLedgerExcel(data: {
       };
 
       if (colIdx === 1) formatCenterDateCell(cell);
-      if (colIdx === 4 || colIdx === 5) {
+      if (colIdx === 5 || colIdx === 6) {
         formatCurrencyCell(cell);
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
-        if (row.debitAmount > 0 && colIdx === 4) cell.font = { name: 'Segoe UI', size: 9.5, color: { argb: 'FF' + COLORS.rose } };
-        if (row.creditAmount > 0 && colIdx === 5) cell.font = { name: 'Segoe UI', size: 9.5, color: { argb: 'FF' + COLORS.emerald } };
+        if (row.debitAmount > 0 && colIdx === 5) cell.font = { name: 'Segoe UI', size: 9.5, color: { argb: 'FF' + COLORS.rose } };
+        if (row.creditAmount > 0 && colIdx === 6) cell.font = { name: 'Segoe UI', size: 9.5, color: { argb: 'FF' + COLORS.emerald } };
       }
-      if (colIdx === 6) {
+      if (colIdx === 7) {
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
         cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: row.runningBalanceType === 'DR' ? 'FF' + COLORS.greenText : 'FF' + COLORS.redText } };
       }
@@ -337,6 +339,7 @@ export async function generateLedgerExcel(data: {
 
   const totalsRow = ws.addRow([
     'PERIOD TOTALS',
+    '',
     '',
     `${data.mappedEntries.length} txn(s)`,
     data.totalDebits,
@@ -354,20 +357,21 @@ export async function generateLedgerExcel(data: {
       right: { style: 'thin', color: { argb: 'FF' + COLORS.slateBorder } },
     };
 
-    if (colIdx === 4 || colIdx === 5) {
+    if (colIdx === 5 || colIdx === 6) {
       formatCurrencyCell(cell);
       cell.alignment = { horizontal: 'right', vertical: 'middle' };
-      cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: colIdx === 4 ? 'FF' + COLORS.rose : 'FF' + COLORS.emerald } };
+      cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: colIdx === 5 ? 'FF' + COLORS.rose : 'FF' + COLORS.emerald } };
     }
-    if (colIdx === 6) {
+    if (colIdx === 7) {
       cell.alignment = { horizontal: 'right', vertical: 'middle' };
       cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: data.finalBalanceType === 'DR' ? 'FF' + COLORS.greenText : 'FF' + COLORS.redText } };
     }
   });
 
   autoFitColumns(ws, 14);
-  ws.getColumn(3).width = 30;
-  ws.getColumn(2).width = 25;
+  ws.getColumn(2).width = 24;
+  ws.getColumn(3).width = 28;
+  ws.getColumn(4).width = 34;
   const buf = await workbook.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
@@ -463,9 +467,21 @@ export async function generateProfitLossExcel(data: {
   });
 
   const drList: { label: string; val: any; type: 'HEADER' | 'ITEM' | 'SUBTOTAL' | 'NET_PROFIT' }[] = [];
-  drList.push({ label: 'To Cost of Goods Sold', val: '', type: 'HEADER' });
-  (data.plModel.drCOGS || []).forEach((a: any) => drList.push({ label: `  ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
-  drList.push({ label: '  Total Cost of Sales', val: data.plModel.sumDrCOGS, type: 'SUBTOTAL' });
+  drList.push({ label: 'To Cost of Goods Sold & Direct Expenses', val: '', type: 'HEADER' });
+
+  // Standalone Direct COGS / Production Accounts (Purchases, Inventory, etc.)
+  const directCogs = (data.plModel.drCOGS || []).filter((a: any) => a.type !== 'CASUAL_LABOR');
+  directCogs.forEach((a: any) => drList.push({ label: `  ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
+
+  // Grouped Casual Labour / Direct Wages with sub-records
+  const casualLabor = (data.plModel.drCOGS || []).filter((a: any) => a.type === 'CASUAL_LABOR');
+  if (casualLabor.length > 0) {
+    const clTotal = casualLabor.reduce((s: number, a: any) => s + Math.abs(a.netCr), 0);
+    drList.push({ label: `  Casual Labour / Direct Wages (${casualLabor.length} Workers)`, val: clTotal, type: 'ITEM' });
+    casualLabor.forEach((a: any) => drList.push({ label: `    ↳ ${a.head}`, val: Math.abs(a.netCr), type: 'ITEM' }));
+  }
+
+  drList.push({ label: '  Total Cost of Sales & Direct Expenses', val: data.plModel.sumDrCOGS, type: 'SUBTOTAL' });
 
   if ((data.plModel.drContraIncome || []).length > 0) {
     drList.push({ label: 'To Returns / Contra Income', val: '', type: 'HEADER' });

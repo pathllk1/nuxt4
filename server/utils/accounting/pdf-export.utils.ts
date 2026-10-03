@@ -933,11 +933,12 @@ export async function exportLedgerToPdfBuffer(data: {
         table: {
           headerRows: 1,
           dontBreakRows: true,
-          widths: [55, 80, '*', 65, 65, 75],
+          widths: [52, 70, 85, '*', 60, 60, 68],
           body: [
             [
               { text: 'Date', style: 'tblHdr', alignment: 'center' },
               { text: 'Voucher Ref', style: 'tblHdr' },
+              { text: 'Account Head', style: 'tblHdr' },
               { text: 'Narration', style: 'tblHdr' },
               { text: 'Debit (₹)', style: 'tblHdr', alignment: 'right' },
               { text: 'Credit (₹)', style: 'tblHdr', alignment: 'right' },
@@ -946,6 +947,7 @@ export async function exportLedgerToPdfBuffer(data: {
             ...(data.startingBal.balance > 0 || data.periodText !== 'All Time' ? [[
               { text: '—', alignment: 'center', fontSize: 8 },
               { text: 'OPENING BAL', bold: true, fontSize: 8 },
+              { text: 'Opening Balance', bold: true, fontSize: 8 },
               { text: 'Brought forward balance', fontSize: 8 },
               { text: data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8 },
               { text: data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8 },
@@ -954,14 +956,15 @@ export async function exportLedgerToPdfBuffer(data: {
             ...data.mappedEntries.map((e) => [
               { text: formatDate(e.transactionDate), alignment: 'center', fontSize: 8 },
               { text: e.voucherNo || e.refType || '', fontSize: 8 },
+              { text: e.opposingAccountHead || '—', fontSize: 8, bold: true },
               { text: e.narration || '', fontSize: 8 },
               { text: e.debitAmount > 0 ? formatCurrency(e.debitAmount) : '', alignment: 'right', fontSize: 8 },
               { text: e.creditAmount > 0 ? formatCurrency(e.creditAmount) : '', alignment: 'right', fontSize: 8 },
               { text: `${formatCurrency(e.runningBalance)} ${e.runningBalanceType}`, alignment: 'right', bold: true, fontSize: 8 },
             ]),
             [
-              { text: 'TOTALS', colSpan: 3, bold: true, alignment: 'center', fontSize: 8 },
-              {}, {},
+              { text: 'TOTALS', colSpan: 4, bold: true, alignment: 'center', fontSize: 8 },
+              {}, {}, {},
               { text: formatCurrency(data.totalDebits), alignment: 'right', bold: true, fontSize: 8 },
               { text: formatCurrency(data.totalCredits), alignment: 'right', bold: true, fontSize: 8 },
               { text: `${formatCurrency(data.finalBalance)} ${data.finalBalanceType}`, alignment: 'right', bold: true, fontSize: 8 },
@@ -1051,17 +1054,26 @@ export async function exportProfitLossToPdfBuffer(data: {
   // 1. Build Debit Side rows (Expenses & Losses)
   const drRows: PlStatementRow[] = [];
 
-  // COGS
-  drRows.push({ label: 'TO COST OF GOODS SOLD', amount: '', type: 'HEADER' });
-  const drCOGS = plModel.drCOGS || [];
-  if (drCOGS.length > 0) {
-    drCOGS.forEach((a: any) => {
+  // COGS & Direct Expenses
+  drRows.push({ label: 'TO COST OF GOODS SOLD & DIRECT EXPENSES', amount: '', type: 'HEADER' });
+  const directCogs = (plModel.drCOGS || []).filter((a: any) => a.type !== 'CASUAL_LABOR');
+  const casualLabor = (plModel.drCOGS || []).filter((a: any) => a.type === 'CASUAL_LABOR');
+
+  if (directCogs.length > 0 || casualLabor.length > 0) {
+    directCogs.forEach((a: any) => {
       drRows.push({ label: `    ${a.head}`, amount: formatCurrency(Math.abs(a.netCr)), type: 'ITEM' });
     });
+    if (casualLabor.length > 0) {
+      const clTotal = casualLabor.reduce((s: number, a: any) => s + Math.abs(a.netCr), 0);
+      drRows.push({ label: `    Casual Labour / Direct Wages (${casualLabor.length} Workers)`, amount: formatCurrency(clTotal), type: 'ITEM' });
+      casualLabor.forEach((a: any) => {
+        drRows.push({ label: `      ↳ ${a.head}`, amount: formatCurrency(Math.abs(a.netCr)), type: 'ITEM' });
+      });
+    }
   } else {
-    drRows.push({ label: '    (No COGS accounts)', amount: formatCurrency(0), type: 'ITEM' });
+    drRows.push({ label: '    (No COGS / Direct Expense accounts)', amount: formatCurrency(0), type: 'ITEM' });
   }
-  drRows.push({ label: 'TOTAL COST OF SALES', amount: formatCurrency(plModel.sumDrCOGS), type: 'SUBTOTAL', subtotalColor: '#FEF3C7' });
+  drRows.push({ label: 'TOTAL COST OF SALES & DIRECT EXPENSES', amount: formatCurrency(plModel.sumDrCOGS), type: 'SUBTOTAL', subtotalColor: '#FEF3C7' });
 
   // Contra Income (if any)
   const drContraIncome = plModel.drContraIncome || [];

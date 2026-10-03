@@ -276,7 +276,7 @@
               <th class="py-3 px-3.5">Narration & Ref</th>
               <th class="py-3 px-3.5 text-right w-32">Debit (₹)</th>
               <th class="py-3 px-3.5 text-right w-32">Credit (₹)</th>
-              <th class="py-3 px-3.5 text-center w-20">Actions</th>
+              <th class="py-3 px-3.5 text-center w-28">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-zinc-800 font-medium text-gray-700 dark:text-zinc-300">
@@ -354,15 +354,43 @@
 
                   <!-- Actions -->
                   <td class="py-2 px-3.5 text-center">
-                    <UButton
-                      v-if="enIdx === 0"
-                      color="neutral"
-                      variant="ghost"
-                      icon="i-heroicons-arrow-top-right-on-square"
-                      size="xs"
-                      @click="drillIntoVoucher(v)"
-                      title="Drill into Voucher"
-                    />
+                    <div v-if="enIdx === 0" class="flex items-center justify-center gap-1">
+                      <!-- Edit Voucher -->
+                      <UButton
+                        v-if="canEditVoucher(v)"
+                        color="primary"
+                        variant="ghost"
+                        icon="i-heroicons-pencil-square"
+                        size="xs"
+                        :loading="editLoading && editingVoucherGroupId === v.voucherGroupId"
+                        @click="openEditVoucher(v)"
+                        title="Edit Voucher"
+                      />
+                      <span v-else class="text-gray-300 dark:text-zinc-600 inline-flex items-center p-1" title="Commercial bill: modify in Bills module">
+                        <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
+                      </span>
+
+                      <!-- Delete Voucher -->
+                      <UButton
+                        v-if="canEditVoucher(v)"
+                        color="error"
+                        variant="ghost"
+                        icon="i-heroicons-trash"
+                        size="xs"
+                        @click="confirmDeleteVoucher(v)"
+                        title="Delete Voucher"
+                      />
+
+                      <!-- Drill into Ledger -->
+                      <UButton
+                        color="neutral"
+                        variant="ghost"
+                        icon="i-heroicons-arrow-top-right-on-square"
+                        size="xs"
+                        @click="drillIntoVoucher(v)"
+                        title="View Account Ledger"
+                      />
+                    </div>
                   </td>
                 </tr>
               </template>
@@ -421,14 +449,43 @@
 
                 <!-- Actions -->
                 <td class="py-2.5 px-3.5 text-center">
-                  <UButton
-                    color="neutral"
-                    variant="ghost"
-                    icon="i-heroicons-arrow-top-right-on-square"
-                    size="xs"
-                    @click="drillIntoVoucher(v)"
-                    title="Drill into Voucher"
-                  />
+                  <div class="flex items-center justify-center gap-1">
+                    <!-- Edit Voucher -->
+                    <UButton
+                      v-if="canEditVoucher(v)"
+                      color="primary"
+                      variant="ghost"
+                      icon="i-heroicons-pencil-square"
+                      size="xs"
+                      :loading="editLoading && editingVoucherGroupId === v.voucherGroupId"
+                      @click="openEditVoucher(v)"
+                      title="Edit Voucher"
+                    />
+                    <span v-else class="text-gray-300 dark:text-zinc-600 inline-flex items-center p-1" title="Commercial bill: modify in Bills module">
+                      <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
+                    </span>
+
+                    <!-- Delete Voucher -->
+                    <UButton
+                      v-if="canEditVoucher(v)"
+                      color="error"
+                      variant="ghost"
+                      icon="i-heroicons-trash"
+                      size="xs"
+                      @click="confirmDeleteVoucher(v)"
+                      title="Delete Voucher"
+                    />
+
+                    <!-- Drill into Ledger -->
+                    <UButton
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-heroicons-arrow-top-right-on-square"
+                      size="xs"
+                      @click="drillIntoVoucher(v)"
+                      title="View Account Ledger"
+                    />
+                  </div>
                 </td>
               </tr>
             </template>
@@ -465,8 +522,59 @@
     <!-- 6. Integrated Voucher Modal for New Vouchers -->
     <VoucherModal
       v-model="showVoucherModal"
+      @saved="loadDayBook"
       @voucher-created="loadDayBook"
     />
+
+    <!-- 7. Voucher Modal for Editing Existing Vouchers -->
+    <VoucherModal
+      v-model="showEditVoucherModal"
+      :is-edit="true"
+      :voucher-group-id="editingVoucherGroupId"
+      :initial-data="editingVoucherData"
+      @saved="loadDayBook"
+    />
+
+    <!-- 8. Delete Confirmation Modal -->
+    <UModal v-model:open="showDeleteConfirmModal">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="p-2.5 bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 rounded-2xl border border-rose-200 dark:border-rose-900/50">
+              <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6" />
+            </div>
+            <div class="flex-1">
+              <h4 class="text-base font-bold text-gray-900 dark:text-white">Delete Voucher</h4>
+              <p class="text-xs text-gray-600 dark:text-zinc-400 mt-1">
+                Are you sure you want to permanently delete voucher <strong class="text-gray-900 dark:text-white font-mono">{{ voucherToDelete?.voucherNo }}</strong>?
+              </p>
+              <div class="mt-2.5 p-3 bg-gray-50 dark:bg-zinc-800/60 rounded-xl border border-gray-100 dark:border-zinc-750 text-xs space-y-1.5">
+                <div class="flex justify-between text-gray-500">
+                  <span>Type:</span>
+                  <span class="font-bold text-gray-800 dark:text-zinc-200">{{ voucherToDelete?.voucherType }}</span>
+                </div>
+                <div class="flex justify-between text-gray-500">
+                  <span>Date:</span>
+                  <span class="font-mono text-gray-800 dark:text-zinc-200">{{ voucherToDelete?.transactionDate }}</span>
+                </div>
+                <div class="flex justify-between text-gray-500">
+                  <span>Total Amount:</span>
+                  <span class="font-mono font-bold text-gray-900 dark:text-white">{{ formatCurrency(voucherToDelete?.totalDebit || 0) }}</span>
+                </div>
+              </div>
+              <p class="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-2.5">
+                ⚠️ All corresponding General Ledger entries will be removed atomically.
+              </p>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-zinc-800">
+            <UButton color="neutral" variant="ghost" label="Cancel" :disabled="deletingVoucher" @click="showDeleteConfirmModal = false" />
+            <UButton color="error" :loading="deletingVoucher" label="Confirm Delete" @click="executeDeleteVoucher" />
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -485,6 +593,8 @@ const {
   chartOfAccounts,
   fetchCOA,
   fetchDayBook,
+  getVoucher,
+  deleteVoucher,
   exportDayBookPdf,
   exportDayBookExcel,
   loading
@@ -492,6 +602,15 @@ const {
 
 const exportLoading = ref(false);
 const showVoucherModal = ref(false);
+const showEditVoucherModal = ref(false);
+const editingVoucherGroupId = ref('');
+const editingVoucherData = ref<any>(null);
+const editLoading = ref(false);
+
+const showDeleteConfirmModal = ref(false);
+const voucherToDelete = ref<any>(null);
+const deletingVoucher = ref(false);
+
 const isDetailedView = ref(true);
 const searchQuery = ref('');
 const activePreset = ref<'today' | 'yesterday' | 'this_week' | 'this_month' | 'prev_month' | 'this_fy' | 'custom'>('today');
@@ -658,6 +777,57 @@ function getVoucherBadgeClass(type: string = '') {
 function drillIntoVoucher(v: any) {
   if (v.primaryAccount) {
     router.push(`/accounting/ledger-view?head=${encodeURIComponent(v.primaryAccount)}`);
+  }
+}
+
+function canEditVoucher(v: any) {
+  if (!v) return false;
+  const refType = String(v.refType || '').toUpperCase();
+  if (['BILL', 'SALE', 'PURCHASE'].includes(refType)) return false;
+  const vtype = String(v.voucherType || '').toUpperCase();
+  return ['PAYMENT', 'RECEIPT', 'JOURNAL', 'CONTRA'].includes(vtype);
+}
+
+async function openEditVoucher(v: any) {
+  if (!v?.voucherGroupId) return;
+  editLoading.value = true;
+  editingVoucherGroupId.value = v.voucherGroupId;
+  try {
+    const res = await getVoucher(v.voucherGroupId);
+    if (res.success && res.data) {
+      if (!res.data.isEditable) {
+        alert(res.data.notEditableReason || 'This voucher cannot be edited.');
+        return;
+      }
+      editingVoucherData.value = res.data;
+      showEditVoucherModal.value = true;
+    }
+  } catch (err: any) {
+    alert(err.message || 'Failed to load voucher details');
+  } finally {
+    editLoading.value = false;
+  }
+}
+
+function confirmDeleteVoucher(v: any) {
+  voucherToDelete.value = v;
+  showDeleteConfirmModal.value = true;
+}
+
+async function executeDeleteVoucher() {
+  if (!voucherToDelete.value?.voucherGroupId) return;
+  deletingVoucher.value = true;
+  try {
+    const res = await deleteVoucher(voucherToDelete.value.voucherGroupId);
+    if (res.success) {
+      showDeleteConfirmModal.value = false;
+      voucherToDelete.value = null;
+      await loadDayBook();
+    }
+  } catch (err: any) {
+    alert(err.message || 'Failed to delete voucher');
+  } finally {
+    deletingVoucher.value = false;
   }
 }
 

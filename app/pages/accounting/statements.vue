@@ -102,9 +102,9 @@ const formatPercent = (v: number) => {
 };
 
 const isCOGS = (head: string, type: string) => {
-  if (type === 'COGS') return true;
+  if (type === 'COGS' || type === 'DIRECT_EXPENSE' || type === 'CASUAL_LABOR') return true;
   const h = head.toLowerCase();
-  return ['cogs', 'cost of goods', 'purchase', 'inventory'].some(k => h.includes(k)) && (type === 'EXPENSE' || type === 'COGS');
+  return ['cogs', 'cost of goods', 'purchase', 'inventory'].some(k => h.includes(k)) && (type === 'EXPENSE' || type === 'COGS' || type === 'DIRECT_EXPENSE' || type === 'CASUAL_LABOR');
 };
 
 const isStock = (head: string) => {
@@ -118,11 +118,11 @@ const isGSTRec = (head: string) => {
 };
 
 const isIncomeType = (type: string) => ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type?.toUpperCase() || '');
-const isExpenseType = (type: string) => ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS'].includes(type?.toUpperCase() || '');
+const isExpenseType = (type: string) => ['EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'CASUAL_LABOR'].includes(type?.toUpperCase() || '');
 
 const plModel = computed(() => {
   const plAccounts = trialBalance.value.filter(a => 
-    ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL'].includes(a.accountType)
+    ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'EXPENSE', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'COGS', 'GENERAL', 'CASUAL_LABOR'].includes(a.accountType)
   ).map(a => {
     const netDr = a.totalDebit - a.totalCredit;
     const netCr = a.totalCredit - a.totalDebit;
@@ -176,11 +176,16 @@ const plModel = computed(() => {
   // The Credit side T-table displays crIncome, crGeneral, and contra expense credit balances (crCOGS + crOpex)
   const crItems = totalRevenueCr + sumCrGeneral + sumContraExpense;
 
+  const casualLaborAccounts = drCOGS.filter(a => a.type === 'CASUAL_LABOR');
+  const casualLaborTotal = casualLaborAccounts.reduce((s, a) => s + Math.abs(a.netCr), 0);
+  const directCogsAccounts = drCOGS.filter(a => a.type !== 'CASUAL_LABOR');
+
   const drGrand = drItems + Math.max(netProfit, 0);
   const crGrand = crItems + Math.max(-netProfit, 0);
 
   return {
     crIncome, drContraIncome, drCOGS, crCOGS, drOpex, crOpex, crGeneral, drGeneral,
+    casualLaborAccounts, casualLaborTotal, directCogsAccounts,
     totalRevenueCr, totalContraInc, effectiveRevenue,
     totalCOGS, totalOpex, totalGeneralNet,
     sumDrCOGS, sumCrCOGS, sumDrOpex, sumCrOpex, sumContraExpense, sumCrGeneral,
@@ -190,16 +195,19 @@ const plModel = computed(() => {
   };
 });
 
+const isCasualLaborExpanded = ref(false);
+
+const isAssetType = (type: string) => ['ASSET', 'FIXED_ASSETS', 'LOANS_ADVANCES'].includes(type?.toUpperCase() || '');
 const isDebtorType = (type: string) => ['DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(type?.toUpperCase() || '');
-const isCreditorType = (type: string) => ['CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE'].includes(type?.toUpperCase() || '');
+const isCreditorType = (type: string) => ['CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'TRANSPORTER'].includes(type?.toUpperCase() || '');
 const isCashBankType = (type: string) => ['CASH', 'BANK', 'BANK_ACCOUNT'].includes(type?.toUpperCase() || '');
 
-const isDebtorsExpanded = ref(true);
-const isCreditorsExpanded = ref(true);
+const isDebtorsExpanded = ref(false);
+const isCreditorsExpanded = ref(false);
 
 const bsModel = computed(() => {
   const bsAccounts = trialBalance.value.filter(a => 
-    ['ASSET', 'LIABILITY', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'CAPITAL', 'LABOR_LEADER'].includes(a.accountType)
+    ['ASSET', 'LIABILITY', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'CAPITAL', 'LABOR_LEADER', 'TRANSPORTER', 'STAFF', 'LOANS_BORROWINGS', 'LOANS_ADVANCES', 'DUTIES_AND_TAXES', 'FIXED_ASSETS'].includes(a.accountType)
   ).map(a => {
     const netDr = a.totalDebit - a.totalCredit;
     const netCr = a.totalCredit - a.totalDebit;
@@ -211,8 +219,8 @@ const bsModel = computed(() => {
     };
   });
 
-  const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE'].includes(a.type));
-  const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL'].includes(a.type));
+  const assetsRaw = bsAccounts.filter(a => ['ASSET', 'CASH', 'BANK', 'BANK_ACCOUNT', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'FIXED_ASSETS', 'LOANS_ADVANCES', 'DUTIES_AND_TAXES'].includes(a.type));
+  const liabilitiesRaw = bsAccounts.filter(a => ['LIABILITY', 'PAYABLE', 'CREDITOR', 'SUNDRY_CREDITORS', 'LABOR_LEADER', 'CAPITAL', 'TRANSPORTER', 'STAFF', 'LOANS_BORROWINGS', 'DUTIES_AND_TAXES'].includes(a.type));
 
   // Dynamic Opening Balance Contra
   const diffObAccount = bsAccounts.find(a =>
@@ -225,11 +233,11 @@ const bsModel = computed(() => {
   const isDiffOb = (head: string) => head === 'Difference in Opening Balances' || head === 'Opening Balance';
 
   const stockAssets = assetsRaw.filter(a => isStock(a.head) && a.netDr > 0);
-  const gstAssets = assetsRaw.filter(a => !isStock(a.head) && isGSTRec(a.head) && a.netDr > 0);
-  const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type === 'ASSET' && !isDiffOb(a.head) && a.netDr > 0);
+  const gstAssets = assetsRaw.filter(a => !isStock(a.head) && (isGSTRec(a.head) || a.type === 'DUTIES_AND_TAXES') && a.netDr > 0);
+  const otherAssets = assetsRaw.filter(a => !isStock(a.head) && !isGSTRec(a.head) && a.type !== 'DUTIES_AND_TAXES' && isAssetType(a.type) && !isDiffOb(a.head) && a.netDr > 0);
   const debtors = assetsRaw.filter(a => isDebtorType(a.type) && a.netDr > 0);
   const cashBank = assetsRaw.filter(a => isCashBankType(a.type) && a.netDr > 0);
-  const liabilityDebitBalances = liabilitiesRaw.filter(a => !isDiffOb(a.head) && a.netDr > 0);
+  const liabilityDebitBalances = liabilitiesRaw.filter(a => !isDiffOb(a.head) && a.type !== 'DUTIES_AND_TAXES' && a.netDr > 0);
 
   const totalStock = stockAssets.reduce((s, a) => s + a.netDr, 0);
   const totalGST = gstAssets.reduce((s, a) => s + a.netDr, 0);
@@ -240,9 +248,9 @@ const bsModel = computed(() => {
 
   const totalAssets = totalStock + totalGST + totalOtherA + totalDebtors + totalCashBank + totalLiabilityDebitBalances + diffObDr;
 
-  const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER'].includes(a.type) && a.netCr > 0);
+  const liabilities = liabilitiesRaw.filter(a => ['LIABILITY', 'LABOR_LEADER', 'STAFF', 'LOANS_BORROWINGS', 'DUTIES_AND_TAXES'].includes(a.type) && a.netCr > 0);
   const creditors = liabilitiesRaw.filter(a => isCreditorType(a.type) && a.netCr > 0);
-  const assetCreditBalances = assetsRaw.filter(a => a.type === 'ASSET' && !isDiffOb(a.head) && a.netCr > 0);
+  const assetCreditBalances = assetsRaw.filter(a => isAssetType(a.type) && !isDiffOb(a.head) && a.netCr > 0);
   const debtorCreditBalances = assetsRaw.filter(a => isDebtorType(a.type) && a.netCr > 0);
   const cashBankCreditBalances = assetsRaw.filter(a => isCashBankType(a.type) && a.netCr > 0);
 
@@ -498,16 +506,51 @@ onMounted(loadData);
               <!-- COGS Segment -->
               <div>
                 <div class="py-1.5 px-4 bg-slate-50/20 dark:bg-zinc-800/10 text-[8px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-wider border-b border-gray-100 dark:border-zinc-800 flex justify-between leading-none">
-                  <span>To Cost of Goods Sold</span>
-                  <span>{{ plModel.drCOGS.length }} A/Cs</span>
+                  <span>To Cost of Goods Sold & Direct Expenses</span>
+                  <span>{{ plModel.directCogsAccounts.length + (plModel.casualLaborAccounts.length > 0 ? 1 : 0) }} Line Item(s)</span>
                 </div>
-                <div v-for="a in plModel.drCOGS" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
+
+                <!-- Standalone Direct COGS / Production Accounts (Purchases, Inventory, etc.) -->
+                <div v-for="a in plModel.directCogsAccounts" :key="a.head" class="py-1.5 px-4 hover:bg-slate-50/50 dark:hover:bg-zinc-805/20 flex justify-between text-xs font-medium text-slate-700 dark:text-zinc-300 border-b border-gray-100 dark:border-zinc-800/40">
                   <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-bold">{{ a.head }}</span>
                   <span class="font-mono font-bold">{{ formatINR(Math.abs(a.netCr)) }}</span>
                 </div>
-                <div v-if="plModel.drCOGS.length === 0" class="py-2 px-4 text-center text-[10px] text-slate-400 border-b border-gray-100 dark:border-zinc-800/40 italic">No COGS accounts</div>
+
+                <!-- Casual Labour / Direct Wages Accordion (Default Collapsed) -->
+                <div v-if="plModel.casualLaborAccounts.length > 0" class="border-b border-gray-100 dark:border-zinc-800/40">
+                  <div 
+                    @click="isCasualLaborExpanded = !isCasualLaborExpanded" 
+                    class="py-1.5 px-4 bg-slate-50/40 dark:bg-zinc-800/20 hover:bg-slate-100/70 dark:hover:bg-zinc-800/50 cursor-pointer select-none flex justify-between items-center text-xs font-medium text-slate-800 dark:text-zinc-200 transition-colors leading-none"
+                  >
+                    <div class="flex items-center gap-1.5 font-bold">
+                      <UIcon :name="isCasualLaborExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-400 transition-transform" />
+                      <span>Casual Labour / Direct Wages</span>
+                      <UBadge size="xs" variant="subtle" color="primary" class="text-[8px] px-1.5 py-0 font-bold ml-1 rounded-md">
+                        {{ plModel.casualLaborAccounts.length }} {{ plModel.casualLaborAccounts.length === 1 ? 'Worker' : 'Workers' }}
+                      </UBadge>
+                    </div>
+                    <span class="font-mono font-bold text-slate-900 dark:text-zinc-100">{{ formatINR(plModel.casualLaborTotal) }}</span>
+                  </div>
+
+                  <!-- Nested Casual Labour records (default collapsed) -->
+                  <div v-show="isCasualLaborExpanded" class="bg-slate-50/30 dark:bg-zinc-900/40 divide-y divide-gray-100/50 dark:divide-zinc-800/30">
+                    <div 
+                      v-for="a in plModel.casualLaborAccounts" 
+                      :key="a.head" 
+                      class="py-1.5 pl-8 pr-4 hover:bg-slate-50 dark:hover:bg-zinc-800/30 flex justify-between text-xs text-slate-600 dark:text-zinc-400 transition-colors"
+                    >
+                      <div class="flex items-center gap-2">
+                        <span class="text-slate-300 dark:text-zinc-600 text-[10px]">↳</span>
+                        <span @click="viewLedger(a.head)" class="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer font-medium hover:underline">{{ a.head }}</span>
+                      </div>
+                      <span class="font-mono font-semibold">{{ formatINR(Math.abs(a.netCr)) }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="plModel.directCogsAccounts.length === 0 && plModel.casualLaborAccounts.length === 0" class="py-2 px-4 text-center text-[10px] text-slate-400 border-b border-gray-100 dark:border-zinc-800/40 italic">No COGS / Direct Expense accounts</div>
                 <div class="py-1.5 px-4 bg-amber-50/30 dark:bg-amber-950/10 text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider flex justify-between border-b border-gray-100 dark:border-zinc-800 leading-none">
-                  <span>Total Cost of Sales</span>
+                  <span>Total Cost of Sales & Direct Expenses</span>
                   <span class="font-mono text-amber-700 dark:text-amber-400 font-bold">{{ formatINR(plModel.sumDrCOGS) }}</span>
                 </div>
               </div>

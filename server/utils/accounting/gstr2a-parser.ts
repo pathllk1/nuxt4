@@ -225,15 +225,40 @@ export function parseGstr2aCsv(csvText: string): Gstr2aParseResult {
       existing.igst = Number((existing.igst + igst).toFixed(2));
       existing.cess = Number((existing.cess + cess).toFixed(2));
       existing.itemCount = existing.items.length;
-      existing.roundOff = Number((existing.netTotal - (existing.grossTotal + existing.cgst + existing.sgst + existing.igst + existing.cess)).toFixed(2));
+
+      // Under RCM, taxes are payable directly by the recipient to the government and are NOT charged by the supplier
+      const billTaxes = existing.reverseCharge ? 0 : (existing.cgst + existing.sgst + existing.igst + existing.cess);
+      const expectedNet = Number((existing.grossTotal + billTaxes).toFixed(2));
+
+      if (existing.invoiceValue > 0 && Math.abs(existing.invoiceValue - expectedNet) <= 5.00) {
+        existing.netTotal = existing.invoiceValue;
+        existing.roundOff = Number((existing.netTotal - expectedNet).toFixed(2));
+      } else {
+        existing.netTotal = Math.round(expectedNet);
+        existing.roundOff = Number((existing.netTotal - expectedNet).toFixed(2));
+      }
     } else {
       const grossTotal = Number(taxableValue.toFixed(2));
       const calcCgst = Number(cgst.toFixed(2));
       const calcSgst = Number(sgst.toFixed(2));
       const calcIgst = Number(igst.toFixed(2));
       const calcCess = Number(cess.toFixed(2));
-      const netTotal = invoiceValue > 0 ? Number(invoiceValue.toFixed(2)) : Number((grossTotal + calcCgst + calcSgst + calcIgst + calcCess).toFixed(2));
-      const roundOff = Number((netTotal - (grossTotal + calcCgst + calcSgst + calcIgst + calcCess)).toFixed(2));
+
+      // Under RCM, taxes are payable directly by the recipient to the government and are NOT charged by the supplier
+      const billTaxes = reverseCharge ? 0 : (calcCgst + calcSgst + calcIgst + calcCess);
+      const expectedNet = Number((grossTotal + billTaxes).toFixed(2));
+
+      let netTotal = expectedNet;
+      let roundOff = 0;
+
+      if (invoiceValue > 0 && Math.abs(invoiceValue - expectedNet) <= 5.00) {
+        netTotal = Number(invoiceValue.toFixed(2));
+        roundOff = Number((netTotal - expectedNet).toFixed(2));
+      } else {
+        // Discrepancy > ₹5 cannot be a round-off; use standard mathematical rounding of expectedNet
+        netTotal = Math.round(expectedNet);
+        roundOff = Number((netTotal - expectedNet).toFixed(2));
+      }
 
       let docType: 'INVOICE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' = 'INVOICE';
       const normType = invoiceType.toUpperCase();
