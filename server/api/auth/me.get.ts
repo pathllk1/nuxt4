@@ -33,7 +33,9 @@ export default defineEventHandler(async (event) => {
 
   const firmsMapped = (user.firms || []).map((f: any) => ({
     firm: f.firm,
-    grade: f.grade || 'Staff'
+    grade: f.grade || 'Staff',
+    linkedLedgerHead: f.linkedLedgerHead || null,
+    assignedProjectIds: f.assignedProjectIds || []
   }));
 
   return {

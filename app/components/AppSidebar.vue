@@ -114,13 +114,32 @@ import { useAuth } from '~/composables/useAuth';
 import { useAppLayout } from '~/composables/useAppLayout';
 import { useGlobalTools } from '~/composables/useGlobalTools';
 
-const { isAuthenticated } = useAuth();
+const { isAuthenticated, isSupervisor, isChecker } = useAuth();
 const { isSidebarCollapsed, toggleSidebar } = useAppLayout();
 const { openLauncher } = useGlobalTools();
 
+interface NavItem {
+  label: string;
+  to?: string;
+  icon: string;
+  exact?: boolean;
+  restricted?: boolean;
+  checkerOnly?: boolean;
+  action?: string;
+  children?: Array<{ label: string; to: string; icon: string }>;
+}
+
 const openNestedMenus = ref<string[]>([]);
 
-const navLinks = [
+const supervisorNavLinks: NavItem[] = [
+  { label: 'Site Wallet', to: '/field/wallet', icon: '👛', restricted: true },
+  { label: 'Log Expense', to: '/field/expense', icon: '📝', restricted: true },
+  { label: 'Claims History', to: '/field/claims', icon: '📋', restricted: true },
+  { label: 'Weather', to: '/weather', icon: '☀️', restricted: false },
+  { label: 'AI Assistant', to: '/ai-chat', icon: '✨', restricted: true }
+];
+
+const standardNavLinks: NavItem[] = [
   { label: 'Home', to: '/', icon: '🏠', exact: true, restricted: false },
   { label: 'About', to: '/about', icon: 'ℹ️', restricted: false },
   { label: 'Global Tools', action: 'openTools', icon: '🛠️', restricted: false },
@@ -128,6 +147,7 @@ const navLinks = [
   { label: '1-on-1 Chat', to: '/chat', icon: '💬', restricted: true },
   { label: 'Docs', to: '/documents', icon: '📄', restricted: true },
   { label: 'Financial Management', to: '/accounting/ledger', icon: '💵', restricted: true },
+  { label: 'Imprest Approvals', to: '/accounting/imprest-approvals', icon: '⚖️', restricted: true, checkerOnly: true },
   { label: 'Inventory', to: '/inventory', icon: '📦', restricted: true },
   {
     label: 'Employee Wages',
@@ -145,7 +165,15 @@ const navLinks = [
 
 const visibleNavLinks = computed(() => {
   const isAuth = isAuthenticated.value;
-  return navLinks.filter(nav => !nav.restricted || isAuth);
+  if (isAuth && isSupervisor.value) {
+    return supervisorNavLinks;
+  }
+
+  return standardNavLinks.filter(nav => {
+    if (nav.restricted && !isAuth) return false;
+    if ((nav as any).checkerOnly && !isChecker.value) return false;
+    return true;
+  });
 });
 
 const openGlobalTools = () => {

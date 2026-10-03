@@ -1,5 +1,7 @@
 import { defineEventHandler, createError, readBody } from 'h3';
+import mongoose from 'mongoose';
 import User from '../../../../models/User';
+import ChartOfAccounts from '../../../../models/ChartOfAccounts';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -64,7 +66,8 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const { grade } = await readBody(event) || {};
+    const body = await readBody(event) || {};
+    const { grade, assignedProjectIds, status, role, name } = body;
 
     if (targetUserId === currentUserId) {
       if (grade && grade !== targetFirmAssignment.grade) {
@@ -72,11 +75,67 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    if (name && typeof name === 'string' && name.trim()) {
+      targetUser.name = name.trim();
+    }
+
+    if (status && ['active', 'pending', 'suspended'].includes(status)) {
+      targetUser.status = status;
+    }
+
+    if (role && isSuperAdmin && ['standard', 'superadmin'].includes(role)) {
+      targetUser.role = role;
+    }
+
     if (grade) {
-      if (!['Owner', 'Admin', 'Manager', 'Staff'].includes(grade)) {
+      if (!['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor'].includes(grade)) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid grade' });
       }
       targetFirmAssignment.grade = grade as any;
+
+      // Auto-provision COA imprest account if transitioning to Supervisor
+      if (grade === 'Supervisor' && !targetFirmAssignment.linkedLedgerHead) {
+        const firmIdObj = new mongoose.Types.ObjectId(firmId);
+        const sanitizedName = (targetUser.name || 'Supervisor').trim().replace(/\s+/g, ' ');
+        let targetAccountHead = `Advance - ${sanitizedName} (Site)`;
+
+        let existingAccount = await ChartOfAccounts.findOne({
+          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+          account_name: targetAccountHead
+        });
+
+        if (existingAccount) {
+          const suffix = (targetUser.email || '').split('@')[0]?.slice(-4) || String(targetUser._id).slice(-4);
+          targetAccountHead = `Advance - ${sanitizedName} [${suffix}] (Site)`;
+        }
+
+        const coaAccount = await ChartOfAccounts.findOneAndUpdate(
+          {
+            $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+            account_name: targetAccountHead
+          },
+          {
+            $setOnInsert: {
+              firm_id: firmIdObj,
+              firmId: firmIdObj,
+              account_name: targetAccountHead,
+              account_type: 'LOANS_ADVANCES',
+              bs_classification: 'BALANCE_SHEET',
+              description: `Automated Imprest Float Account for Site Supervisor: ${sanitizedName}`,
+              is_system: false,
+              is_active: true,
+              created_by: currentUserId
+            }
+          },
+          { upsert: true, new: true }
+        );
+
+        targetFirmAssignment.linkedLedgerHead = targetAccountHead;
+      }
+    }
+
+    if (Array.isArray(assignedProjectIds)) {
+      targetFirmAssignment.assignedProjectIds = assignedProjectIds;
     }
 
     await targetUser.save();
@@ -84,12 +143,14 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       statusCode: 200,
-      message: 'Member grade updated successfully',
+      message: 'Member updated successfully',
       member: {
         userId: targetUser._id,
         email: targetUser.email,
         name: targetUser.name,
         grade: targetFirmAssignment.grade,
+        linkedLedgerHead: targetFirmAssignment.linkedLedgerHead,
+        assignedProjectIds: targetFirmAssignment.assignedProjectIds,
         status: targetUser.status,
         role: targetUser.role
       }

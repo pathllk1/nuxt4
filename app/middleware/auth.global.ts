@@ -15,8 +15,23 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return navigateTo('/login');
   }
 
-  // If user IS authenticated and trying to access /login or /signup, redirect to /dashboard
-  if (isAuthenticated.value && (to.path === '/login' || to.path === '/signup')) {
-    return navigateTo('/dashboard');
+  // Route protection for Supervisors vs Back-Office roles
+  if (isAuthenticated.value) {
+    const { isSupervisor } = useAuth();
+
+    if (isSupervisor.value) {
+      // Allowed routes for site supervisors
+      const isAllowedSupervisorRoute = to.path.startsWith('/field') || 
+        ['/weather', '/ai-chat', '/about', '/contact', '/privacy', '/terms'].includes(to.path);
+
+      if (to.path === '/login' || to.path === '/signup' || to.path === '/dashboard' || !isAllowedSupervisorRoute) {
+        return navigateTo('/field/wallet');
+      }
+    } else {
+      // Standard Back-Office users
+      if (to.path === '/login' || to.path === '/signup') {
+        return navigateTo('/dashboard');
+      }
+    }
   }
 });

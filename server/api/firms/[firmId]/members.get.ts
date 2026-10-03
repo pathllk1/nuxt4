@@ -44,6 +44,8 @@ export default defineEventHandler(async (event) => {
         name: user.name,
         email: user.email,
         grade: firmAssignment?.grade || 'Staff',
+        linkedLedgerHead: firmAssignment?.linkedLedgerHead || null,
+        assignedProjectIds: firmAssignment?.assignedProjectIds || [],
         status: user.status || 'active',
         role: user.role
       };

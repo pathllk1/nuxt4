@@ -4,7 +4,9 @@ import { hashPassword, verifyPassword } from '../utils/crypto-hash';
 
 export interface IUserFirm {
   firm: mongoose.Types.ObjectId;
-  grade: 'Owner' | 'Admin' | 'Manager' | 'Staff';
+  grade: 'Owner' | 'Admin' | 'Manager' | 'Staff' | 'Supervisor';
+  linkedLedgerHead?: string;
+  assignedProjectIds?: string[];
 }
 
 export interface ISecuritySettings {
@@ -57,9 +59,11 @@ const UserSchema: Schema = new Schema({
       firm: { type: Schema.Types.ObjectId, ref: Firm, required: true },
       grade: {
         type: String,
-        enum: ['Owner', 'Admin', 'Manager', 'Staff'],
+        enum: ['Owner', 'Admin', 'Manager', 'Staff', 'Supervisor'],
         default: 'Staff'
-      }
+      },
+      linkedLedgerHead: { type: String, default: null },
+      assignedProjectIds: [{ type: String }]
     }
   ],
   securitySettings: {

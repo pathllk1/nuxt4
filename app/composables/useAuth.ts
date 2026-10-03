@@ -10,6 +10,8 @@ export interface User {
   firms?: Array<{
     firm: any;
     grade: string;
+    linkedLedgerHead?: string;
+    assignedProjectIds?: string[];
   }>;
 }
 
@@ -145,6 +147,18 @@ export const useAuth = () => {
   };
 
   const isAuthenticated = computed(() => !!user.value);
+
+  const currentFirmAssignment = computed(() => {
+    if (!user.value?.firms || !selectedFirmId.value) return null;
+    return user.value.firms.find((f: any) => {
+      const fId = extractFirmId(f.firm);
+      return fId === selectedFirmId.value;
+    }) || user.value.firms[0] || null;
+  });
+
+  const currentGrade = computed(() => currentFirmAssignment.value?.grade || 'Staff');
+  const isSupervisor = computed(() => currentGrade.value === 'Supervisor');
+  const isChecker = computed(() => ['Owner', 'Admin', 'Manager'].includes(currentGrade.value) || user.value?.role === 'superadmin');
 
   const selectFirm = (firmId: string) => {
     selectedFirmId.value = firmId;
@@ -350,6 +364,10 @@ export const useAuth = () => {
     logout,
     selectFirm,
     apiFetch,
-    rotateToken
+    rotateToken,
+    currentFirmAssignment,
+    currentGrade,
+    isSupervisor,
+    isChecker
   };
 };

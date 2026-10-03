@@ -17,6 +17,7 @@ import './Party';
 import './PeriodLock';
 import './SecurityLog';
 import './Session';
+import './SiteExpenseClaim';
 import './Stock';
 import './StockReg';
 import './TokenBlacklist';

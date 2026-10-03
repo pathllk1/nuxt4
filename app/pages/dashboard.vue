@@ -71,7 +71,11 @@ const memberForm = reactive({
   password: '',
   grade: 'Staff',
   status: 'active',
-  role: 'standard'
+  role: 'standard',
+  phone: '',
+  assignedProjectIds: '',
+  coaLinkMode: 'AUTO_CREATE',
+  existingLedgerHead: ''
 })
 
 const getFirmId = (firmObj: any) => {
@@ -94,7 +98,8 @@ const gradeOptions = computed(() => {
   const options = [
     { label: 'Admin', value: 'Admin' },
     { label: 'Manager', value: 'Manager' },
-    { label: 'Staff', value: 'Staff' }
+    { label: 'Staff', value: 'Staff' },
+    { label: 'Supervisor / Site Engineer', value: 'Supervisor' }
   ]
   if (activeFirmGrade.value === 'Owner') {
     options.unshift({ label: 'Owner', value: 'Owner' })
@@ -212,6 +217,10 @@ const openMemberModal = (member: any = null) => {
     memberForm.grade = member.grade
     memberForm.status = member.status || 'active'
     memberForm.role = member.role || 'standard'
+    memberForm.phone = member.phone || ''
+    memberForm.assignedProjectIds = Array.isArray(member.assignedProjectIds) ? member.assignedProjectIds.join(', ') : ''
+    memberForm.coaLinkMode = 'AUTO_CREATE'
+    memberForm.existingLedgerHead = member.linkedLedgerHead || ''
   } else {
     memberForm.name = ''
     memberForm.email = ''
@@ -219,6 +228,10 @@ const openMemberModal = (member: any = null) => {
     memberForm.grade = 'Staff'
     memberForm.status = 'active'
     memberForm.role = 'standard'
+    memberForm.phone = ''
+    memberForm.assignedProjectIds = ''
+    memberForm.coaLinkMode = 'AUTO_CREATE'
+    memberForm.existingLedgerHead = ''
   }
   isMemberModalOpen.value = true
 }
@@ -227,23 +240,41 @@ const onMemberSubmit = async () => {
   savingMember.value = true
   try {
     if (selectedMember.value) {
-      const payload = {
+      const payload: any = {
         name: memberForm.name,
         email: memberForm.email,
         grade: memberForm.grade,
         status: memberForm.status,
         role: memberForm.role
       }
+      if (memberForm.grade === 'Supervisor') {
+        payload.assignedProjectIds = memberForm.assignedProjectIds
+          ? memberForm.assignedProjectIds.split(',').map((s: string) => s.trim()).filter(Boolean)
+          : []
+      }
       const res = await api.put(`/firms/${selectedFirmId.value}/members/${selectedMember.value.userId}`, payload)
       toast.add({ title: 'Success', description: res.message || 'Member updated successfully', color: 'success' })
     } else {
-      const payload = {
+      const payload: any = {
         email: memberForm.email,
         grade: memberForm.grade,
         name: memberForm.name,
         password: memberForm.password || undefined,
         status: memberForm.status,
         role: memberForm.role
+      }
+      if (memberForm.grade === 'Supervisor') {
+        payload.phone = memberForm.phone?.trim() || undefined
+        payload.coaLinkMode = memberForm.coaLinkMode
+        if (memberForm.coaLinkMode === 'LINK_EXISTING' && memberForm.existingLedgerHead) {
+          payload.existingLedgerHead = memberForm.existingLedgerHead.trim()
+        }
+        if (memberForm.assignedProjectIds) {
+          payload.assignedProjectIds = memberForm.assignedProjectIds
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        }
       }
       const res = await api.post(`/firms/${selectedFirmId.value}/members`, payload)
       toast.add({ title: 'Success', description: res.message || 'Member added successfully', color: 'success' })
@@ -399,7 +430,18 @@ const deleteMember = async (userId: string) => {
       <div class="border border-slate-200/60 rounded-lg overflow-hidden">
         <UTable :data="members" :columns="memberColumns" :loading="membersLoading">
           <template #grade-cell="{ row }">
-            <UBadge variant="subtle" color="primary" class="text-[9px] uppercase font-bold py-0.5 px-1.5">{{ row.original.grade }}</UBadge>
+            <div>
+              <UBadge
+                variant="subtle"
+                :color="row.original.grade === 'Supervisor' ? 'warning' : row.original.grade === 'Owner' ? 'error' : row.original.grade === 'Admin' ? 'primary' : 'neutral'"
+                class="text-[9px] uppercase font-bold py-0.5 px-1.5"
+              >
+                {{ row.original.grade }}
+              </UBadge>
+              <div v-if="row.original.linkedLedgerHead" class="text-[9px] text-slate-500 font-mono mt-0.5 truncate max-w-[150px]" :title="row.original.linkedLedgerHead">
+                {{ row.original.linkedLedgerHead }}
+              </div>
+            </div>
           </template>
           <template #role-cell="{ row }">
             <UBadge :color="row.original.role === 'superadmin' ? 'primary' : 'neutral'" variant="subtle" size="sm" class="uppercase font-black text-[9px] py-0.5 px-1.5">
@@ -442,6 +484,32 @@ const deleteMember = async (userId: string) => {
           <UFormField label="Firm Grade" class="w-full">
             <USelect v-model="memberForm.grade" :items="gradeOptions" class="w-full bg-white border-slate-200" />
           </UFormField>
+
+          <!-- Supervisor Site Imprest Settings -->
+          <div v-if="memberForm.grade === 'Supervisor'" class="p-3.5 bg-amber-50/80 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800 space-y-3">
+            <div class="flex items-start gap-2">
+              <span class="text-base shrink-0">👛</span>
+              <div>
+                <p class="text-xs font-bold text-amber-900 dark:text-amber-200">Site Imprest Float Account</p>
+                <p class="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5 leading-snug">
+                  A dedicated petty cash ledger head <code class="font-mono font-bold bg-amber-100 dark:bg-amber-900/60 px-1 rounded">Advance - {{ memberForm.name || 'Supervisor' }} (Site)</code> will be automatically provisioned in Chart of Accounts under <strong>Loans & Advances</strong>.
+                </p>
+              </div>
+            </div>
+
+            <UFormField v-if="!selectedMember" label="Mobile Number (Optional)" class="w-full">
+              <UInput v-model="memberForm.phone" placeholder="e.g. 9876543210" class="w-full bg-white border-slate-200" />
+            </UFormField>
+
+            <UFormField label="Assigned Projects / Sites (Optional, comma-separated)" class="w-full">
+              <UInput v-model="memberForm.assignedProjectIds" placeholder="e.g. Site-A, Tower-1, Bridge-Project" class="w-full bg-white border-slate-200" />
+            </UFormField>
+
+            <div v-if="selectedMember && selectedMember.linkedLedgerHead" class="text-xs text-slate-600 dark:text-slate-300 pt-1">
+              <span>Linked Imprest Head: </span>
+              <span class="font-mono font-bold text-slate-800 dark:text-slate-100">{{ selectedMember.linkedLedgerHead }}</span>
+            </div>
+          </div>
           <UFormField v-if="user?.role === 'superadmin'" label="System Role" class="w-full">
             <USelect v-model="memberForm.role" :items="roleOptions" class="w-full bg-white border-slate-200" />
           </UFormField>
