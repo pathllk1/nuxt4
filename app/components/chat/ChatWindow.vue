@@ -211,6 +211,14 @@ const formatLastSeen = (lastSeenAt?: number) => {
             >
               {{ activeContact.isOwnFirm ? 'Own Firm' : activeContact.primaryFirmName }}
             </UBadge>
+            <UBadge 
+              v-if="activeContact.primaryGrade"
+              color="info" 
+              variant="subtle" 
+              size="xs"
+            >
+              {{ activeContact.primaryGrade }}
+            </UBadge>
           </div>
           <p class="text-[11px] text-gray-400 dark:text-gray-500 truncate">
             {{ activeContact.email }}

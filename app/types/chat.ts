@@ -60,6 +60,7 @@ export interface ChatContact {
   firms?: ContactFirmInfo[];
   isOwnFirm?: boolean;
   primaryFirmName?: string;
+  primaryGrade?: string;
   lastMessage?: string;
   lastMessageTimestamp?: number;
   unreadCount?: number;

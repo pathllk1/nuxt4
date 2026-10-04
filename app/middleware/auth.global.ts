@@ -20,16 +20,18 @@ export default defineNuxtRouteMiddleware(async (to) => {
     const { isSupervisor, isSubcontractor } = useAuth();
 
     if (isSubcontractor.value) {
-      // Allowed routes for subcontractors (mobile-first sandboxed wallet)
+      // Allowed routes for subcontractors (mobile-first sandboxed wallet + 1-on-1 chat)
       const isAllowedSubconRoute = to.path.startsWith('/subcontractor') || 
+        to.path.startsWith('/chat') ||
         ['/weather', '/about', '/contact', '/privacy', '/terms'].includes(to.path);
 
       if (to.path === '/login' || to.path === '/signup' || to.path === '/dashboard' || !isAllowedSubconRoute) {
         return navigateTo('/subcontractor/wallet');
       }
     } else if (isSupervisor.value) {
-      // Allowed routes for site supervisors
+      // Allowed routes for site supervisors (field wallet + 1-on-1 chat)
       const isAllowedSupervisorRoute = to.path.startsWith('/field') || 
+        to.path.startsWith('/chat') ||
         ['/weather', '/ai-chat', '/about', '/contact', '/privacy', '/terms'].includes(to.path);
 
       if (to.path === '/login' || to.path === '/signup' || to.path === '/dashboard' || !isAllowedSupervisorRoute) {

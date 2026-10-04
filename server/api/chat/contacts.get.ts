@@ -24,10 +24,28 @@ export default defineEventHandler(async (event) => {
     );
 
     // 2. Fetch all other users with populated firm data
-    const allUsers: any[] = await User.find({ _id: { $ne: currentUserId } })
+    let allUsers: any[] = await User.find({ _id: { $ne: currentUserId } })
       .select('name email role status firms createdAt')
       .populate({ path: 'firms.firm', model: Firm, select: 'name code' })
       .lean();
+
+    // Privacy boundary for Subcontractor role:
+    // Subcontractors can only contact staff, supervisors, and admins of their assigned firm(s).
+    // They are prohibited from seeing or messaging competitor subcontractors or external firms.
+    const isCurrentSubcontractor = (currentUserDoc?.firms || []).some((f: any) => f.grade === 'Subcontractor') && currentUserDoc?.role !== 'superadmin';
+    if (isCurrentSubcontractor) {
+      allUsers = allUsers.filter((u: any) => {
+        const uFirmIds = (u.firms || []).map((f: any) => 
+          (typeof f.firm === 'object' && f.firm?._id ? f.firm._id.toString() : f.firm?.toString())
+        ).filter(Boolean);
+        const sharesFirm = uFirmIds.some((fid: string) => currentUserFirmIds.has(fid));
+        if (!sharesFirm) return false;
+
+        // Exclude other subcontractors
+        const isOtherSub = (u.firms || []).some((f: any) => f.grade === 'Subcontractor');
+        return !isOtherSub;
+      });
+    }
 
     // 3. Fetch unread counts and last seen activity from Upstash Redis
     const redis = useRedis();
@@ -62,6 +80,7 @@ export default defineEventHandler(async (event) => {
       // Check if contact shares at least one firm with the logged-in user
       const isOwnFirm = formattedFirms.some((f: any) => currentUserFirmIds.has(f.firmId));
       const primaryFirmName = formattedFirms[0]?.firmName || 'Independent';
+      const primaryGrade = formattedFirms[0]?.grade || (u.role === 'superadmin' ? 'Super Admin' : 'Staff');
 
       // Look up unread count for the deterministic chatId
       const chatId = [currentUserId, uId].sort().join(':');
@@ -79,6 +98,7 @@ export default defineEventHandler(async (event) => {
         firms: formattedFirms,
         isOwnFirm,
         primaryFirmName,
+        primaryGrade,
         unreadCount,
         lastSeenAt
       };

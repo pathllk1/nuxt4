@@ -338,6 +338,12 @@ const subcontractorGroups: NavGroup[] = [
       { label: 'Log Site Slip', to: '/subcontractor/expense', icon: '📝', restricted: true },
       { label: 'My Expense Book', to: '/subcontractor/expenses', icon: '📋', restricted: true }
     ]
+  },
+  {
+    title: 'Communication',
+    items: [
+      { label: '1-on-1 Chat', to: '/chat', icon: '💬', restricted: true }
+    ]
   }
 ];
 
@@ -352,8 +358,9 @@ const supervisorGroups: NavGroup[] = [
     ]
   },
   {
-    title: 'Site Tools',
+    title: 'Communication & Tools',
     items: [
+      { label: '1-on-1 Chat', to: '/chat', icon: '💬', restricted: true },
       { label: 'AI Site Assistant', to: '/ai-chat', icon: '✨', restricted: true }
     ]
   }
@@ -415,6 +422,7 @@ const enterpriseGroups: NavGroup[] = [
   {
     title: 'Tools & Utilities',
     items: [
+      { label: '1-on-1 Chat', to: '/chat', icon: '💬', restricted: true },
       { label: 'AI Assistant', to: '/ai-chat', icon: '✨', restricted: true },
       { label: 'Global Tools', action: 'openTools', icon: '🛠️', restricted: false }
     ]

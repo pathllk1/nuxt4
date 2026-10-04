@@ -51,6 +51,15 @@
           </NuxtLink>
 
           <NuxtLink
+            to="/chat"
+            class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 no-underline"
+            :class="route.path.startsWith('/chat') ? 'bg-white text-indigo-900 shadow-sm' : 'text-white/85 hover:text-white hover:bg-white/15'"
+          >
+            <span>💬</span>
+            <span>Direct Chat</span>
+          </NuxtLink>
+
+          <NuxtLink
             to="/subcontractor/expense"
             class="px-4 py-2 rounded-xl text-xs font-extrabold transition flex items-center gap-2 no-underline bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-sm"
           >
@@ -81,35 +90,45 @@
     </main>
 
     <!-- Dedicated Bottom Mobile Navigation Bar (Mobile Only: hidden on md:) -->
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-t border-slate-200/80 dark:border-slate-800/80 z-40 px-6 py-2 shadow-2xl">
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-t border-slate-200/80 dark:border-slate-800/80 z-40 px-4 py-2 shadow-2xl">
       <div class="flex items-center justify-around relative max-w-md mx-auto">
         <!-- Wallet Tab -->
         <NuxtLink
           to="/subcontractor/wallet"
-          class="flex flex-col items-center py-1 px-3 rounded-xl transition text-[10px] font-bold no-underline"
+          class="flex flex-col items-center py-1 px-2.5 rounded-xl transition text-[10px] font-bold no-underline"
           :class="route.path === '/subcontractor/wallet' ? 'text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
         >
           <span class="text-xl">👛</span>
           <span>Wallet</span>
         </NuxtLink>
 
+        <!-- Site Slips Tab -->
+        <NuxtLink
+          to="/subcontractor/expenses"
+          class="flex flex-col items-center py-1 px-2.5 rounded-xl transition text-[10px] font-bold no-underline"
+          :class="route.path === '/subcontractor/expenses' ? 'text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
+        >
+          <span class="text-xl">📋</span>
+          <span>Slips</span>
+        </NuxtLink>
+
         <!-- Floating Center Action: Add Slip -->
         <NuxtLink
           to="/subcontractor/expense"
-          class="flex flex-col items-center -mt-6 bg-gradient-to-tr from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black p-3.5 rounded-full shadow-lg shadow-amber-500/40 border-4 border-slate-50 dark:border-slate-900 active:scale-95 transition no-underline"
+          class="flex flex-col items-center -mt-5 bg-gradient-to-tr from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black p-3 rounded-full shadow-lg shadow-amber-500/40 border-4 border-slate-50 dark:border-slate-900 active:scale-95 transition no-underline"
           title="Log Site Expense Slip"
         >
           <span class="text-xl leading-none">➕</span>
         </NuxtLink>
 
-        <!-- Site Slips Tab -->
+        <!-- 1-on-1 Chat Tab -->
         <NuxtLink
-          to="/subcontractor/expenses"
-          class="flex flex-col items-center py-1 px-3 rounded-xl transition text-[10px] font-bold no-underline"
-          :class="route.path === '/subcontractor/expenses' ? 'text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
+          to="/chat"
+          class="flex flex-col items-center py-1 px-2.5 rounded-xl transition text-[10px] font-bold no-underline"
+          :class="route.path.startsWith('/chat') ? 'text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
         >
-          <span class="text-xl">📋</span>
-          <span>Site Slips</span>
+          <span class="text-xl">💬</span>
+          <span>Chat</span>
         </NuxtLink>
       </div>
     </nav>

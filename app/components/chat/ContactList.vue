@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useAuth } from '../../composables/useAuth';
 import type { ChatContact } from '../../types/chat';
 
 const props = defineProps<{
@@ -11,6 +12,20 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', contact: ChatContact): void;
 }>();
+
+const { isSubcontractor, isSupervisor } = useAuth();
+
+const portalBackRoute = computed(() => {
+  if (isSubcontractor.value) return '/subcontractor/wallet';
+  if (isSupervisor.value) return '/field/wallet';
+  return '/dashboard';
+});
+
+const portalBackLabel = computed(() => {
+  if (isSubcontractor.value) return 'Site Wallet';
+  if (isSupervisor.value) return 'Field Wallet';
+  return 'Dashboard';
+});
 
 const searchQuery = ref('');
 const activeTab = ref<'all' | 'internal' | 'external'>('all');
@@ -31,6 +46,7 @@ const filteredContacts = computed(() => {
   return list.filter(c => 
     c.name.toLowerCase().includes(query) ||
     c.email.toLowerCase().includes(query) ||
+    (c.primaryGrade && c.primaryGrade.toLowerCase().includes(query)) ||
     (c.primaryFirmName && c.primaryFirmName.toLowerCase().includes(query)) ||
     (c.lastMessage && c.lastMessage.toLowerCase().includes(query))
   );
@@ -48,6 +64,24 @@ const otherFirmContacts = computed(() => {
 const totalUnreadCount = computed(() => {
   return props.contacts.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
 });
+
+// Helper for role/grade badge
+const getGradeBadgeProps = (grade?: string) => {
+  switch (grade) {
+    case 'Supervisor':
+      return { label: 'Supervisor / Engr', color: 'success' as const, variant: 'subtle' as const };
+    case 'Subcontractor':
+      return { label: 'Subcontractor', color: 'warning' as const, variant: 'subtle' as const };
+    case 'Owner':
+    case 'Admin':
+    case 'Super Admin':
+      return { label: grade, color: 'primary' as const, variant: 'subtle' as const };
+    case 'Manager':
+      return { label: 'Manager', color: 'info' as const, variant: 'subtle' as const };
+    default:
+      return { label: grade || 'Staff', color: 'neutral' as const, variant: 'subtle' as const };
+  }
+};
 
 // Check if user performed any action within the last 5 minutes
 const isRecentlyActive = (lastSeenAt?: number) => {
@@ -73,22 +107,37 @@ const formatLastSeen = (lastSeenAt?: number) => {
 <template>
   <div class="flex flex-col h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 overflow-hidden">
     <!-- Header Section -->
-    <div class="p-4 border-b border-gray-200 dark:border-gray-800 space-y-3 shrink-0">
+    <div class="p-3.5 border-b border-gray-200 dark:border-gray-800 space-y-2.5 shrink-0">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
+          <NuxtLink 
+            :to="portalBackRoute"
+            class="p-1 -ml-1 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition no-underline flex items-center"
+            :title="`Return to ${portalBackLabel}`"
+          >
+            <UIcon name="i-lucide-arrow-left" class="w-4 h-4" />
+          </NuxtLink>
           <UIcon name="i-lucide-messages-square" class="w-5 h-5 text-teal-600 dark:text-teal-400" />
-          <h2 class="text-base font-bold text-gray-900 dark:text-white">Direct Messages</h2>
+          <h2 class="text-sm font-bold text-gray-900 dark:text-white">Direct Messages</h2>
         </div>
-        <UBadge v-if="totalUnreadCount > 0" color="error" variant="solid" size="xs" class="animate-pulse">
-          {{ totalUnreadCount }} new
-        </UBadge>
+        <div class="flex items-center gap-1.5">
+          <UBadge v-if="totalUnreadCount > 0" color="error" variant="solid" size="xs" class="animate-pulse">
+            {{ totalUnreadCount }} new
+          </UBadge>
+          <NuxtLink 
+            :to="portalBackRoute" 
+            class="text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 no-underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md border border-teal-500/20"
+          >
+            <span>{{ portalBackLabel }}</span>
+          </NuxtLink>
+        </div>
       </div>
 
       <!-- Search Input -->
       <UInput 
         v-model="searchQuery" 
         icon="i-lucide-search" 
-        placeholder="Search colleagues or firms..." 
+        placeholder="Search colleagues, roles, firms..." 
         variant="subtle" 
         size="sm"
         class="w-full"
@@ -155,7 +204,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
         <!-- Internal Firm Section -->
         <div v-if="ownFirmContacts.length > 0 && activeTab !== 'external'" class="mb-3">
           <div class="px-2 py-1.5 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center justify-between">
-            <span>Internal Firm Colleagues</span>
+            <span>Internal Firm Team</span>
             <span class="text-[9px]">{{ ownFirmContacts.length }}</span>
           </div>
 
@@ -179,9 +228,13 @@ const formatLastSeen = (lastSeenAt?: number) => {
               </div>
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold truncate">{{ contact.name }}</p>
-                <div class="flex items-center gap-1.5 mt-0.5">
-                  <UBadge color="neutral" variant="subtle" size="xs">
-                    Own Firm
+                <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <UBadge 
+                    :color="getGradeBadgeProps(contact.primaryGrade).color" 
+                    :variant="getGradeBadgeProps(contact.primaryGrade).variant" 
+                    size="xs"
+                  >
+                    {{ getGradeBadgeProps(contact.primaryGrade).label }}
                   </UBadge>
                   <span v-if="formatLastSeen(contact.lastSeenAt)" class="text-[10px] text-gray-400 truncate">
                     {{ formatLastSeen(contact.lastSeenAt) }}
@@ -195,7 +248,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
               v-if="contact.unreadCount && contact.unreadCount > 0" 
               color="error" 
               variant="solid" 
-              size="xs"
+              size="xs" 
               class="ml-2 font-bold"
             >
               {{ contact.unreadCount }}
@@ -230,9 +283,17 @@ const formatLastSeen = (lastSeenAt?: number) => {
               </div>
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold truncate">{{ contact.name }}</p>
-                <div class="flex items-center gap-1.5 mt-0.5">
-                  <UBadge color="warning" variant="subtle" size="xs" class="truncate max-w-[140px]">
+                <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <UBadge color="warning" variant="subtle" size="xs" class="truncate max-w-[120px]">
                     {{ contact.primaryFirmName }}
+                  </UBadge>
+                  <UBadge 
+                    v-if="contact.primaryGrade"
+                    :color="getGradeBadgeProps(contact.primaryGrade).color" 
+                    :variant="getGradeBadgeProps(contact.primaryGrade).variant" 
+                    size="xs"
+                  >
+                    {{ getGradeBadgeProps(contact.primaryGrade).label }}
                   </UBadge>
                   <span v-if="formatLastSeen(contact.lastSeenAt)" class="text-[10px] text-gray-400 truncate">
                     {{ formatLastSeen(contact.lastSeenAt) }}
@@ -246,7 +307,7 @@ const formatLastSeen = (lastSeenAt?: number) => {
               v-if="contact.unreadCount && contact.unreadCount > 0" 
               color="error" 
               variant="solid" 
-              size="xs"
+              size="xs" 
               class="ml-2 font-bold"
             >
               {{ contact.unreadCount }}
