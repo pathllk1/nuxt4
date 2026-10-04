@@ -130,9 +130,10 @@ export function convertVoucherInputToLegs(params: {
           // Negative amount (Deduction/TDS/Discount) -> CREDIT
           const positiveDeduction = Math.abs(amt);
           totalDeductions += positiveDeduction;
+          const isTds = (entry.accountHead || '').toLowerCase().includes('tds');
           legs.push({
             accountHead: entry.accountHead,
-            accountType: entry.accountType || 'LIABILITY',
+            accountType: entry.accountType || (isTds ? 'DUTIES_AND_TAXES' : 'LIABILITY'),
             debitAmount: 0,
             creditAmount: positiveDeduction,
             partyId: entry.partyId || null,

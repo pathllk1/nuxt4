@@ -46,6 +46,7 @@ if (!MONGODB_URI) {
 
 const PNL_TYPES = new Set([
   'INCOME', 'EXPENSE', 'INDIRECT_INCOME', 'INDIRECT_EXPENSE',
+  'DIRECT_EXPENSE', 'DIRECT_INCOME', 'COGS', 'CASUAL_LABOR', 'GENERAL',
 ]);
 
 function classifyAccountType(accountType) {
@@ -170,18 +171,17 @@ async function migrateChartOfAccountsClassification(db) {
     return { status: 'SKIPPED' };
   }
 
-  // Find all records where bs_classification is null or missing
-  const unclassified = await collection.find({
-    $or: [
-      { bs_classification: { $exists: false } },
-      { bs_classification: null },
-    ]
-  }).toArray();
+  // Find all records where bs_classification is null, missing, or mismatched
+  const allAccounts = await collection.find({}).toArray();
+  const unclassified = allAccounts.filter(doc => {
+    const expected = classifyAccountType(doc.account_type);
+    return !doc.bs_classification || doc.bs_classification !== expected;
+  });
 
-  log(`Records needing bs_classification: ${unclassified.length}`);
+  log(`Records needing bs_classification update: ${unclassified.length}`);
 
   if (unclassified.length === 0) {
-    log('✅ All records already have bs_classification');
+    log('✅ All records already have correct bs_classification');
     return { status: 'OK', updated: 0 };
   }
 
@@ -515,6 +515,130 @@ async function migrateBackfillPartyTags(db) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// STEP 8: Duties & Taxes — Standardize account types to canonical DUTIES_AND_TAXES
+// ═══════════════════════════════════════════════════════════════════════
+
+async function migrateDutiesAndTaxesTypes(db) {
+  stepHeader('Duties & Taxes — Standardize account types to canonical DUTIES_AND_TAXES');
+
+  const coaCol = db.collection('chartofaccounts');
+  const ledgerCol = db.collection('ledgers');
+
+  // Fix in Chart of Accounts
+  const coaNeedsFix = await coaCol.countDocuments({
+    $or: [
+      { account_type: 'DUTIES_TAXES' },
+      { account_name: 'TDS Payable u/s 194C', account_type: { $ne: 'DUTIES_AND_TAXES' } }
+    ]
+  });
+
+  log(`COA records needing account_type standardization: ${coaNeedsFix}`);
+
+  let coaFixed = 0;
+  if (coaNeedsFix > 0 && !DRY_RUN) {
+    const res = await coaCol.updateMany(
+      {
+        $or: [
+          { account_type: 'DUTIES_TAXES' },
+          { account_name: 'TDS Payable u/s 194C', account_type: { $ne: 'DUTIES_AND_TAXES' } }
+        ]
+      },
+      {
+        $set: {
+          account_type: 'DUTIES_AND_TAXES',
+          bs_classification: 'BALANCE_SHEET',
+          is_system: true
+        }
+      }
+    );
+    coaFixed = res.modifiedCount;
+    log(`✅ Standardized ${coaFixed} COA records to account_type='DUTIES_AND_TAXES'`);
+  } else if (coaNeedsFix > 0) {
+    log(`🔍 DRY RUN: Would standardize ${coaNeedsFix} COA records`);
+  }
+
+  // Fix in Ledgers
+  const ledgerNeedsFix = await ledgerCol.countDocuments({
+    $or: [
+      { accountType: 'DUTIES_TAXES' },
+      { accountHead: 'TDS Payable u/s 194C', accountType: { $ne: 'DUTIES_AND_TAXES' } }
+    ]
+  });
+
+  log(`Ledger records needing accountType standardization: ${ledgerNeedsFix}`);
+
+  let ledgerFixed = 0;
+  if (ledgerNeedsFix > 0 && !DRY_RUN) {
+    const res = await ledgerCol.updateMany(
+      {
+        $or: [
+          { accountType: 'DUTIES_TAXES' },
+          { accountHead: 'TDS Payable u/s 194C', accountType: { $ne: 'DUTIES_AND_TAXES' } }
+        ]
+      },
+      { $set: { accountType: 'DUTIES_AND_TAXES' } }
+    );
+    ledgerFixed = res.modifiedCount;
+    log(`✅ Standardized ${ledgerFixed} Ledger records to accountType='DUTIES_AND_TAXES'`);
+  } else if (ledgerNeedsFix > 0) {
+    log(`🔍 DRY RUN: Would standardize ${ledgerNeedsFix} Ledger records`);
+  }
+
+  return {
+    status: 'OK',
+    coaFixed: DRY_RUN ? coaNeedsFix : coaFixed,
+    ledgerFixed: DRY_RUN ? ledgerNeedsFix : ledgerFixed
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// STEP 9: Party & ChartOfAccounts Synchronization
+// ═══════════════════════════════════════════════════════════════════════
+
+async function migratePartyCoaSync(db) {
+  stepHeader('Party & ChartOfAccounts — Synchronize entity classifications');
+
+  const partyCol = db.collection('parties');
+  const coaCol = db.collection('chartofaccounts');
+
+  let fixedCount = 0;
+
+  // 1. Check Subham Poles: partyType should be SUPPLIER because all ledgers & bills are SUNDRY_CREDITORS
+  const subhamParty = await partyCol.findOne({ name: /SUBHAM POLES PROJECTS/i });
+  if (subhamParty && subhamParty.partyType !== 'SUPPLIER') {
+    log(`Subham Poles party has partyType='${subhamParty.partyType}' while COA is SUNDRY_CREDITORS. Correcting to 'SUPPLIER'.`);
+    if (!DRY_RUN) {
+      await partyCol.updateOne({ _id: subhamParty._id }, { $set: { partyType: 'SUPPLIER' } });
+      fixedCount++;
+      log(`✅ Updated Subham Poles partyType to 'SUPPLIER'`);
+    } else {
+      log(`🔍 DRY RUN: Would update Subham Poles partyType to 'SUPPLIER'`);
+    }
+  }
+
+  // 2. Check Test Supplier Ltd: Party is SUPPLIER, COA must be SUNDRY_CREDITORS
+  const testSupplierParty = await partyCol.findOne({ name: /Test Supplier Ltd/i });
+  if (testSupplierParty) {
+    const coa = await coaCol.findOne({ account_name: /Test Supplier Ltd/i });
+    if (coa && coa.account_type !== 'SUNDRY_CREDITORS') {
+      log(`Test Supplier Ltd COA has account_type='${coa.account_type}' while Party is SUPPLIER. Correcting to 'SUNDRY_CREDITORS'.`);
+      if (!DRY_RUN) {
+        await coaCol.updateOne({ _id: coa._id }, { $set: { account_type: 'SUNDRY_CREDITORS', bs_classification: 'BALANCE_SHEET' } });
+        fixedCount++;
+        log(`✅ Updated Test Supplier Ltd COA account_type to 'SUNDRY_CREDITORS'`);
+      } else {
+        log(`🔍 DRY RUN: Would update Test Supplier Ltd COA to 'SUNDRY_CREDITORS'`);
+      }
+    }
+  }
+
+  return {
+    status: 'OK',
+    fixedCount: DRY_RUN ? 0 : fixedCount
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // MAIN EXECUTION
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -547,6 +671,8 @@ async function main() {
     results.periodLock = await migratePeriodLock(db);
     results.ledgerVoucherType = await migrateLedgerVoucherType(db);
     results.backfillPartyTags = await migrateBackfillPartyTags(db);
+    results.dutiesAndTaxesTypes = await migrateDutiesAndTaxesTypes(db);
+    results.partyCoaSync = await migratePartyCoaSync(db);
 
     // Summary
     console.log(`\n${'═'.repeat(70)}`);

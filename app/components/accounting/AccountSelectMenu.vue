@@ -409,6 +409,7 @@ function getTypeBadgeClass(type: string) {
   if (t.includes('CREDITOR') || t.includes('SUPPLIER')) return 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300';
   if (t.includes('DEBTOR') || t.includes('CUSTOMER')) return 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300';
   if (t.includes('EXPENSE')) return 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300';
+  if (t.includes('DUTIES') || t.includes('TAX')) return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300';
   return 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300';
 }
 

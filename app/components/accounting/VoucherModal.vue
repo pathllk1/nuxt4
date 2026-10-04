@@ -886,7 +886,9 @@ const isSaveDisabled = computed(() => {
 
 const getAccountType = (name: string) => {
   const match = chartOfAccounts.value.find(acc => acc.account_name === name);
-  return match ? match.account_type : 'ASSET';
+  if (match) return match.account_type;
+  if ((name || '').toLowerCase().includes('tds payable')) return 'DUTIES_AND_TAXES';
+  return 'ASSET';
 };
 
 function addLine() {

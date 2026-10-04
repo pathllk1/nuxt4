@@ -116,6 +116,7 @@ export class LedgerService {
       { account_name: 'SGST Payable', account_type: 'LIABILITY', is_system: true },
       { account_name: 'IGST Payable', account_type: 'LIABILITY', is_system: true },
       { account_name: 'Cess Payable', account_type: 'LIABILITY', is_system: true },
+      { account_name: 'TDS Payable u/s 194C', account_type: 'DUTIES_AND_TAXES', is_system: true },
     ];
 
     const createdBy = typeof userId === 'string' && mongoose.Types.ObjectId.isValid(userId)
@@ -134,11 +135,18 @@ export class LedgerService {
           firmId: firmId,
           account_name: account.account_name,
           account_type: account.account_type,
+          bs_classification: 'BALANCE_SHEET',
           is_system: account.is_system,
           is_active: true,
           created_by: createdBy,
           updated_by: createdBy
         }], session ? { session } : undefined);
+      } else if (account.account_name === 'TDS Payable u/s 194C' && existing.account_type !== 'DUTIES_AND_TAXES') {
+        await ChartOfAccounts.updateOne(
+          { _id: existing._id },
+          { $set: { account_type: 'DUTIES_AND_TAXES', is_system: true } },
+          session ? { session } : undefined
+        );
       }
     }
   }

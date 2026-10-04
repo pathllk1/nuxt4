@@ -269,6 +269,16 @@ export class OpeningBalanceService {
       },
       session ? { session } : {}
     );
+
+    // 4. Update ChartOfAccounts
+    await (ChartOfAccounts as any).updateMany(
+      {
+        $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+        account_name: oldHead
+      },
+      { $set: { account_name: newHead } },
+      session ? { session } : {}
+    );
   }
 
   /**

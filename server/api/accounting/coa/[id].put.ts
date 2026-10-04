@@ -5,6 +5,7 @@ import BankAccount from '../../../models/BankAccount';
 import OpeningBalance from '../../../models/OpeningBalance';
 import { OpeningBalanceService } from '../../../utils/accounting/opening-balance.service';
 import { getCurrentFinancialYear } from '../../../utils/accounting/bill-utils';
+import { classifyAccountType } from '../../../types/accounting';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
 
@@ -22,7 +23,11 @@ export default defineEventHandler(async (event) => {
   const update: any = { updated_by: new mongoose.Types.ObjectId(String(user._id)) };
 
   if (body.account_name || body.name) update.account_name = String(body.account_name || body.name).trim();
-  if (body.account_type || body.accountType) update.account_type = String(body.account_type || body.accountType).toUpperCase();
+  if (body.account_type || body.accountType) {
+    const rawType = String(body.account_type || body.accountType).toUpperCase();
+    update.account_type = rawType;
+    update.bs_classification = classifyAccountType(rawType);
+  }
   if (body.pan !== undefined) update.pan = body.pan ? String(body.pan).trim().toUpperCase() : null;
   if (body.aadhaar_number !== undefined || body.aadhaar !== undefined) update.aadhaar_number = (body.aadhaar_number || body.aadhaar) ? String(body.aadhaar_number || body.aadhaar).trim() : null;
   if (body.gstin !== undefined) update.gstin = body.gstin ? String(body.gstin).trim().toUpperCase() : null;

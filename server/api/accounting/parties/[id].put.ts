@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import Party from '../../../models/Party';
+import ChartOfAccounts from '../../../models/ChartOfAccounts';
+import { classifyAccountType } from '../../../types/accounting';
 import { resolveLedgerPostingAccount } from '../../../utils/accounting/ledger-account-resolver';
 import { OpeningBalanceService } from '../../../utils/accounting/opening-balance.service';
 import { requireAuthSession } from '../../../utils/auth';
@@ -71,6 +73,24 @@ export default defineEventHandler(async (event) => {
       newHead: name
     });
   }
+
+  // Keep ChartOfAccounts synchronized with Party changes
+  await (ChartOfAccounts as any).updateOne(
+    {
+      $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+      account_name: prevParty.name
+    },
+    {
+      $set: {
+        account_name: name,
+        account_type: fallbackType,
+        bs_classification: classifyAccountType(fallbackType),
+        pan: body.pan ? String(body.pan).trim().toUpperCase() : null,
+        gstin: body.gstin ? String(body.gstin).trim().toUpperCase() : null,
+        phone: body.contact ? String(body.contact).trim() : null
+      }
+    }
+  );
 
   // Sync Opening Balance into GL & OpeningBalance collection
   if (body.openingBalance !== undefined) {

@@ -214,6 +214,7 @@ export const PNL_ACCOUNT_TYPES = new Set([
   'DIRECT_INCOME',
   'COGS',
   'CASUAL_LABOR',
+  'GENERAL',
 ]);
 
 /** Account types that are Balance Sheet (permanent) — carry forward */
@@ -237,7 +238,6 @@ export const BALANCE_SHEET_ACCOUNT_TYPES = new Set([
   'LOANS_ADVANCES',
   'DUTIES_AND_TAXES',
   'FIXED_ASSETS',
-  'GENERAL',
 ]);
 
 /**

@@ -83,7 +83,7 @@ export const laborLedgerHelper = {
           // Credit: TDS Payable Liability
           {
             accountHead: 'TDS Payable u/s 194C',
-            accountType: 'LIABILITY',
+            accountType: 'DUTIES_AND_TAXES',
             debitAmount: 0,
             creditAmount: tds_amount,
             narration: `TDS 194C on Advance to ${leader_name} (${tds_rate}%)`,

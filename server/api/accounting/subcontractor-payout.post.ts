@@ -148,7 +148,7 @@ export default defineEventHandler(async (event) => {
     if (tdsComputation.tdsAmount > 0) {
       legs.push({
         accountHead: 'TDS Payable u/s 194C',
-        accountType: 'LIABILITY',
+        accountType: 'DUTIES_AND_TAXES',
         debitAmount: 0,
         creditAmount: tdsComputation.tdsAmount,
         narration: `TDS 194C withheld on payout to ${subconUser.name} (${effectiveRate}%)`

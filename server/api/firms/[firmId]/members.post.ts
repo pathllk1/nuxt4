@@ -256,24 +256,28 @@ export default defineEventHandler(async (event) => {
         await user.save();
       }
 
-      // Ensure 'TDS Payable u/s 194C' exists in Chart of Accounts
-      const tdsHeadExists = await ChartOfAccounts.findOne({
+      // Ensure 'TDS Payable u/s 194C' exists in Chart of Accounts with canonical DUTIES_AND_TAXES type
+      const tdsHead = await ChartOfAccounts.findOne({
         $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
         account_name: 'TDS Payable u/s 194C'
-      }).lean();
+      });
 
-      if (!tdsHeadExists) {
+      if (!tdsHead) {
         await ChartOfAccounts.create({
           firm_id: firmIdObj,
           firmId: firmIdObj,
           account_name: 'TDS Payable u/s 194C',
-          account_type: 'DUTIES_TAXES',
+          account_type: 'DUTIES_AND_TAXES',
           bs_classification: 'BALANCE_SHEET',
           description: 'Statutory TDS on Payments to Contractors u/s 194C',
-          is_system: false,
+          is_system: true,
           is_active: true,
           created_by: new mongoose.Types.ObjectId(currentUserId)
         });
+      } else if (tdsHead.account_type !== 'DUTIES_AND_TAXES' || !tdsHead.is_system) {
+        tdsHead.account_type = 'DUTIES_AND_TAXES';
+        tdsHead.is_system = true;
+        await tdsHead.save();
       }
     }
 

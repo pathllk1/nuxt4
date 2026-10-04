@@ -5,6 +5,7 @@ import BankAccount from '../../models/BankAccount';
 import OpeningBalance from '../../models/OpeningBalance';
 import { OpeningBalanceService } from '../../utils/accounting/opening-balance.service';
 import { getCurrentFinancialYear } from '../../utils/accounting/bill-utils';
+import { classifyAccountType } from '../../types/accounting';
 import { requireAuthSession } from '../../utils/auth';
 import { getSql, connectPostgres } from '../../utils/pg.config';
 
@@ -118,8 +119,10 @@ export default defineEventHandler(async (event) => {
       {
         $set: {
           firm_id: firmIdObj,
+          firmId: firmIdObj,
           account_name: name,
           account_type: accountType,
+          bs_classification: classifyAccountType(accountType),
           pan: body.pan ? String(body.pan).trim().toUpperCase() : null,
           aadhaar_number: body.aadhaar_number || body.aadhaar ? String(body.aadhaar_number || body.aadhaar).trim() : null,
           gstin: body.gstin ? String(body.gstin).trim().toUpperCase() : null,

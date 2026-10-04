@@ -71,8 +71,8 @@ const filteredAccounts = computed(() => {
       const type = (a.accountType || '').toUpperCase();
       if (cat === 'ASSET') return ['ASSET', 'DEBTOR', 'SUNDRY_DEBTORS', 'RECEIVABLE', 'CASH', 'BANK', 'BANK_ACCOUNT', 'FIXED_ASSETS', 'LOANS_ADVANCES'].includes(type);
       if (cat === 'LIABILITY') return ['LIABILITY', 'CREDITOR', 'SUNDRY_CREDITORS', 'PAYABLE', 'CAPITAL', 'LABOR_LEADER', 'TRANSPORTER', 'STAFF', 'LOANS_BORROWINGS', 'DUTIES_AND_TAXES'].includes(type);
-      if (cat === 'INCOME') return ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type);
-      if (cat === 'EXPENSE') return ['EXPENSE', 'COGS', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'CASUAL_LABOR'].includes(type);
+      if (cat === 'INCOME') return ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME', 'GENERAL'].includes(type);
+      if (cat === 'EXPENSE') return ['EXPENSE', 'COGS', 'DIRECT_EXPENSE', 'INDIRECT_EXPENSE', 'CASUAL_LABOR', 'GENERAL'].includes(type);
       return true;
     });
   }
