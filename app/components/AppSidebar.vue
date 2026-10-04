@@ -188,60 +188,60 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
       </svg>
     </button>
-  </aside>
 
-  <!-- Teleported Floating Flyout & Tooltip for Collapsed Sidebar (Never Clipped) -->
-  <Teleport to="body">
-    <div
-      v-if="isSidebarCollapsed && hoveredItem"
-      class="fixed z-[9999] pointer-events-auto transition-opacity duration-150"
-      :style="{ top: `${flyoutPosition.top}px`, left: `${flyoutPosition.left}px` }"
-      @mouseenter="onFlyoutEnter"
-      @mouseleave="onFlyoutLeave"
-    >
-      <!-- Case A: Nested Menu Flyout (e.g. Employee Wages with Wages Center & Master Roll) -->
+    <!-- Teleported Floating Flyout & Tooltip for Collapsed Sidebar (Never Clipped) -->
+    <Teleport to="body">
       <div
-        v-if="hoveredItem.children && hoveredItem.children.length > 0"
-        class="bg-slate-900/95 text-white rounded-2xl shadow-2xl border border-white/20 p-2.5 min-w-[210px] backdrop-blur-md"
+        v-if="isSidebarCollapsed && hoveredItem"
+        class="fixed z-[9999] pointer-events-auto transition-opacity duration-150"
+        :style="{ top: `${flyoutPosition.top}px`, left: `${flyoutPosition.left}px` }"
+        @mouseenter="onFlyoutEnter"
+        @mouseleave="onFlyoutLeave"
       >
-        <div class="px-2.5 py-1.5 border-b border-white/10 flex items-center gap-2 mb-1.5">
+        <!-- Case A: Nested Menu Flyout (e.g. Employee Wages with Wages Center & Master Roll) -->
+        <div
+          v-if="hoveredItem.children && hoveredItem.children.length > 0"
+          class="bg-slate-900/95 text-white rounded-2xl shadow-2xl border border-white/20 p-2.5 min-w-[210px] backdrop-blur-md"
+        >
+          <div class="px-2.5 py-1.5 border-b border-white/10 flex items-center gap-2 mb-1.5">
+            <span class="text-base">{{ hoveredItem.icon }}</span>
+            <span class="text-xs font-black text-blue-300 uppercase tracking-wider">
+              {{ hoveredItem.label }}
+            </span>
+          </div>
+          <div class="space-y-1">
+            <NuxtLink
+              v-for="child in hoveredItem.children"
+              :key="child.label"
+              :to="child.to"
+              exact-active-class="bg-blue-600 font-bold text-white shadow-md shadow-blue-600/30"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:text-white hover:bg-white/10 transition no-underline"
+              @click="closeFlyout"
+            >
+              <span class="text-base">{{ child.icon }}</span>
+              <span>{{ child.label }}</span>
+            </NuxtLink>
+          </div>
+        </div>
+
+        <!-- Case B: Standard Single Item Tooltip -->
+        <div
+          v-else
+          class="bg-slate-900/95 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 text-xs font-bold whitespace-nowrap flex items-center gap-2 pointer-events-none backdrop-blur-md"
+        >
           <span class="text-base">{{ hoveredItem.icon }}</span>
-          <span class="text-xs font-black text-blue-300 uppercase tracking-wider">
-            {{ hoveredItem.label }}
+          <span>{{ hoveredItem.label }}</span>
+          <span
+            v-if="hoveredItem.badge"
+            class="ml-1.5 px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider"
+            :class="hoveredItem.badgeClass || 'bg-amber-400 text-slate-900'"
+          >
+            {{ hoveredItem.badge }}
           </span>
         </div>
-        <div class="space-y-1">
-          <NuxtLink
-            v-for="child in hoveredItem.children"
-            :key="child.label"
-            :to="child.to"
-            exact-active-class="bg-blue-600 font-bold text-white shadow-md shadow-blue-600/30"
-            class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:text-white hover:bg-white/10 transition no-underline"
-            @click="closeFlyout"
-          >
-            <span class="text-base">{{ child.icon }}</span>
-            <span>{{ child.label }}</span>
-          </NuxtLink>
-        </div>
       </div>
-
-      <!-- Case B: Standard Single Item Tooltip -->
-      <div
-        v-else
-        class="bg-slate-900/95 text-white px-3.5 py-2 rounded-xl shadow-2xl border border-slate-700/80 text-xs font-bold whitespace-nowrap flex items-center gap-2 pointer-events-none backdrop-blur-md"
-      >
-        <span class="text-base">{{ hoveredItem.icon }}</span>
-        <span>{{ hoveredItem.label }}</span>
-        <span
-          v-if="hoveredItem.badge"
-          class="ml-1.5 px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider"
-          :class="hoveredItem.badgeClass || 'bg-amber-400 text-slate-900'"
-        >
-          {{ hoveredItem.badge }}
-        </span>
-      </div>
-    </div>
-  </Teleport>
+    </Teleport>
+  </aside>
 </template>
 
 <script setup lang="ts">

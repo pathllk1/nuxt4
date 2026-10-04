@@ -1,72 +1,94 @@
 <template>
-  <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-2 bg-black/50 backdrop-blur-sm">
+  <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-md">
     <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 dark:border-zinc-800 animate-scale-in">
       <!-- Header -->
-      <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 flex justify-between items-center">
-        <div>
-          <div class="flex items-center gap-2">
-            <h2 class="text-lg font-bold">
-              {{ isEdit ? 'Edit ' : '' }}{{ form.vtype === 'PAYMENT' ? 'Payment Voucher' : form.vtype === 'RECEIPT' ? 'Receipt Voucher' : form.vtype === 'CONTRA' ? 'Contra Voucher' : 'Journal Entry' }}
-            </h2>
-            <span v-if="isEdit && (form.voucherNo || voucherGroupId)" class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-white/20 text-white border border-white/30">
-              {{ form.voucherNo || voucherGroupId }}
-            </span>
+      <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-5 py-4 flex justify-between items-center border-b border-indigo-500/20 shadow-md">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-lg shadow-md ring-1 ring-white/20">
+            <span>{{ form.vtype === 'PAYMENT' ? '💳' : form.vtype === 'RECEIPT' ? '💰' : form.vtype === 'CONTRA' ? '🔄' : '📝' }}</span>
           </div>
-          <p class="text-xs text-blue-100 mt-0.5">
-            {{ isEdit ? 'Modify transaction date, accounts, amounts, or narration' : 'Tally Single-Entry & Double-Entry Financial Accounting' }}
-          </p>
+          <div>
+            <div class="flex items-center gap-2.5">
+              <h2 class="text-base font-black tracking-tight text-white">
+                {{ isEdit ? 'Edit ' : '' }}{{ form.vtype === 'PAYMENT' ? 'Payment Voucher' : form.vtype === 'RECEIPT' ? 'Receipt Voucher' : form.vtype === 'CONTRA' ? 'Contra Voucher' : 'Journal Entry' }}
+              </h2>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                {{ form.vtype === 'JOURNAL' ? 'Double-Entry' : 'Tally Single-Entry' }}
+              </span>
+              <span v-if="isEdit && (form.voucherNo || voucherGroupId)" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/10 text-slate-200 border border-white/20">
+                #{{ form.voucherNo || voucherGroupId }}
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-300/80 mt-0.5 font-medium">
+              {{ isEdit ? 'Update transaction date, particulars, ledger deductions, or narration' : 'Post bank & cash transactions directly with automated ledger effect & statutory TDS calculation' }}
+            </p>
+          </div>
         </div>
-        <button @click="$emit('update:modelValue', false)" class="text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors cursor-pointer">
-          <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+        <button @click="$emit('update:modelValue', false)" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer ring-1 ring-white/10">
+          <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
         </button>
       </div>
 
       <!-- Main Content -->
-      <div class="overflow-y-auto flex-1 p-4 space-y-4">
+      <div class="overflow-y-auto flex-1 p-5 space-y-4">
         <!-- Top Controls Row -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           <!-- Date -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1">Transaction Date</label>
-            <input v-model="form.vdate" type="date" class="w-full px-3 py-2 text-sm border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer" />
+          <div class="p-3 bg-slate-50 dark:bg-zinc-850/70 rounded-xl border border-slate-200 dark:border-zinc-800">
+            <label class="block text-[10.5px] font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1.5 flex items-center gap-1.5">
+              <UIcon name="i-heroicons-calendar" class="w-3.5 h-3.5 text-blue-500" />
+              <span>Transaction Date</span>
+            </label>
+            <input v-model="form.vdate" type="date" class="w-full px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs" />
           </div>
           <!-- Voucher Type -->
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Voucher Type</label>
-              <span v-if="isEdit" class="text-[10px] text-amber-500 font-bold uppercase tracking-wider">Locked in Edit</span>
+          <div class="p-3 bg-slate-50 dark:bg-zinc-850/70 rounded-xl border border-slate-200 dark:border-zinc-800">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-[10.5px] font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400 flex items-center gap-1.5">
+                <UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-indigo-500" />
+                <span>Voucher Type</span>
+              </label>
+              <span v-if="isEdit" class="text-[9.5px] text-amber-500 font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">Locked in Edit</span>
             </div>
-            <select :disabled="isEdit" v-model="form.vtype" class="w-full px-3 py-2 text-sm border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:bg-slate-100 dark:disabled:bg-zinc-800/60 disabled:cursor-not-allowed">
-              <option value="PAYMENT">💳 Payment Out</option>
-              <option value="RECEIPT">💰 Receipt In</option>
-              <option value="JOURNAL">📝 Journal Entry</option>
-              <option value="CONTRA">🔄 Contra Entry</option>
+            <select :disabled="isEdit" v-model="form.vtype" class="w-full px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:bg-slate-100 dark:disabled:bg-zinc-800/60 disabled:cursor-not-allowed shadow-2xs">
+              <option value="PAYMENT">💳 Payment Out (Sundry Creditors / Labor / Expenses)</option>
+              <option value="RECEIPT">💰 Receipt In (Sundry Debtors / Clients / Income)</option>
+              <option value="JOURNAL">📝 Journal Entry (Adjustments / Double-Entry)</option>
+              <option value="CONTRA">🔄 Contra Entry (Bank ↔ Cash Transfer)</option>
             </select>
           </div>
-          <div></div>
         </div>
 
-        <!-- Primary Account Selection (Paid From / Receipt To) -->
-        <div v-if="form.vtype !== 'JOURNAL'" class="p-3.5 bg-blue-50/70 dark:bg-blue-950/20 border-2 border-blue-400/50 dark:border-blue-800/50 rounded-xl space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="block text-xs font-bold text-blue-900 dark:text-blue-300 uppercase tracking-wide">
-              {{ form.vtype === 'PAYMENT' ? '💳 PAID FROM (Bank / Cash Account)' : '💰 RECEIPT TO (Deposit Account)' }}
-            </label>
+        <!-- Primary Source Account Card (Paid From / Receipt To) -->
+        <div v-if="form.vtype !== 'JOURNAL'" class="p-4 bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-slate-50 dark:from-zinc-900 dark:via-zinc-850 dark:to-zinc-900 border border-blue-200/80 dark:border-blue-900/50 rounded-2xl shadow-xs space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center text-xs shadow-xs font-bold">
+                {{ form.vtype === 'PAYMENT' ? '🏦' : '💰' }}
+              </span>
+              <div>
+                <label class="block text-[11px] font-black text-blue-950 dark:text-blue-200 uppercase tracking-wide">
+                  {{ form.vtype === 'PAYMENT' ? 'Paid From (Bank / Cash Account)' : 'Receipt To (Deposit Account)' }}
+                </label>
+                <p class="text-[10px] text-slate-500 dark:text-zinc-400">Primary liquidity account to be credited or debited</p>
+              </div>
+            </div>
+
             <!-- Real-time Balance & Projected Balance Summary -->
-            <div v-if="selectedMainAccountObj" class="flex items-center gap-3 text-xs">
-              <div class="flex items-center gap-1">
-                <span class="text-slate-500 dark:text-zinc-400 text-[11px]">Current:</span>
+            <div v-if="selectedMainAccountObj" class="flex items-center gap-2 bg-white dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-700 shadow-2xs text-xs">
+              <div class="flex items-center gap-1.5">
+                <span class="text-slate-400 text-[10.5px]">Current:</span>
                 <span class="font-mono font-bold" :class="mainAccountCurrentBal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
                   ₹{{ Math.abs(mainAccountCurrentBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
-                  {{ mainAccountCurrentBal >= 0 ? 'DR' : 'CR' }}
+                  <span class="text-[9px]">{{ mainAccountCurrentBal >= 0 ? 'DR' : 'CR' }}</span>
                 </span>
               </div>
-              <span class="text-slate-300 dark:text-zinc-700">➔</span>
-              <div class="flex items-center gap-1">
-                <span class="text-slate-500 dark:text-zinc-400 text-[11px]">Projected:</span>
-                <span class="font-mono font-black" :class="projectedMainAccountBal >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-rose-600 dark:text-rose-400'">
+              <span class="text-slate-300 dark:text-zinc-600 font-bold">➔</span>
+              <div class="flex items-center gap-1.5">
+                <span class="text-slate-400 text-[10.5px]">Projected:</span>
+                <span class="font-mono font-black" :class="projectedMainAccountBal >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'">
                   ₹{{ Math.abs(projectedMainAccountBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
-                  {{ projectedMainAccountBal >= 0 ? 'DR' : 'CR' }}
+                  <span class="text-[9px]">{{ projectedMainAccountBal >= 0 ? 'DR' : 'CR' }}</span>
                 </span>
               </div>
             </div>
@@ -76,117 +98,146 @@
           <AccountSelectMenu
             v-model="form.mainAccount"
             :accounts="liquidAccountsList"
-            :placeholder="form.vtype === 'PAYMENT' ? 'Search Bank / Cash account to pay from...' : 'Search Bank / Cash account to deposit to...'"
+            :placeholder="form.vtype === 'PAYMENT' ? 'Search Bank or Cash account to pay from...' : 'Search Bank or Cash account to deposit to...'"
             :match-by-id="true"
             :show-balance="true"
           />
         </div>
 
-        <!-- Transaction Lines -->
-        <div>
-          <div class="flex justify-between items-center mb-2">
-            <h3 class="text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wide">
-              {{ form.vtype === 'JOURNAL' ? 'Journal Line Entries' : 'Particulars (Account Heads & Deductions)' }}
-            </h3>
-            <button @click="addLine" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors font-medium cursor-pointer">
-              + Add Line
+        <!-- Particulars Table -->
+        <div class="space-y-2">
+          <div class="flex justify-between items-center px-1">
+            <div class="flex items-center gap-2">
+              <h3 class="text-xs font-black text-slate-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                <span>📋</span>
+                <span>{{ form.vtype === 'JOURNAL' ? 'Journal Line Entries' : 'Particulars (Account Heads & Deductions)' }}</span>
+              </h3>
+              <span class="text-[10px] font-mono font-bold bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded-full border border-slate-200 dark:border-zinc-700">
+                {{ form.entries.length }} {{ form.entries.length === 1 ? 'Line' : 'Lines' }}
+              </span>
+            </div>
+            <button 
+              @click="addLine" 
+              type="button"
+              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-xl transition-all font-bold flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+            >
+              <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+              <span>Add Line</span>
             </button>
           </div>
 
-          <div class="space-y-2.5">
-            <!-- Column Headers for Journal -->
-            <div v-if="form.vtype === 'JOURNAL'" class="grid grid-cols-12 gap-2 text-[10px] font-bold text-slate-600 dark:text-zinc-400 mb-1 px-1">
-              <div class="col-span-5">Particulars / Account Head</div>
-              <div class="col-span-3 text-right">Debit (Dr)</div>
-              <div class="col-span-3 text-right">Credit (Cr)</div>
-              <div class="col-span-1"></div>
-            </div>
-            <!-- Column Headers for Payment/Receipt -->
-            <div v-else class="grid grid-cols-12 gap-2 text-[10px] font-bold text-slate-600 dark:text-zinc-400 mb-1 px-1">
-              <div class="col-span-6">Particulars (Account Head / Vendor / Expense / Tax)</div>
-              <div class="col-span-2 text-center">Effect</div>
-              <div class="col-span-3 text-right">Amount (₹)</div>
-              <div class="col-span-1"></div>
-            </div>
+          <!-- Column Headers -->
+          <div v-if="form.vtype === 'JOURNAL'" class="grid grid-cols-12 gap-2.5 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-500 px-3 py-1">
+            <div class="col-span-1 text-center">#</div>
+            <div class="col-span-5">Particulars / Account Head</div>
+            <div class="col-span-3 text-right">Debit (Dr)</div>
+            <div class="col-span-2 text-right">Credit (Cr)</div>
+            <div class="col-span-1"></div>
+          </div>
+          <div v-else class="grid grid-cols-12 gap-2.5 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-500 px-3 py-1">
+            <div class="col-span-1 text-center">#</div>
+            <div class="col-span-5">Account Head / Vendor / Expense / Tax</div>
+            <div class="col-span-2 text-center">Effect</div>
+            <div class="col-span-3 text-right">Amount (₹)</div>
+            <div class="col-span-1"></div>
+          </div>
 
-            <!-- Transaction Lines -->
-            <div 
-              v-for="(entry, index) in form.entries" 
-              :key="index" 
-              class="p-2.5 bg-slate-50 dark:bg-zinc-850 rounded-xl border border-slate-200 dark:border-zinc-800 hover:border-blue-300 transition-colors space-y-2"
-            >
-              <div class="grid grid-cols-12 gap-2 items-center">
-                <!-- Searchable Account Selection -->
-                <div :class="form.vtype === 'JOURNAL' ? 'col-span-5' : 'col-span-6'">
-                  <AccountSelectMenu
-                    v-model="entry.accountHead"
-                    :accounts="chartOfAccounts"
-                    :placeholder="form.vtype === 'PAYMENT' ? 'Search Party / Expense / TDS account...' : 'Search Customer / Income account...'"
-                    :show-balance="true"
-                    @change="(acc) => onAccountSelected(entry, acc)"
-                    @accountCreated="onAccountCreated"
-                  />
-                </div>
+          <!-- Transaction Lines -->
+          <div 
+            v-for="(entry, index) in form.entries" 
+            :key="index" 
+            class="p-3 bg-white dark:bg-zinc-850 rounded-2xl border border-slate-200 dark:border-zinc-800 hover:border-blue-400/70 transition-all shadow-xs space-y-2.5"
+          >
+            <div class="grid grid-cols-12 gap-2.5 items-center">
+              <!-- Row Number Badge -->
+              <div class="col-span-1 flex justify-center">
+                <span class="w-6 h-6 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 text-[10px] font-mono font-bold flex items-center justify-center border border-slate-200 dark:border-zinc-700">
+                  {{ String(index + 1).padStart(2, '0') }}
+                </span>
+              </div>
 
-                <!-- Journal Inputs -->
-                <template v-if="form.vtype === 'JOURNAL'">
+              <!-- Account Select Menu -->
+              <div :class="form.vtype === 'JOURNAL' ? 'col-span-5' : 'col-span-5'">
+                <AccountSelectMenu
+                  v-model="entry.accountHead"
+                  :accounts="chartOfAccounts"
+                  :placeholder="form.vtype === 'PAYMENT' ? 'Search Party / Expense / TDS account...' : 'Search Customer / Income account...'"
+                  :show-balance="true"
+                  @change="(acc) => onAccountSelected(entry, acc)"
+                  @accountCreated="onAccountCreated"
+                />
+              </div>
+
+              <!-- Journal Inputs -->
+              <template v-if="form.vtype === 'JOURNAL'">
+                <div class="col-span-3 relative">
                   <input 
                     v-model.number="entry.debitAmount" 
                     type="number" 
                     placeholder="0.00" 
                     step="0.01" 
                     @input="onDebitInput(entry)"
-                    class="col-span-3 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-zinc-700 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-zinc-800 dark:text-white font-mono" 
+                    class="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-zinc-700 rounded-xl text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-zinc-800 dark:text-white font-mono font-bold shadow-2xs" 
                   />
+                </div>
+                <div class="col-span-2 relative">
                   <input 
                     v-model.number="entry.creditAmount" 
                     type="number" 
                     placeholder="0.00" 
                     step="0.01" 
                     @input="onCreditInput(entry)"
-                    class="col-span-3 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-zinc-700 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-zinc-800 dark:text-white font-mono" 
+                    class="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-zinc-700 rounded-xl text-right focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-zinc-800 dark:text-white font-mono font-bold shadow-2xs" 
                   />
-                </template>
+                </div>
+              </template>
 
-                <!-- Payment/Receipt Inputs (Tally Single Entry with +/- Toggle) -->
-                <template v-else>
-                  <!-- Addition / Deduction Toggle Badge -->
-                  <div class="col-span-2 flex justify-center">
-                    <button
-                      type="button"
-                      @click="toggleDeduction(entry)"
-                      class="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer"
-                      :class="(Number(entry.amount) < 0 || entry.isDeduction) 
-                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800' 
-                        : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'"
-                    >
-                      <span>{{ (Number(entry.amount) < 0 || entry.isDeduction) ? '➖ Deduction' : '➕ Normal' }}</span>
-                    </button>
-                  </div>
+              <!-- Payment/Receipt Inputs -->
+              <template v-else>
+                <!-- Effect Segmented Toggle -->
+                <div class="col-span-2 flex justify-center">
+                  <button
+                    type="button"
+                    @click="toggleDeduction(entry)"
+                    class="px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs border"
+                    :class="(Number(entry.amount) < 0 || entry.isDeduction) 
+                      ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800' 
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'"
+                  >
+                    <span>{{ (Number(entry.amount) < 0 || entry.isDeduction) ? '➖ Deduction' : '➕ Payment' }}</span>
+                  </button>
+                </div>
 
-                  <!-- Amount Input -->
-                  <div class="col-span-3 relative">
-                    <input 
-                      :value="Math.abs(Number(entry.amount) || 0)" 
-                      @input="onAmountInput(entry, ($event.target as HTMLInputElement).value)"
-                      type="number" 
-                      placeholder="0.00" 
-                      min="0"
-                      step="0.01" 
-                      class="w-full px-2.5 py-1.5 text-xs border rounded-lg text-right focus:outline-none focus:ring-2 font-mono font-bold"
-                      :class="(Number(entry.amount) < 0 || entry.isDeduction)
-                        ? 'border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 bg-rose-50/40 dark:bg-rose-950/20 focus:ring-rose-500'
-                        : 'border-slate-300 dark:border-zinc-700 text-slate-900 dark:text-white bg-white dark:bg-zinc-800 focus:ring-blue-500'"
-                    />
-                  </div>
-                </template>
+                <!-- Amount Input with Currency Badge -->
+                <div class="col-span-3 relative flex items-center">
+                  <span class="absolute left-2.5 text-xs font-mono font-bold text-slate-400">₹</span>
+                  <input 
+                    :value="Math.abs(Number(entry.amount) || 0)" 
+                    @input="onAmountInput(entry, ($event.target as HTMLInputElement).value)"
+                    type="number" 
+                    placeholder="0.00" 
+                    min="0"
+                    step="0.01" 
+                    class="w-full pl-6 pr-2.5 py-1.5 text-xs border rounded-xl text-right focus:outline-none focus:ring-2 font-mono font-black shadow-2xs"
+                    :class="(Number(entry.amount) < 0 || entry.isDeduction)
+                      ? 'border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 bg-rose-50/30 dark:bg-rose-950/20 focus:ring-rose-500'
+                      : 'border-slate-300 dark:border-zinc-700 text-slate-900 dark:text-white bg-white dark:bg-zinc-800 focus:ring-blue-500'"
+                  />
+                </div>
+              </template>
 
-                <!-- Delete Button -->
-                <button v-if="form.entries.length > (form.vtype === 'JOURNAL' ? 2 : 1)" @click="removeLine(index)" class="col-span-1 text-red-500 hover:text-red-700 font-bold transition-colors text-center text-base cursor-pointer" title="Remove Line">
-                  ×
+              <!-- Delete Button -->
+              <div class="col-span-1 flex justify-center">
+                <button 
+                  v-if="form.entries.length > (form.vtype === 'JOURNAL' ? 2 : 1)" 
+                  @click="removeLine(index)" 
+                  class="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center justify-center font-bold text-sm cursor-pointer" 
+                  title="Remove Line"
+                >
+                  <UIcon name="i-heroicons-trash" class="w-4 h-4" />
                 </button>
-                <div v-else class="col-span-1"></div>
               </div>
+            </div>
 
               <!-- Smart Cross-Module Linking for Labor Leaders in Payment Vouchers -->
               <div 
@@ -428,63 +479,73 @@
               </div>
             </div>
           </div>
-        </div>
 
         <!-- Narration -->
-        <div>
-          <label class="block text-xs font-bold text-slate-700 dark:text-zinc-300 mb-1">Notes / Narration</label>
-          <textarea v-model="form.narration" placeholder="Enter transaction description or reference numbers..." class="w-full px-3 py-2 text-xs border border-slate-300 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-zinc-800 dark:text-white resize-none" rows="2"></textarea>
+        <div class="p-3.5 bg-slate-50 dark:bg-zinc-850/60 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-1.5">
+          <label class="block text-[10.5px] font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400 flex items-center gap-1.5">
+            <UIcon name="i-heroicons-chat-bubble-bottom-center-text" class="w-3.5 h-3.5 text-blue-500" />
+            <span>Voucher Notes & Narration</span>
+          </label>
+          <textarea v-model="form.narration" placeholder="Enter transaction reference numbers, cheque/UTR details, or commercial remarks..." class="w-full px-3 py-2 text-xs font-medium border border-slate-300 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-zinc-800 dark:text-white resize-none shadow-2xs" rows="2"></textarea>
         </div>
 
         <!-- Summary Section -->
-        <div v-if="form.vtype === 'JOURNAL'" class="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-zinc-800 dark:to-zinc-850 p-4 rounded-xl border border-blue-200 dark:border-zinc-700">
-          <div class="flex justify-between items-center">
+        <div v-if="form.vtype === 'JOURNAL'" class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4.5 rounded-2xl border border-indigo-500/20 shadow-md">
+          <div class="flex flex-wrap justify-between items-center gap-4">
             <div class="flex gap-8">
               <div>
-                <p class="text-[10px] text-slate-600 dark:text-zinc-400 font-semibold uppercase tracking-wider">Total Debit (Dr)</p>
-                <p class="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono">₹ {{ totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
+                <p class="text-[10px] text-slate-300/80 font-bold uppercase tracking-wider">Total Debit (Dr)</p>
+                <p class="text-xl font-black text-indigo-300 font-mono">₹ {{ totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
               </div>
               <div>
-                <p class="text-[10px] text-slate-600 dark:text-zinc-400 font-semibold uppercase tracking-wider">Total Credit (Cr)</p>
-                <p class="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">₹ {{ totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
+                <p class="text-[10px] text-slate-300/80 font-bold uppercase tracking-wider">Total Credit (Cr)</p>
+                <p class="text-xl font-black text-emerald-300 font-mono">₹ {{ totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
               </div>
             </div>
-            <div class="text-right">
-              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase" :class="isJournalBalanced ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'">
-                {{ isJournalBalanced ? '✓ Balanced' : `Unbalanced: ₹${Math.abs(totalDebit - totalCredit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }}
+            <div>
+              <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wide border shadow-xs" :class="isJournalBalanced ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30' : 'bg-rose-500/20 text-rose-300 border-rose-400/30'">
+                {{ isJournalBalanced ? '✓ Balanced' : `Unbalanced Difference: ₹${Math.abs(totalDebit - totalCredit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }}
               </span>
             </div>
           </div>
         </div>
-        <div v-else class="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-zinc-800 dark:to-zinc-850 p-4 rounded-xl border border-blue-200 dark:border-zinc-700">
-          <div class="grid grid-cols-3 gap-3">
+        <div v-else class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4.5 rounded-2xl border border-indigo-500/20 shadow-lg">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
             <div>
-              <p class="text-[10px] text-slate-600 dark:text-zinc-400 font-semibold uppercase tracking-wider">Gross Amount</p>
-              <p class="text-lg font-bold text-blue-600 dark:text-blue-400 font-mono">₹ {{ grossAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Gross Payable / Receivable</p>
+              <p class="text-lg font-bold text-blue-300 font-mono mt-0.5">₹ {{ grossAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
             </div>
             <div>
-              <p class="text-[10px] text-slate-600 dark:text-zinc-400 font-semibold uppercase tracking-wider">Deductions (TDS / Disc)</p>
-              <p class="text-lg font-bold text-rose-600 dark:text-rose-400 font-mono">- ₹ {{ deductionsTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Deductions (TDS / Disc)</p>
+              <p class="text-lg font-bold text-rose-300 font-mono mt-0.5">- ₹ {{ deductionsTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
             </div>
-            <div class="border-l-2 border-blue-300 dark:border-zinc-700 pl-3">
-              <p class="text-[10px] text-slate-700 dark:text-zinc-300 font-bold uppercase tracking-wider">
-                {{ form.vtype === 'PAYMENT' ? 'NET BANK / CASH OUTFLOW' : 'NET BANK / CASH INFLOW' }}
+            <div class="sm:border-l sm:border-white/10 sm:pl-4">
+              <p class="text-[10.5px] text-emerald-300 font-black uppercase tracking-wider flex items-center gap-1.5">
+                <span>⚡</span>
+                <span>{{ form.vtype === 'PAYMENT' ? 'Net Bank Outflow' : 'Net Bank Inflow' }}</span>
               </p>
-              <p class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">₹ {{ netAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
+              <p class="text-2xl font-black text-emerald-400 font-mono mt-0.5">
+                ₹ {{ netAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+              </p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Footer -->
-      <div class="bg-slate-100 dark:bg-zinc-850 border-t border-slate-200 dark:border-zinc-800 p-4 flex justify-end gap-2">
-        <button @click="$emit('update:modelValue', false)" class="px-4 py-2 text-xs font-bold text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded-xl transition-colors cursor-pointer">
-          Cancel
-        </button>
-        <button @click="submitVoucher" :disabled="isSaveDisabled" class="px-6 py-2 text-xs font-bold bg-green-600 hover:bg-green-700 disabled:bg-slate-400 dark:disabled:bg-zinc-800 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center gap-2 cursor-pointer">
-          <UIcon v-if="loading" name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
-          {{ loading ? (isEdit ? 'Updating...' : 'Processing...') : (isEdit ? 'Update Voucher' : 'Save Voucher') }}
-        </button>
+      <div class="bg-slate-50 dark:bg-zinc-850 border-t border-slate-200/80 dark:border-zinc-800 p-4 flex items-center justify-between">
+        <div class="hidden sm:block text-[11px] text-slate-400 dark:text-zinc-500 font-medium">
+          Tally Double-Entry ledger posting with automated balance recalculation
+        </div>
+        <div class="flex items-center gap-2.5 ml-auto">
+          <button @click="$emit('update:modelValue', false)" class="px-4 py-2 text-xs font-bold text-slate-600 dark:text-zinc-300 hover:bg-slate-200/60 dark:hover:bg-zinc-800 rounded-xl transition-colors cursor-pointer">
+            Cancel
+          </button>
+          <button @click="submitVoucher" :disabled="isSaveDisabled" class="px-6 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-zinc-800 disabled:cursor-not-allowed text-white rounded-xl transition-all shadow-md shadow-blue-600/20 flex items-center gap-2 cursor-pointer active:scale-95">
+            <UIcon v-if="loading" name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
+            {{ loading ? (isEdit ? 'Updating...' : 'Processing...') : (isEdit ? 'Update Voucher' : 'Save Voucher') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
