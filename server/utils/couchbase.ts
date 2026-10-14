@@ -88,6 +88,65 @@ export class CouchbaseService {
   }
 
   /**
+   * Safe keep-alive health check with configurable timeout (default 30s)
+   * Guaranteed never to throw or crash the server.
+   */
+  static async ping(timeoutMs = 30000): Promise<{ ok: boolean; message: string; elapsedMs: number }> {
+    const startTime = Date.now();
+    const cfg = this.getEndpoint();
+    if (!cfg) {
+      return { ok: false, message: 'Couchbase credentials not configured in environment', elapsedMs: 0 };
+    }
+
+    const postData = JSON.stringify({ statement: 'SELECT 1 as ping' });
+
+    return new Promise((resolve) => {
+      let isSettled = false;
+      const done = (ok: boolean, message: string) => {
+        if (isSettled) return;
+        isSettled = true;
+        resolve({ ok, message, elapsedMs: Date.now() - startTime });
+      };
+
+      try {
+        const req = https.request(cfg.url, {
+          method: 'POST',
+          agent,
+          headers: {
+            'Authorization': cfg.authHeader,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+          }
+        }, (res) => {
+          let body = '';
+          res.on('data', chunk => body += chunk);
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              done(true, 'Ping successful');
+            } else {
+              done(false, `HTTP ${res.statusCode}: ${body.slice(0, 100)}`);
+            }
+          });
+        });
+
+        req.on('error', (err) => {
+          done(false, `Connection error: ${err.message}`);
+        });
+
+        req.setTimeout(timeoutMs, () => {
+          req.destroy();
+          done(false, `Query timeout after ${timeoutMs}ms`);
+        });
+
+        req.write(postData);
+        req.end();
+      } catch (err: any) {
+        done(false, `Unexpected error: ${err?.message || err}`);
+      }
+    });
+  }
+
+  /**
    * Ensure primary index exists on collection (executed once on startup)
    */
   private static async ensureIndex(): Promise<void> {

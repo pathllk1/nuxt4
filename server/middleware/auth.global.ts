@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
                               !path.startsWith('/api/auth/logout') &&
                               !path.startsWith('/api/_nuxt_icon/') && 
                               !(path === '/api/firms' && event.method === 'GET') &&
-                              path !== '/api/health' && 
+                              !path.startsWith('/api/health') && 
                               path !== '/api/info';
 
   if (!isProtectedApiRoute) {

@@ -1038,7 +1038,7 @@ const processStatementFile = async (file: File, password?: string) => {
     if (password) formData.append('password', password);
     if (clientExtractedText) formData.append('rawText', clientExtractedText);
 
-    const res = await $fetch<any>('/api/accounting/bank-import/parse', {
+    const res: any = await ($fetch as any)('/api/accounting/bank-import/parse', {
       method: 'POST',
       body: formData
     });
