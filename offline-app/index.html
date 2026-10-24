@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accounting & Inventory ERP (100% Offline)</title>
+  <meta name="description" content="100% Offline Complete Inventory, Stocks, Sales, Purchase, Debit/Credit Notes and Delivery Challan Web Application">
+
+  <!-- Accounting Design System Stylesheet & App Favicon -->
+  <link rel="icon" type="image/png" href="./icon.png">
+  <link rel="shortcut icon" href="./icon.ico">
+  <link rel="stylesheet" href="./css/accounting.css">
+
+  <!-- ========================================== -->
+  <!-- LOCAL OFFLINE VENDOR BUNDLES (NO REMOTE)   -->
+  <!-- ========================================== -->
+  <script src="./vendor/tailwind.js"></script>
+  <script src="./vendor/vue.global.prod.js"></script>
+  <script src="./vendor/exceljs.min.js"></script>
+  <script src="./vendor/jspdf.umd.min.js"></script>
+  <script src="./vendor/jspdf.plugin.autotable.min.js"></script>
+  <script src="./vendor/docx.js"></script>
+  <script src="./vendor/sql-wasm.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased m-0 p-0 selection:bg-blue-600 selection:text-white">
+  <!-- Vue Application Mount Point -->
+  <div id="app"></div>
+
+  <!-- ========================================== -->
+  <!-- MODULAR JS ARCHITECTURE: SUB-FOLDERS       -->
+  <!-- ========================================== -->
+
+  <!-- 1. Utilities -->
+  <script src="./js/utils/formatters.js?v=2.1"></script>
+  <script src="./js/utils/validators.js?v=2.1"></script>
+  <script src="./js/utils/taxCalculator.js?v=2.1"></script>
+  <script src="./js/utils/numberToWords.js?v=2.1"></script>
+
+  <!-- 2. Services (Database & Multi-format Exporters) -->
+  <script src="./js/service/webSqlService.js?v=2.1"></script>
+  <script src="./js/service/excelExportService.js?v=2.1"></script>
+  <script src="./js/service/pdfExportService.js?v=2.1"></script>
+  <script src="./js/service/wordExportService.js?v=2.1"></script>
+
+  <!-- 3. Plugins -->
+  <script src="./js/plugins/notificationPlugin.js?v=2.1"></script>
+  <script src="./js/plugins/loggerPlugin.js?v=2.1"></script>
+
+  <!-- 4. Composables (Reactive Domain State) -->
+  <script src="./js/composable/useWebSql.js?v=2.1"></script>
+  <script src="./js/composable/useFirm.js?v=2.1"></script>
+  <script src="./js/composable/useInventory.js?v=2.1"></script>
+  <script src="./js/composable/useParties.js?v=2.1"></script>
+  <script src="./js/composable/useStockLedger.js?v=2.1"></script>
+  <script src="./js/composable/useBills.js?v=2.1"></script>
+  <script src="./js/composable/useKeyboardNavigation.js?v=2.1"></script>
+
+  <!-- 5. Components -->
+  <script src="./js/components/NavbarComponent.js?v=2.1"></script>
+  <script src="./js/components/SidebarComponent.js?v=2.1"></script>
+  <script src="./js/components/FooterComponent.js?v=2.1"></script>
+  <script src="./js/components/FirmSettingsComponent.js?v=2.1"></script>
+  <script src="./js/components/DashboardStatsComponent.js?v=2.1"></script>
+  <script src="./js/components/StockManagerComponent.js?v=2.1"></script>
+  <script src="./js/components/StockModalComponent.js?v=2.1"></script>
+  <script src="./js/components/BillManagerComponent.js?v=2.1"></script>
+  <script src="./js/components/InvoiceWorkspaceComponent.js?v=2.1"></script>
+  <script src="./js/components/StockLedgerComponent.js?v=2.1"></script>
+  <script src="./js/components/PartyManagerComponent.js?v=2.1"></script>
+  <script src="./js/components/ExportModalComponent.js?v=2.1"></script>
+  <script src="./js/components/SqlConsoleComponent.js?v=2.1"></script>
+  <script src="./js/components/ToastNotificationComponent.js?v=2.1"></script>
+
+  <!-- 6. Application Orchestrator -->
+  <script src="./js/app.js?v=2.1"></script>
+</body>
+</html>
