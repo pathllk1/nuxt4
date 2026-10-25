@@ -38,6 +38,12 @@
      */
     const restoreFocus = (fallbackSelector) => {
       setTimeout(() => {
+        // If ANY modal/overlay is currently visible or active in the DOM, do not restore focus to the background page!
+        const openModal = document.querySelector('.fixed:not([style*="display: none"]):not([style*="display:none"]), [role="dialog"], .quick-party-modal, .quick-stock-modal');
+        if (openModal && openModal.offsetHeight > 0) {
+          return;
+        }
+
         if (lastFocusedElement && typeof lastFocusedElement.focus === 'function' && document.body.contains(lastFocusedElement)) {
           lastFocusedElement.focus();
           if (lastFocusedElement instanceof HTMLInputElement || lastFocusedElement instanceof HTMLTextAreaElement) {
@@ -57,19 +63,32 @@
     };
 
     /**
-     * Auto focus an input or container when a modal opens
+     * Auto focus an input or container when a modal opens with robust retries
      */
-    const autoFocusContainer = (containerRef, inputSelector = 'input:not([type="hidden"]), select, textarea') => {
-      setTimeout(() => {
-        if (!containerRef) return;
-        const target = containerRef.querySelector(inputSelector);
-        if (target && typeof target.focus === 'function') {
+    const autoFocusContainer = (containerRef, inputSelector = 'input:not([type="hidden"]), select, textarea', maxAttempts = 5) => {
+      let attempts = 0;
+      const tryFocus = () => {
+        const root = (containerRef && containerRef.$el) ? containerRef.$el : (containerRef || document);
+        const target = root && root.querySelector ? root.querySelector(inputSelector) : null;
+        if (target && typeof target.focus === 'function' && target.offsetHeight > 0) {
           target.focus();
           if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
             if (typeof target.select === 'function') target.select();
           }
+          return true;
         }
-      }, 50);
+        attempts++;
+        if (attempts < maxAttempts) {
+          setTimeout(tryFocus, 35 * attempts);
+        }
+        return false;
+      };
+
+      if (!tryFocus()) {
+        setTimeout(tryFocus, 25);
+        setTimeout(tryFocus, 80);
+        setTimeout(tryFocus, 180);
+      }
     };
 
     /**

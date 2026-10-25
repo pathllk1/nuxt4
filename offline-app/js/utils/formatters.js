@@ -21,11 +21,17 @@
 
     formatCurrency(val) {
       const num = parseFloat(val);
-      if (isNaN(num)) return '$0.00';
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD'
-      }).format(num);
+      if (isNaN(num)) return '₹0.00';
+      try {
+        return new Intl.NumberFormat('en-IN', {
+          style: 'currency',
+          currency: 'INR',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }).format(num);
+      } catch (e) {
+        return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
     },
 
     truncate(text, length = 40) {

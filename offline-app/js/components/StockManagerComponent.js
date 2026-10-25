@@ -23,7 +23,28 @@
         expandedRows: new Set()
       };
     },
+    mounted() {
+      window.addEventListener('keydown', this.handleKeydown);
+    },
+    beforeUnmount() {
+      window.removeEventListener('keydown', this.handleKeydown);
+    },
     methods: {
+      handleKeydown(e) {
+        const modalOpen = document.querySelector('.fixed:not([style*="display: none"]):not([style*="display:none"]), [role="dialog"]');
+        if (modalOpen) return;
+        if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
+          e.preventDefault();
+          this.$emit('open-stock-modal');
+        } else if (e.key === 'F2' || (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT')) {
+          e.preventDefault();
+          const input = this.$el.querySelector('input[placeholder*="Search by name"]');
+          if (input) {
+            input.focus();
+            if (input.select) input.select();
+          }
+        }
+      },
       formatCurrency(val) {
         return global.Formatters ? global.Formatters.formatCurrency(val) : '₹' + Number(val).toFixed(2);
       },

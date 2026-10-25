@@ -82,6 +82,7 @@
         // History modal state
         historyItemIndex: null,
         historyRecords: [],
+        historyFilter: 'ALL', // 'ALL' | 'PARTY'
         historyLoading: false,
         historySelectedIndex: 0,
 
@@ -134,12 +135,9 @@
           this.partySearchQuery = '';
           this.partySelectedIndex = 0;
           this.selectedPartyJustSet = false;
-          this.$nextTick(() => {
-            const input = this.$refs.partyDrawerSearchInput;
-            if (input) input.focus();
-          });
+          this.focusPartyDrawerInput();
         } else {
-          if (!this.selectedPartyJustSet) {
+          if (!this.selectedPartyJustSet && !this.showQuickAddPartyModal && !this.wasPartyDrawerOpen) {
             this.restoreFocus();
           }
         }
@@ -169,12 +167,9 @@
           this.stockSelectedIndex = 0;
           this.expandedStockId = null;
           this.stockItemJustInserted = false;
-          this.$nextTick(() => {
-            const input = this.$refs.stockSearchInput;
-            if (input) input.focus();
-          });
+          this.focusStockSelectorInput();
         } else {
-          if (!this.stockItemJustInserted) {
+          if (!this.stockItemJustInserted && !this.showQuickAddStockModal && !this.wasStockSelectorOpen) {
             this.restoreFocus();
           }
         }
@@ -208,6 +203,15 @@
           }
         }
       },
+      historySelectedIndex() {
+        this.$nextTick(() => {
+          const activeRow = this.$el.querySelector('.active-history-row');
+          if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+        });
+      },
+      historyFilter() {
+        this.historySelectedIndex = 0;
+      },
       showHelpModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
@@ -222,10 +226,7 @@
       showQuickAddPartyModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.$nextTick(() => {
-            const el = this.$refs.quickPartyNameInput;
-            if (el) el.focus();
-          });
+          this.focusQuickPartyInput();
         } else {
           if (!this.wasPartyDrawerOpen) {
             this.restoreFocus();
@@ -235,10 +236,7 @@
       showQuickAddStockModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.$nextTick(() => {
-            const el = this.$refs.quickStockNameInput;
-            if (el) el.focus();
-          });
+          this.focusQuickStockInput();
         } else {
           if (!this.wasStockSelectorOpen) {
             this.restoreFocus();
@@ -283,6 +281,33 @@
       },
       firmDisplayName() {
         return (this.firm && (this.firm.name || this.firm.legal_name)) || '';
+      },
+      activeHistoryItem() {
+        if (this.historyItemIndex !== null && this.cart[this.historyItemIndex]) {
+          return this.cart[this.historyItemIndex];
+        }
+        return null;
+      },
+      filteredHistoryRecords() {
+        if (!this.historyRecords || !this.historyRecords.length) return [];
+        if (this.historyFilter === 'PARTY' && this.selectedParty) {
+          const pName = (this.selectedParty.name || '').toLowerCase().trim();
+          const pId = this.selectedParty.id;
+          return this.historyRecords.filter((r) => {
+            if (pId && r.partyId && Number(r.partyId) === Number(pId)) return true;
+            return (r.party_name || '').toLowerCase().trim() === pName;
+          });
+        }
+        return this.historyRecords;
+      },
+      partyHistoryCount() {
+        if (!this.selectedParty || !this.historyRecords) return 0;
+        const pName = (this.selectedParty.name || '').toLowerCase().trim();
+        const pId = this.selectedParty.id;
+        return this.historyRecords.filter((r) => {
+          if (pId && r.partyId && Number(r.partyId) === Number(pId)) return true;
+          return (r.party_name || '').toLowerCase().trim() === pName;
+        }).length;
       },
       filteredParties() {
         const q = (this.partySearchQuery || '').toLowerCase().trim();
@@ -612,10 +637,7 @@
         this.wasStockSelectorOpen = this.showStockSelectorModal;
         this.showStockSelectorModal = false;
         this.showQuickAddStockModal = true;
-        this.$nextTick(() => {
-          const el = this.$refs.quickStockNameInput;
-          if (el) el.focus();
-        });
+        this.focusQuickStockInput();
       },
       openEditStock(stock) {
         this.editingStockId = stock.id || stock._id;
@@ -635,13 +657,7 @@
         this.wasStockSelectorOpen = this.showStockSelectorModal;
         this.showStockSelectorModal = false;
         this.showQuickAddStockModal = true;
-        this.$nextTick(() => {
-          const el = this.$refs.quickStockNameInput;
-          if (el) {
-            el.focus();
-            el.select();
-          }
-        });
+        this.focusQuickStockInput();
       },
       closeQuickAddStock() {
         this.showQuickAddStockModal = false;
@@ -649,6 +665,9 @@
         if (this.wasStockSelectorOpen) {
           this.wasStockSelectorOpen = false;
           this.showStockSelectorModal = true;
+          this.focusStockSelectorInput();
+        } else {
+          this.restoreFocus();
         }
       },
       syncStockUomToBatches() {
@@ -819,6 +838,18 @@
       },
       removeCartRow(index) {
         this.cart.splice(index, 1);
+        this.$nextTick(() => {
+          if (this.cart.length > 0) {
+            const nextIdx = Math.min(index, this.cart.length - 1);
+            const targetInput = this.$el.querySelector(`tr[data-row="${nextIdx}"] input.qty-input, tr[data-row="${nextIdx}"] input.item-name-input`);
+            if (targetInput) {
+              targetInput.focus();
+              if (typeof targetInput.select === 'function') targetInput.select();
+            }
+          } else {
+            this.showStockSelectorModal = true;
+          }
+        });
       },
 
       // Other Charges (F4)
@@ -829,11 +860,11 @@
         this.otherCharges.splice(idx, 1);
       },
 
-      // Party-Item Rate History (Alt+H)
+      // Party-Item Rate History (Alt+H / F7)
       async openHistoryModal(index) {
         this.historyItemIndex = index;
         const row = this.cart[index];
-        if (!row || !row.item) {
+        if (!row || (!row.item && !row.stockId)) {
           if (this.$notify) this.$notify('Please select or specify an item description first', 'warning');
           return;
         }
@@ -841,24 +872,39 @@
         this.historyLoading = true;
         this.showHistoryModal = true;
         this.historyRecords = [];
+        this.historySelectedIndex = 0;
 
         try {
           const db = global.WebSqlService || global.webSqlService;
           if (db) {
             const query = `
-              SELECT bi.item, bi.rate, bi.qty, bi.uom, bi.disc, bi.grate, b.bno, b.btype, b.bdate, b.partyName as party_name
+              SELECT bi.item, bi.rate, bi.qty, bi.uom, bi.disc, bi.grate, b.bno, b.btype, b.bdate, b.partyId, b.partyName as party_name
               FROM bill_items bi
               JOIN bills b ON bi.billId = b.id
-              WHERE bi.item LIKE ?
-              ORDER BY b.bdate DESC LIMIT 10
+              WHERE (bi.item LIKE ? OR (bi.stockId = ? AND ? IS NOT NULL))
+              ORDER BY b.bdate DESC LIMIT 40
             `;
-            const res = await (db.executeSql ? db.executeSql(query, [`%${row.item}%`]) : db.execute(query, [`%${row.item}%`]));
+            const stockIdParam = row.stockId || null;
+            const res = await (db.executeSql
+              ? db.executeSql(query, [`%${row.item || ''}%`, stockIdParam, stockIdParam])
+              : db.execute(query, [`%${row.item || ''}%`, stockIdParam, stockIdParam]));
             this.historyRecords = (res && res.rows) || [];
+
+            // Auto-set filter to PARTY if party has history, else ALL
+            if (this.selectedParty && this.partyHistoryCount > 0) {
+              this.historyFilter = 'PARTY';
+            } else {
+              this.historyFilter = 'ALL';
+            }
           }
         } catch (err) {
           console.error('History fetch error:', err);
         } finally {
           this.historyLoading = false;
+          this.$nextTick(() => {
+            const el = this.$el.querySelector('.history-modal-container');
+            if (el) el.focus();
+          });
         }
       },
 
@@ -866,20 +912,23 @@
         const rowIdx = this.historyItemIndex;
         if (rowIdx !== null && this.cart[rowIdx]) {
           this.cart[rowIdx].rate = record.rate;
-          if (record.disc !== undefined) this.cart[rowIdx].disc = record.disc;
-          if (record.grate !== undefined) this.cart[rowIdx].grate = record.grate;
+          if (record.disc !== undefined && record.disc !== null) this.cart[rowIdx].disc = record.disc;
+          if (record.grate !== undefined && record.grate !== null) this.cart[rowIdx].grate = record.grate;
+          if (this.$notify) {
+            this.$notify(`Applied rate ₹${Number(record.rate).toFixed(2)} from ${record.bno || 'previous bill'}`, 'success');
+          }
         }
         this.historyRateJustApplied = true;
         this.showHistoryModal = false;
         setTimeout(() => {
           if (rowIdx !== null) {
-            const target = this.$el.querySelector(`tr[data-row="${rowIdx}"] input.rate-input, tr[data-row="${rowIdx}"] input.qty-input`);
+            const target = this.$el.querySelector(`tr[data-row="${rowIdx}"] input.rate-input`);
             if (target) {
               target.focus();
               if (typeof target.select === 'function') target.select();
             }
           }
-        }, 60);
+        }, 80);
       },
 
       openEditPartyModal(party) {
@@ -898,10 +947,7 @@
         this.wasPartyDrawerOpen = this.showPartyDrawer;
         this.showPartyDrawer = false;
         this.showQuickAddPartyModal = true;
-        this.$nextTick(() => {
-          const el = this.$refs.quickPartyNameInput;
-          if (el) el.focus();
-        });
+        this.focusQuickPartyInput();
       },
 
       openQuickAddParty() {
@@ -919,10 +965,7 @@
         this.wasPartyDrawerOpen = this.showPartyDrawer;
         this.showPartyDrawer = false;
         this.showQuickAddPartyModal = true;
-        this.$nextTick(() => {
-          const el = this.$refs.quickPartyNameInput;
-          if (el) el.focus();
-        });
+        this.focusQuickPartyInput();
       },
       closeQuickAddParty() {
         this.showQuickAddPartyModal = false;
@@ -930,6 +973,9 @@
         if (this.wasPartyDrawerOpen) {
           this.wasPartyDrawerOpen = false;
           this.showPartyDrawer = true;
+          this.focusPartyDrawerInput();
+        } else {
+          this.restoreFocus();
         }
       },
 
@@ -1005,13 +1051,11 @@
           if (this.filteredParties.length > 0 && this.partySelectedIndex < this.filteredParties.length) {
             this.selectParty(this.filteredParties[this.partySelectedIndex]);
           } else {
-            this.showPartyDrawer = false;
-            this.showQuickAddPartyModal = true;
+            this.openQuickAddParty();
           }
-        } else if (e.key === 'Insert') {
+        } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
           e.preventDefault();
-          this.showPartyDrawer = false;
-          this.showQuickAddPartyModal = true;
+          this.openQuickAddParty();
         } else if (e.key === 'Escape') {
           e.preventDefault();
           this.showPartyDrawer = false;
@@ -1028,6 +1072,15 @@
       // Save Invoice (F8)
       async handleSave() {
         if (!this.canSave) {
+          if (!this.selectedParty) {
+            if (this.$notify) this.$notify('Please select a customer / supplier party first (F3)', 'warning');
+            this.saveFocus();
+            this.showPartyDrawer = true;
+          } else {
+            if (this.$notify) this.$notify('Please add at least one item with valid quantity (F2)', 'warning');
+            this.saveFocus();
+            this.showStockSelectorModal = true;
+          }
           return;
         }
 
@@ -1153,7 +1206,7 @@
           if (e.key === 'Escape') {
             e.preventDefault();
             this.closeQuickAddParty();
-          } else if (e.key === 'F8') {
+          } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
             e.preventDefault();
             this.handleQuickAddParty();
           }
@@ -1184,13 +1237,7 @@
 
         // 4. Party Drawer (Level 1)
         if (this.showPartyDrawer) {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            this.showPartyDrawer = false;
-          } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
-            e.preventDefault();
-            this.openQuickAddParty();
-          }
+          this.handlePartyDrawerKeydown(e);
           return;
         }
 
@@ -1248,13 +1295,26 @@
           this.addCartRow('SERVICE');
         } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S'))) {
           e.preventDefault();
-          if (this.canSave) this.handleSave();
+          this.handleSave();
         } else if (e.key === 'F9') {
           e.preventDefault();
           this.$emit('cancel');
-        } else if (e.altKey && (e.key === 'h' || e.key === 'H')) {
+        } else if ((e.altKey && (e.key.toLowerCase() === 'h' || e.code === 'KeyH')) || e.key === 'F7') {
           e.preventDefault();
-          if (this.cart.length > 0) this.openHistoryModal(0);
+          let targetIdx = 0;
+          const activeRowEl = document.activeElement && document.activeElement.closest('tr[data-row]');
+          if (activeRowEl) {
+            targetIdx = parseInt(activeRowEl.getAttribute('data-row'), 10) || 0;
+          } else if (this.historyItemIndex !== null && this.historyItemIndex < this.cart.length) {
+            targetIdx = this.historyItemIndex;
+          }
+          if (this.cart.length > 0 && targetIdx < this.cart.length) {
+            this.openHistoryModal(targetIdx);
+          } else if (this.cart.length > 0) {
+            this.openHistoryModal(0);
+          } else {
+            if (this.$notify) this.$notify('Add an item to the cart first to view rate history', 'info');
+          }
         } else if (e.altKey && (e.key === 'e' || e.key === 'E')) {
           e.preventDefault();
           if (this.selectedParty && !this.isReturnMode) {
@@ -1272,6 +1332,76 @@
       },
 
       // Keyboard Navigation Composable Proxies
+      focusQuickPartyInput() {
+        const tryFocus = () => {
+          const input = (this.$el && this.$el.querySelector('.quick-party-modal input, #quick-party-name-input, input[placeholder*="Business or Person"]')) || this.$refs.quickPartyNameInput;
+          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
+            input.focus();
+            if (typeof input.select === 'function') input.select();
+            return true;
+          }
+          return false;
+        };
+        this.$nextTick(() => {
+          if (!tryFocus()) {
+            setTimeout(tryFocus, 30);
+            setTimeout(tryFocus, 90);
+            setTimeout(tryFocus, 200);
+          }
+        });
+        setTimeout(tryFocus, 30);
+        setTimeout(tryFocus, 90);
+        setTimeout(tryFocus, 200);
+      },
+      focusQuickStockInput() {
+        const tryFocus = () => {
+          const input = (this.$el && this.$el.querySelector('.quick-stock-modal input, #quick-stock-name-input, input[placeholder*="Item / Part Name"]')) || this.$refs.quickStockNameInput;
+          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
+            input.focus();
+            if (typeof input.select === 'function') input.select();
+            return true;
+          }
+          return false;
+        };
+        this.$nextTick(() => {
+          if (!tryFocus()) {
+            setTimeout(tryFocus, 30);
+            setTimeout(tryFocus, 90);
+            setTimeout(tryFocus, 200);
+          }
+        });
+        setTimeout(tryFocus, 30);
+        setTimeout(tryFocus, 90);
+        setTimeout(tryFocus, 200);
+      },
+      focusPartyDrawerInput() {
+        const tryFocus = () => {
+          const input = this.$refs.partyDrawerSearchInput || (this.$el && this.$el.querySelector('.party-drawer input, input[placeholder*="Search party"]'));
+          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
+            input.focus();
+            if (typeof input.select === 'function') input.select();
+            return true;
+          }
+          return false;
+        };
+        this.$nextTick(tryFocus);
+        setTimeout(tryFocus, 30);
+        setTimeout(tryFocus, 90);
+      },
+      focusStockSelectorInput() {
+        const tryFocus = () => {
+          const input = this.$refs.stockSearchInput || (this.$el && this.$el.querySelector('.stock-selector-modal input, input[placeholder*="Search by Item name"]'));
+          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
+            input.focus();
+            if (typeof input.select === 'function') input.select();
+            return true;
+          }
+          return false;
+        };
+        this.$nextTick(tryFocus);
+        setTimeout(tryFocus, 30);
+        setTimeout(tryFocus, 90);
+      },
       saveFocus() {
         if (this.nav && typeof this.nav.saveFocus === 'function') {
           this.nav.saveFocus();
@@ -1430,26 +1560,47 @@
         if (form && this.nav) this.nav.handleBackspaceKey(e, form);
       },
 
-      // History Modal Navigation
+      // History Modal Navigation (↑↓, Enter, ESC, 1-9 Quick Apply, P/A Filter, Tab Toggle)
       handleHistoryModalKeydown(e) {
+        const list = this.filteredHistoryRecords;
         if (e.key === 'ArrowDown') {
           e.preventDefault();
-          if (this.historyRecords.length > 0) {
-            this.historySelectedIndex = (this.historySelectedIndex + 1) % this.historyRecords.length;
+          if (list.length > 0) {
+            this.historySelectedIndex = (this.historySelectedIndex + 1) % list.length;
           }
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
-          if (this.historyRecords.length > 0) {
-            this.historySelectedIndex = (this.historySelectedIndex - 1 + this.historyRecords.length) % this.historyRecords.length;
+          if (list.length > 0) {
+            this.historySelectedIndex = (this.historySelectedIndex - 1 + list.length) % list.length;
           }
         } else if (e.key === 'Enter') {
           e.preventDefault();
-          if (this.historyRecords.length > 0 && this.historySelectedIndex < this.historyRecords.length) {
-            this.applyHistoryRate(this.historyRecords[this.historySelectedIndex]);
+          if (list.length > 0 && this.historySelectedIndex < list.length) {
+            this.applyHistoryRate(list[this.historySelectedIndex]);
           }
         } else if (e.key === 'Escape') {
           e.preventDefault();
           this.showHistoryModal = false;
+        } else if (e.key === 'p' || e.key === 'P') {
+          if (this.selectedParty) {
+            e.preventDefault();
+            this.historyFilter = 'PARTY';
+          }
+        } else if (e.key === 'a' || e.key === 'A') {
+          e.preventDefault();
+          this.historyFilter = 'ALL';
+        } else if (e.key === 'Tab') {
+          if (this.selectedParty) {
+            e.preventDefault();
+            this.historyFilter = this.historyFilter === 'ALL' ? 'PARTY' : 'ALL';
+          }
+        } else if (/^[1-9]$/.test(e.key)) {
+          const idx = parseInt(e.key, 10) - 1;
+          if (idx >= 0 && idx < list.length) {
+            e.preventDefault();
+            this.historySelectedIndex = idx;
+            this.applyHistoryRate(list[idx]);
+          }
         }
       },
 
@@ -2206,61 +2357,206 @@
         </div>
 
         <!-- 4. Party-Item Rate History Modal (Alt+H) -->
-        <div v-if="showHistoryModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-2xs p-4" style="z-index: 60;" @click.self="showHistoryModal = false">
+        <div v-if="showHistoryModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4" style="z-index: 60;" @click.self="showHistoryModal = false">
           <div 
-            class="history-modal-container bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden outline-none" 
+            class="history-modal-container bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden outline-none flex flex-col max-h-[85vh]" 
             tabindex="0"
             @keydown="handleHistoryModalKeydown"
           >
-            <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <!-- Modal Header -->
+            <div class="p-4 border-b border-slate-200 bg-slate-50 flex items-start justify-between">
               <div>
-                <h3 class="text-sm font-black text-slate-900 uppercase">Rate & Transaction History (Alt+H)</h3>
-                <p class="text-[10px] text-slate-500">Previous billing rates (↑↓ Navigate • Enter Apply • ESC Close)</p>
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                  <h3 class="text-sm font-black text-slate-900 uppercase tracking-wide">Rate & Transaction History</h3>
+                  <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-mono font-black text-[10px]">Alt+H / F7</span>
+                </div>
+                <div class="mt-1 flex items-center gap-3 text-xs">
+                  <span class="font-bold text-slate-800 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-2xs">
+                    📦 {{ activeHistoryItem ? activeHistoryItem.item : 'Selected Item' }}
+                  </span>
+                  <span v-if="selectedParty" class="text-slate-500 font-medium">
+                    Party: <strong class="text-slate-700">{{ selectedParty.name }}</strong>
+                  </span>
+                </div>
               </div>
-              <button @click="showHistoryModal = false" class="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer" title="Close (ESC)">&times;</button>
+              <button @click="showHistoryModal = false" class="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer leading-none p-1" title="Close (ESC)">&times;</button>
             </div>
-            <div class="p-4 max-h-80 overflow-y-auto">
-              <div v-if="historyLoading" class="py-8 text-center text-xs text-slate-400">Loading history...</div>
-              <div v-else-if="historyRecords.length === 0" class="py-8 text-center text-xs text-slate-400 italic">
-                No past transactions found for this item.
+
+            <!-- Filter Switch Bar (Party vs All) -->
+            <div class="px-4 py-2 border-b border-slate-100 bg-slate-100/60 flex items-center justify-between text-xs">
+              <div class="flex items-center gap-1.5">
+                <button 
+                  type="button"
+                  @click="historyFilter = 'PARTY'"
+                  :disabled="!selectedParty || partyHistoryCount === 0"
+                  :class="historyFilter === 'PARTY' ? 'bg-indigo-600 text-white shadow-xs font-black' : 'bg-white hover:bg-slate-200 text-slate-600 border border-slate-200 font-bold disabled:opacity-40 disabled:hover:bg-white cursor-pointer'"
+                  class="px-2.5 py-1 rounded-lg text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>This Party Only</span>
+                  <span :class="historyFilter === 'PARTY' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'" class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold">{{ partyHistoryCount }}</span>
+                  <kbd :class="historyFilter === 'PARTY' ? 'text-indigo-200' : 'text-slate-400'" class="font-mono text-[9px] font-bold">[P]</kbd>
+                </button>
+
+                <button 
+                  type="button"
+                  @click="historyFilter = 'ALL'"
+                  :class="historyFilter === 'ALL' ? 'bg-indigo-600 text-white shadow-xs font-black' : 'bg-white hover:bg-slate-200 text-slate-600 border border-slate-200 font-bold cursor-pointer'"
+                  class="px-2.5 py-1 rounded-lg text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>All Parties</span>
+                  <span :class="historyFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'" class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold">{{ historyRecords.length }}</span>
+                  <kbd :class="historyFilter === 'ALL' ? 'text-indigo-200' : 'text-slate-400'" class="font-mono text-[9px] font-bold">[A]</kbd>
+                </button>
               </div>
-              <table v-else class="w-full text-left text-xs divide-y divide-slate-100">
-                <thead>
-                  <tr class="text-[10px] font-bold text-slate-400 uppercase">
-                    <th class="py-1 px-2">Date</th>
-                    <th class="py-1 px-2">Bill #</th>
-                    <th class="py-1 px-2">Party</th>
-                    <th class="py-1 px-2 text-right">Qty</th>
-                    <th class="py-1 px-2 text-right">Rate</th>
-                    <th class="py-1 px-2 text-center">Action</th>
+
+              <div class="text-[10px] text-slate-400 font-semibold hidden sm:block">
+                Press <kbd class="px-1 py-0.2 bg-white border border-slate-300 rounded font-mono text-[9px] font-bold">Tab</kbd> to toggle filter
+              </div>
+            </div>
+
+            <!-- Table Body -->
+            <div class="p-0 overflow-y-auto flex-1 min-h-[180px] max-h-[380px]">
+              <div v-if="historyLoading" class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+                <span class="animate-spin text-lg">⏳</span>
+                <span>Fetching transaction history from local database...</span>
+              </div>
+              <div v-else-if="filteredHistoryRecords.length === 0" class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-1">
+                <span class="text-slate-300 text-2xl font-bold">∅</span>
+                <span class="font-bold text-slate-600">No past transactions found</span>
+                <span v-if="historyFilter === 'PARTY'" class="text-[11px] text-slate-400">
+                  No previous records with {{ selectedParty ? selectedParty.name : 'this party' }}. Press <kbd class="px-1 py-0.5 bg-slate-100 border border-slate-200 rounded font-mono font-bold text-slate-600">A</kbd> to view all parties.
+                </span>
+                <span v-else class="text-[11px] text-slate-400">
+                  No prior sales or purchases recorded for this item.
+                </span>
+              </div>
+              <table v-else class="w-full text-left text-xs divide-y divide-slate-100 border-collapse">
+                <thead class="sticky top-0 bg-slate-50 shadow-2xs z-10">
+                  <tr class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <th class="py-2 px-3 text-center w-10">#</th>
+                    <th class="py-2 px-2 w-16">Type</th>
+                    <th class="py-2 px-2">Date</th>
+                    <th class="py-2 px-2">Bill #</th>
+                    <th class="py-2 px-3">Party</th>
+                    <th class="py-2 px-2 text-right">Qty</th>
+                    <th class="py-2 px-2 text-right">Disc %</th>
+                    <th class="py-2 px-3 text-right">Rate</th>
+                    <th class="py-2 px-3 text-center w-20">Action</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                   <tr 
-                    v-for="(rec, rIdx) in historyRecords" 
+                    v-for="(rec, rIdx) in filteredHistoryRecords" 
                     :key="rIdx" 
-                    :class="historySelectedIndex === rIdx ? 'bg-blue-600 text-white font-bold' : 'hover:bg-slate-50 text-slate-700'"
-                    class="transition-colors cursor-pointer"
+                    :class="historySelectedIndex === rIdx ? 'active-history-row bg-indigo-600 text-white font-semibold' : 'hover:bg-slate-50/80 text-slate-700'"
+                    class="transition-colors cursor-pointer group"
                     @click="applyHistoryRate(rec)"
                   >
-                    <td class="py-2 px-2" :class="historySelectedIndex === rIdx ? 'text-blue-100' : 'text-slate-500'">{{ rec.bdate }}</td>
-                    <td class="py-2 px-2 font-mono font-bold">{{ rec.bno }}</td>
-                    <td class="py-2 px-2 truncate max-w-[120px]">{{ rec.party_name }}</td>
-                    <td class="py-2 px-2 text-right">{{ rec.qty }} {{ rec.uom }}</td>
-                    <td class="py-2 px-2 text-right font-bold" :class="historySelectedIndex === rIdx ? 'text-white' : 'text-slate-900'">{{ formatCurrency(rec.rate) }}</td>
-                    <td class="py-2 px-2 text-center">
+                    <td class="py-2 px-3 text-center">
+                      <span v-if="rIdx < 9" :class="historySelectedIndex === rIdx ? 'bg-white/20 text-white border-white/40' : 'bg-slate-100 text-slate-600 border-slate-200'" class="px-1.5 py-0.5 rounded font-mono font-black text-[10px] border shadow-2xs">
+                        {{ rIdx + 1 }}
+                      </span>
+                      <span v-else class="text-[10px] text-slate-400 font-mono">{{ rIdx + 1 }}</span>
+                    </td>
+                    <td class="py-2 px-2">
+                      <span 
+                        v-if="rec.btype === 'PURCHASE'"
+                        :class="historySelectedIndex === rIdx ? 'bg-purple-200 text-purple-900' : 'bg-purple-100 text-purple-700 border border-purple-200'" 
+                        class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider"
+                      >
+                        PUR
+                      </span>
+                      <span 
+                        v-else
+                        :class="historySelectedIndex === rIdx ? 'bg-sky-200 text-sky-900' : 'bg-sky-100 text-sky-700 border border-sky-200'" 
+                        class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider"
+                      >
+                        SALE
+                      </span>
+                    </td>
+                    <td class="py-2 px-2 whitespace-nowrap text-[11px]" :class="historySelectedIndex === rIdx ? 'text-indigo-100' : 'text-slate-500'">{{ rec.bdate }}</td>
+                    <td class="py-2 px-2 font-mono font-bold text-[11px] whitespace-nowrap">{{ rec.bno }}</td>
+                    <td class="py-2 px-3 truncate max-w-[150px]">
+                      <div class="flex items-center gap-1">
+                        <span class="truncate font-semibold">{{ rec.party_name }}</span>
+                        <span 
+                          v-if="selectedParty && ((rec.partyId && Number(rec.partyId) === Number(selectedParty.id)) || (rec.party_name && rec.party_name.toLowerCase().trim() === (selectedParty.name || '').toLowerCase().trim()))" 
+                          :class="historySelectedIndex === rIdx ? 'bg-amber-400 text-amber-950' : 'bg-amber-100 text-amber-700 border border-amber-200'" 
+                          class="px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-widest shrink-0"
+                          title="Matches current party"
+                        >
+                          ★ MATCH
+                        </span>
+                      </div>
+                    </td>
+                    <td class="py-2 px-2 text-right whitespace-nowrap text-[11px]">{{ rec.qty }} <span class="text-[9px] opacity-75">{{ rec.uom }}</span></td>
+                    <td class="py-2 px-2 text-right text-[11px]" :class="historySelectedIndex === rIdx ? 'text-indigo-100' : 'text-slate-400'">
+                      {{ Number(rec.disc) > 0 ? (rec.disc + '%') : '-' }}
+                    </td>
+                    <td class="py-2 px-3 text-right font-black text-xs whitespace-nowrap" :class="historySelectedIndex === rIdx ? 'text-white' : 'text-indigo-700'">
+                      {{ formatCurrency(rec.rate) }}
+                    </td>
+                    <td class="py-2 px-3 text-center">
                       <button
                         type="button"
                         @click.stop="applyHistoryRate(rec)"
-                        :class="historySelectedIndex === rIdx ? 'bg-white text-blue-700' : 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200'"
-                        class="px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer"
+                        :class="historySelectedIndex === rIdx ? 'bg-white text-indigo-700 font-black shadow-sm' : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 font-bold'"
+                        class="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider cursor-pointer transition-all"
                       >
-                        Apply Rate
+                        Apply
                       </button>
                     </td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <!-- Modal Footer with Keyboard Shortcuts -->
+            <div class="p-3 px-4 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+                <span class="flex items-center gap-1 font-bold">
+                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">1-9</kbd>
+                  <span>Quick Pick</span>
+                </span>
+                <span class="text-slate-300">&bull;</span>
+                <span class="flex items-center gap-1 font-bold">
+                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">↑↓</kbd>
+                  <span>Navigate</span>
+                </span>
+                <span class="text-slate-300">&bull;</span>
+                <span class="flex items-center gap-1 font-bold">
+                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">Enter</kbd>
+                  <span>Apply Rate</span>
+                </span>
+                <span class="text-slate-300">&bull;</span>
+                <span class="flex items-center gap-1 font-bold">
+                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">P/A/Tab</kbd>
+                  <span>Filter</span>
+                </span>
+                <span class="text-slate-300">&bull;</span>
+                <span class="flex items-center gap-1 font-bold">
+                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">ESC</kbd>
+                  <span>Close</span>
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button 
+                  type="button" 
+                  @click="showHistoryModal = false"
+                  class="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  Close (ESC)
+                </button>
+                <button 
+                  v-if="filteredHistoryRecords.length > 0"
+                  type="button" 
+                  @click="applyHistoryRate(filteredHistoryRecords[historySelectedIndex])"
+                  class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm"
+                >
+                  Apply Rate (Enter)
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2335,7 +2631,7 @@
 
         <!-- 6. Quick Add Party Modal (Insert) -->
         <div v-if="showQuickAddPartyModal" class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4" style="z-index: 70;" @click.self="closeQuickAddParty">
-          <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
+          <div class="quick-party-modal bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
             <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <h3 class="text-sm font-black text-slate-900 uppercase">
                 {{ editingPartyId ? 'Edit Party (Alt+E)' : 'Quick Add Party (Insert)' }}
@@ -2345,7 +2641,7 @@
             <div class="modal-form p-4 space-y-2.5 text-xs" @keydown.enter="onPartyFormEnter($event)" @keydown.backspace="onFormBackspace($event)">
               <div>
                 <span class="font-bold text-slate-700 block mb-0.5">Party Name *</span>
-                <input ref="quickPartyNameInput" type="text" v-model="newPartyForm.name" placeholder="Business or Person Name" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold outline-none focus:border-blue-500" />
+                <input ref="quickPartyNameInput" id="quick-party-name-input" type="text" v-model="newPartyForm.name" placeholder="Business or Person Name" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold outline-none focus:border-blue-500" />
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
@@ -2362,11 +2658,14 @@
                 <input type="text" v-model="newPartyForm.address" placeholder="Billing Street Address" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1 text-xs" />
               </div>
             </div>
-            <div class="p-3 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
-              <button type="button" @click="closeQuickAddParty" class="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200 cursor-pointer">Cancel (ESC)</button>
-              <button type="button" @click="handleQuickAddParty" class="px-4 py-1.5 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 cursor-pointer">
-                {{ editingPartyId ? 'Update & Select (F8)' : 'Save & Select (F8)' }}
-              </button>
+            <div class="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+              <span class="text-[10px] text-slate-400 font-bold hidden sm:inline">ENTER: Next • F8/Ctrl+S: Save • ESC: Cancel</span>
+              <div class="flex items-center gap-2">
+                <button type="button" @click="closeQuickAddParty" class="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200 cursor-pointer">Cancel (ESC)</button>
+                <button type="button" @click="handleQuickAddParty" class="px-4 py-1.5 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 cursor-pointer">
+                  {{ editingPartyId ? 'Update & Select (F8)' : 'Save & Select (F8)' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>

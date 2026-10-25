@@ -138,7 +138,7 @@
               </div>
 
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Valuation / Cost ($)</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Valuation / Cost (₹)</label>
                 <input
                   type="number"
                   step="any"

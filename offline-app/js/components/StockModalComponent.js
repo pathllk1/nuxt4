@@ -47,13 +47,25 @@
           } else {
             this.resetForm();
           }
-          this.$nextTick(() => {
-            const input = this.$refs.itemNameInput;
-            if (input) {
+          const focusInput = () => {
+            const input = this.$refs.itemNameInput || (this.$el && this.$el.querySelector('input[placeholder*="Item / Part Name"], #stock-item-form input'));
+            if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
               input.focus();
-              input.select();
+              if (typeof input.select === 'function') input.select();
+              return true;
+            }
+            return false;
+          };
+          this.$nextTick(() => {
+            if (!focusInput()) {
+              setTimeout(focusInput, 30);
+              setTimeout(focusInput, 90);
+              setTimeout(focusInput, 200);
             }
           });
+          setTimeout(focusInput, 30);
+          setTimeout(focusInput, 90);
+          setTimeout(focusInput, 200);
         }
       }
     },

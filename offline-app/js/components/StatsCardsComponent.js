@@ -11,7 +11,7 @@
     },
     methods: {
       formatCurrency(val) {
-        return global.Formatters ? global.Formatters.formatCurrency(val) : '$' + Number(val).toFixed(2);
+        return global.Formatters ? global.Formatters.formatCurrency(val) : '₹' + Number(val || 0).toFixed(2);
       }
     },
     template: `
