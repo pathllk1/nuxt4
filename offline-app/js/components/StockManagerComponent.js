@@ -20,7 +20,8 @@
     ],
     data() {
       return {
-        expandedRows: new Set()
+        expandedRows: new Set(),
+        selectedStockIndex: -1
       };
     },
     mounted() {
@@ -33,17 +34,72 @@
       handleKeydown(e) {
         const modalOpen = document.querySelector('.fixed:not([style*="display: none"]):not([style*="display:none"]), [role="dialog"]');
         if (modalOpen) return;
+
         if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
           e.preventDefault();
           this.$emit('open-stock-modal');
-        } else if (e.key === 'F2' || (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT')) {
+          return;
+        }
+
+        if (e.key === 'F2' || (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT')) {
           e.preventDefault();
           const input = this.$el.querySelector('input[placeholder*="Search by name"]');
           if (input) {
             input.focus();
             if (input.select) input.select();
           }
+          return;
         }
+
+        const len = (this.stocks || []).length;
+        if (len === 0) return;
+
+        if (e.key === 'ArrowDown') {
+          if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+            e.preventDefault();
+            document.activeElement.blur();
+            this.selectedStockIndex = 0;
+            this.scrollRow(0);
+            return;
+          }
+          if (this.selectedStockIndex < len - 1) {
+            e.preventDefault();
+            this.selectedStockIndex++;
+            this.scrollRow(this.selectedStockIndex);
+          }
+        } else if (e.key === 'ArrowUp') {
+          if (this.selectedStockIndex > 0) {
+            e.preventDefault();
+            this.selectedStockIndex--;
+            this.scrollRow(this.selectedStockIndex);
+          } else if (this.selectedStockIndex === 0) {
+            e.preventDefault();
+            this.selectedStockIndex = -1;
+            const input = this.$el.querySelector('input[placeholder*="Search by name"]');
+            if (input) input.focus();
+          }
+        } else if (e.key === 'Enter') {
+          if (this.selectedStockIndex >= 0 && this.selectedStockIndex < len && (!document.activeElement || document.activeElement.tagName !== 'INPUT')) {
+            e.preventDefault();
+            this.$emit('edit-stock', this.stocks[this.selectedStockIndex]);
+          }
+        } else if (e.key === ' ' || e.key === 'Spacebar') {
+          if (this.selectedStockIndex >= 0 && this.selectedStockIndex < len && (!document.activeElement || document.activeElement.tagName !== 'INPUT')) {
+            e.preventDefault();
+            this.toggleExpand(this.stocks[this.selectedStockIndex].id);
+          }
+        } else if (e.key === 'Delete') {
+          if (this.selectedStockIndex >= 0 && this.selectedStockIndex < len && (!document.activeElement || document.activeElement.tagName !== 'INPUT')) {
+            e.preventDefault();
+            this.$emit('delete-stock', this.stocks[this.selectedStockIndex]);
+          }
+        }
+      },
+      scrollRow(idx) {
+        this.$nextTick(() => {
+          const row = this.$el.querySelector(`tbody tr[data-index="${idx}"]`);
+          if (row) row.scrollIntoView({ block: 'nearest' });
+        });
       },
       formatCurrency(val) {
         return global.Formatters ? global.Formatters.formatCurrency(val) : '₹' + Number(val).toFixed(2);
@@ -96,7 +152,10 @@
                 type="text"
                 :value="searchQuery"
                 @input="$emit('update:searchQuery', $event.target.value)"
-                placeholder="Search by name, HSN, or Part No..."
+                @keydown.esc.prevent="$event.target.blur()"
+                @keydown.down.prevent="$event.target.blur(); selectedStockIndex = 0; scrollRow(0)"
+                @keydown.enter.prevent="$event.target.blur(); if (stocks.length > 0) $emit('edit-stock', stocks[selectedStockIndex >= 0 ? selectedStockIndex : 0])"
+                placeholder="Search by name, HSN, or Part No... (/ to focus • ESC to blur)"
                 class="w-full bg-white border border-slate-300 rounded-md pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
               />
             </div>
@@ -160,9 +219,14 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              <template v-for="stock in stocks" :key="stock.id">
+              <template v-for="(stock, idx) in stocks" :key="stock.id">
                 <tr
-                  class="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                  :data-index="idx"
+                  :class="{
+                    'bg-blue-100/70 ring-1 ring-blue-400 font-bold': selectedStockIndex === idx,
+                    'hover:bg-blue-50/40': selectedStockIndex !== idx
+                  }"
+                  class="transition-colors cursor-pointer group"
                   @click="toggleExpand(stock.id)"
                 >
                   <!-- Item Details (with chevron expander) -->

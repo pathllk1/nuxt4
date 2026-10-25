@@ -15,6 +15,8 @@
       StockModalComponent: global.StockModalComponent,
       BillManagerComponent: global.BillManagerComponent,
       InvoiceWorkspaceComponent: global.InvoiceWorkspaceComponent,
+      InvoicePrintModal: global.InvoicePrintModal,
+      PartyModalComponent: global.PartyModalComponent,
       StockLedgerComponent: global.StockLedgerComponent,
       PartyManagerComponent: global.PartyManagerComponent,
       ExportModalComponent: global.ExportModalComponent,
@@ -124,13 +126,36 @@
         currentTab.value = 'purchase_workspace';
       };
 
-      const openReturnWorkspace = (bill) => {
+      const openReturnWorkspace = async (bill) => {
+        if (!bill) return;
         isReturnMode.value = true;
-        sourceReturnBill.value = bill;
+        let items = [];
+        try {
+          items = await billsManager.getBillItems(bill.id);
+        } catch (e) {
+          console.error('[app.js] Error fetching return bill items:', e);
+        }
+        sourceReturnBill.value = { ...bill, items };
         if (bill.btype === 'PURCHASE') {
           currentTab.value = 'purchase_workspace';
         } else {
           currentTab.value = 'sales_workspace';
+        }
+      };
+
+      const handleCancelWorkspace = () => {
+        isReturnMode.value = false;
+        sourceReturnBill.value = null;
+        currentTab.value = 'bills';
+      };
+
+      const handleTabChange = (tab) => {
+        if (tab !== currentTab.value) {
+          if (tab === 'sales_workspace' || tab === 'purchase_workspace') {
+            isReturnMode.value = false;
+            sourceReturnBill.value = null;
+          }
+          currentTab.value = tab;
         }
       };
 
@@ -231,6 +256,8 @@
         openSalesWorkspace,
         openPurchaseWorkspace,
         openReturnWorkspace,
+        handleCancelWorkspace,
+        handleTabChange,
         handleSaveInvoiceWorkspace,
         handleDownloadPdf,
         handleDownloadWord,
@@ -253,7 +280,7 @@
           :firm="firm"
           :active-location="activeLocation"
           :engine-type="webSql.engineType"
-          @change-tab="(tab) => currentTab = tab"
+          @change-tab="handleTabChange"
           @open-export="showExportModal = true"
         />
 
@@ -264,7 +291,7 @@
             :current-tab="currentTab"
             :is-collapsed="isSidebarCollapsed"
             :firm="firm"
-            @change-tab="(tab) => currentTab = tab"
+            @change-tab="handleTabChange"
             @toggle-collapse="isSidebarCollapsed = !isSidebarCollapsed"
             class="hidden md:block"
           />
@@ -285,7 +312,7 @@
                 :firm="firm"
                 :firm-locations="firmLocations"
                 :loading="inventory.loading"
-                @navigate-tab="(tab) => currentTab = tab"
+                @navigate-tab="handleTabChange"
                 @open-stock-modal="openAddStock"
                 @open-sales="openSalesWorkspace('GOODS')"
                 @open-purchase="openPurchaseWorkspace('GOODS')"
@@ -314,6 +341,7 @@
             <section v-if="currentTab === 'bills'" class="w-full p-3 sm:p-4">
               <BillManagerComponent
                 :bills="bills"
+                :firm="firm"
                 v-model:selected-type="billSelectedType"
                 v-model:search-query="billSearchQuery"
                 :loading="billsManager.loading"
@@ -330,6 +358,7 @@
             <!-- 3. Sales Invoice Workspace (100% Flush Full-Bleed Matching Image 1) -->
             <section v-if="currentTab === 'sales_workspace'" class="w-full">
               <InvoiceWorkspaceComponent
+                :key="'sales_' + (isReturnMode ? ('ret_' + (sourceReturnBill ? sourceReturnBill.id : '0')) : 'normal')"
                 mode="sales"
                 :parties="parties"
                 :stocks="inventory.stocks.value"
@@ -342,13 +371,14 @@
                 @save-invoice="handleSaveInvoiceWorkspace"
                 @add-party="(p) => partiesManager.addParty(p)"
                 @add-stock="(s) => inventory.addStock(s)"
-                @cancel="currentTab = 'bills'"
+                @cancel="handleCancelWorkspace"
               />
             </section>
 
             <!-- 4. Purchase Bill Workspace (100% Flush Full-Bleed Matching Image 1) -->
             <section v-if="currentTab === 'purchase_workspace'" class="w-full">
               <InvoiceWorkspaceComponent
+                :key="'purchase_' + (isReturnMode ? ('ret_' + (sourceReturnBill ? sourceReturnBill.id : '0')) : 'normal')"
                 mode="purchase"
                 :parties="parties"
                 :stocks="inventory.stocks.value"
@@ -361,7 +391,7 @@
                 @save-invoice="handleSaveInvoiceWorkspace"
                 @add-party="(p) => partiesManager.addParty(p)"
                 @add-stock="(s) => inventory.addStock(s)"
-                @cancel="currentTab = 'bills'"
+                @cancel="handleCancelWorkspace"
               />
             </section>
 
@@ -431,6 +461,24 @@
   const app = createApp(App);
   app.use(global.NotificationPlugin);
   app.use(global.LoggerPlugin);
+
+  // Globally register components so child components can seamlessly resolve them
+  if (global.InvoicePrintModal) {
+    app.component('InvoicePrintModal', global.InvoicePrintModal);
+    app.component('invoice-print-modal', global.InvoicePrintModal);
+  }
+  if (global.PartyModalComponent) {
+    app.component('PartyModalComponent', global.PartyModalComponent);
+    app.component('party-modal-component', global.PartyModalComponent);
+  }
+  if (global.StockModalComponent) {
+    app.component('StockModalComponent', global.StockModalComponent);
+    app.component('stock-modal-component', global.StockModalComponent);
+  }
+  if (global.ExportModalComponent) {
+    app.component('ExportModalComponent', global.ExportModalComponent);
+    app.component('export-modal-component', global.ExportModalComponent);
+  }
 
   const mountedInstance = app.mount('#app');
   if (mountedInstance.setNotifyAndAudit) {

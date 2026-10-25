@@ -72,7 +72,7 @@
 
         if (qty > 0) {
           await global.WebSqlService.executeSql(
-            `INSERT INTO stock_reg (type, bno, bdate, stockId, item, qty, qtyh, rate, partyName, timestamp)
+            `INSERT INTO stock_reg (type, bno, bdate, stock_id, item, qty, qtyh, rate, partyName, timestamp)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             ['OPENING', 'INITIAL', today, res.insertId, stockData.item, qty, qty, cost_rate, 'Manual Stock Addition', now]
           );
@@ -136,7 +136,7 @@
         );
 
         await global.WebSqlService.executeSql(
-          `INSERT INTO stock_reg (type, bno, bdate, stockId, item, qty, qtyh, rate, partyName, timestamp)
+          `INSERT INTO stock_reg (type, bno, bdate, stock_id, item, qty, qtyh, rate, partyName, timestamp)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           ['ADJUSTMENT', 'ADJ-' + Date.now().toString().slice(-4), today, stockId, target.item, diff, Number(newQty), target.cost_rate || target.rate, reason, now]
         );

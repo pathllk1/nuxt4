@@ -80,9 +80,9 @@
             grossTotal, taxableTotal, cgst, sgst, igst, roundOff, netTotal,
             reverseCharge, supplierBillNo, orderNo, vehicleNo, dispatchThrough, narration,
             refBillId, refBillNo, status,
-            consigneeName, consigneeGstin, consigneeAddress,
+            consigneeName, consigneeGstin, consigneeAddress, consigneeState, consigneePin,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             bno,
             billData.bdate || now.split('T')[0],
@@ -115,6 +115,8 @@
             billData.consigneeName || '',
             billData.consigneeGstin || '',
             billData.consigneeAddress || '',
+            billData.consigneeState || '',
+            billData.consigneePin || '',
             now,
             now
           ]
@@ -192,7 +194,7 @@
 
               // Post to Stock Register
               await global.WebSqlService.executeSql(
-                `INSERT INTO stock_reg (type, bno, bdate, stockId, item, qty, qtyh, rate, partyName, timestamp)
+                `INSERT INTO stock_reg (type, bno, bdate, stock_id, item, qty, qtyh, rate, partyName, timestamp)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [billData.btype, bno, billData.bdate, it.stockId, it.item, stockDelta, newQty, lineRate, billData.partyName, now]
               );

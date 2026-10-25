@@ -4,6 +4,16 @@
   'use strict';
 
   const InvoiceWorkspaceComponent = {
+    components: {
+      InvoicePartyDrawerComponent: global.InvoicePartyDrawerComponent,
+      InvoiceStockSelectorModal: global.InvoiceStockSelectorModal,
+      InvoiceChargesModal: global.InvoiceChargesModal,
+      InvoiceHistoryModalComponent: global.InvoiceHistoryModalComponent,
+      InvoiceQuickPartyModal: global.InvoiceQuickPartyModal,
+      StockModalComponent: global.StockModalComponent,
+      InvoiceHelpModal: global.InvoiceHelpModal,
+      InvoicePrintModal: global.InvoicePrintModal
+    },
     props: {
       mode: { type: String, default: 'sales' }, // 'sales' | 'purchase'
       parties: { type: Array, default: () => [] },
@@ -35,12 +45,16 @@
           firmStateCode: ''
         },
         selectedParty: null,
+        selectedPartyLocation: null,
         selectedConsignee: {
           name: '',
           address: '',
           gstin: '',
           state: 'Maharashtra',
-          stateCode: '27'
+          stateCode: '27',
+          pin: '',
+          contact: '',
+          deliveryInstructions: ''
         },
         consigneeSameAsBillTo: true,
         cart: [], // Starts empty (0 lines) matching Image 1
@@ -48,13 +62,9 @@
 
         // Modals state
         showStockSelectorModal: false,
-        stockSearchQuery: '',
-        stockSelectedIndex: 0,
-        expandedStockId: null,
-        editingStockId: null,
+        editingStock: null,
         showPartyDrawer: false,
         partySearchQuery: '',
-        partySelectedIndex: 0,
         showOtherChargesModal: false,
         showHistoryModal: false,
         showQuickAddPartyModal: false,
@@ -63,40 +73,12 @@
         showHelpModal: false,
         wasStockSelectorOpen: false,
         wasPartyDrawerOpen: false,
-        editingPartyId: null,
-
-        // Quick add stock form (100% matching Nuxt 4 ItemStockMasterModal.vue)
-        newStockForm: {
-          item: '',
-          pno: '',
-          oem: '',
-          hsn: '',
-          uom: 'PCS',
-          grate: 18,
-          minLevel: 0,
-          batches: [
-            { batch: 'DEFAULT / B01', qty: 0, uom: 'PCS', rate: 0, sale_rate: 0, grate: 18, mrp: 0, expiry: '' }
-          ]
-        },
+        editingParty: null,
 
         // History modal state
         historyItemIndex: null,
         historyRecords: [],
-        historyFilter: 'ALL', // 'ALL' | 'PARTY'
         historyLoading: false,
-        historySelectedIndex: 0,
-
-        // Quick add party form
-        newPartyForm: {
-          name: '',
-          type: this.mode === 'purchase' ? 'SUPPLIER' : 'CUSTOMER',
-          gstin: '',
-          phone: '',
-          email: '',
-          address: '',
-          state: 'Maharashtra',
-          stateCode: '27'
-        },
 
         // Last saved bill result for the print modal
         createdBill: null,
@@ -107,6 +89,14 @@
       };
     },
     watch: {
+      sourceBill: {
+        immediate: true,
+        async handler(newBill) {
+          if (this.isReturnMode && newBill) {
+            await this.loadSourceBill(newBill);
+          }
+        }
+      },
       firm: {
         immediate: true,
         handler(val) {
@@ -133,41 +123,17 @@
         if (isOpen) {
           this.saveFocus();
           this.partySearchQuery = '';
-          this.partySelectedIndex = 0;
           this.selectedPartyJustSet = false;
-          this.focusPartyDrawerInput();
         } else {
           if (!this.selectedPartyJustSet && !this.showQuickAddPartyModal && !this.wasPartyDrawerOpen) {
             this.restoreFocus();
           }
         }
       },
-      partySearchQuery() {
-        this.partySelectedIndex = 0;
-      },
-      partySelectedIndex() {
-        this.$nextTick(() => {
-          const activeEl = this.$el.querySelector('.party-option.active, .party-list button.bg-blue-600');
-          if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-        });
-      },
-      stockSearchQuery() {
-        this.stockSelectedIndex = 0;
-      },
-      stockSelectedIndex() {
-        this.$nextTick(() => {
-          const activeRow = this.$el.querySelector('.active-stock-row');
-          if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
-        });
-      },
       showStockSelectorModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.stockSearchQuery = '';
-          this.stockSelectedIndex = 0;
-          this.expandedStockId = null;
           this.stockItemJustInserted = false;
-          this.focusStockSelectorInput();
         } else {
           if (!this.stockItemJustInserted && !this.showQuickAddStockModal && !this.wasStockSelectorOpen) {
             this.restoreFocus();
@@ -177,13 +143,6 @@
       showOtherChargesModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.$nextTick(() => {
-            const el = this.$el.querySelector('.other-charges-modal input, .charges-modal-container input');
-            if (el) {
-              el.focus();
-              if (el.select) el.select();
-            }
-          });
         } else {
           this.restoreFocus();
         }
@@ -191,34 +150,16 @@
       showHistoryModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.historySelectedIndex = 0;
           this.historyRateJustApplied = false;
-          this.$nextTick(() => {
-            const el = this.$el.querySelector('.history-modal-container');
-            if (el) el.focus();
-          });
         } else {
           if (!this.historyRateJustApplied) {
             this.restoreFocus();
           }
         }
       },
-      historySelectedIndex() {
-        this.$nextTick(() => {
-          const activeRow = this.$el.querySelector('.active-history-row');
-          if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
-        });
-      },
-      historyFilter() {
-        this.historySelectedIndex = 0;
-      },
       showHelpModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.$nextTick(() => {
-            const btn = this.$el.querySelector('.help-modal-close-btn');
-            if (btn) btn.focus();
-          });
         } else {
           this.restoreFocus();
         }
@@ -226,7 +167,6 @@
       showQuickAddPartyModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.focusQuickPartyInput();
         } else {
           if (!this.wasPartyDrawerOpen) {
             this.restoreFocus();
@@ -236,7 +176,6 @@
       showQuickAddStockModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.focusQuickStockInput();
         } else {
           if (!this.wasStockSelectorOpen) {
             this.restoreFocus();
@@ -246,24 +185,12 @@
       showPrintModal(isOpen) {
         if (isOpen) {
           this.saveFocus();
-          this.$nextTick(() => {
-            const container = this.$el.querySelector('.print-modal-container');
-            if (container) container.focus();
-          });
         } else {
           this.restoreFocus();
         }
       }
     },
     computed: {
-      totalStockOpeningQty() {
-        if (!this.newStockForm.batches) return 0;
-        return this.newStockForm.batches.reduce((sum, b) => sum + (Number(b.qty) || 0), 0);
-      },
-      totalStockValuation() {
-        if (!this.newStockForm.batches) return 0;
-        return this.newStockForm.batches.reduce((sum, b) => sum + ((Number(b.qty) || 0) * (Number(b.rate) || 0)), 0);
-      },
       isInterState() {
         return this.meta.billType === 'inter-state';
       },
@@ -287,68 +214,6 @@
           return this.cart[this.historyItemIndex];
         }
         return null;
-      },
-      filteredHistoryRecords() {
-        if (!this.historyRecords || !this.historyRecords.length) return [];
-        if (this.historyFilter === 'PARTY' && this.selectedParty) {
-          const pName = (this.selectedParty.name || '').toLowerCase().trim();
-          const pId = this.selectedParty.id;
-          return this.historyRecords.filter((r) => {
-            if (pId && r.partyId && Number(r.partyId) === Number(pId)) return true;
-            return (r.party_name || '').toLowerCase().trim() === pName;
-          });
-        }
-        return this.historyRecords;
-      },
-      partyHistoryCount() {
-        if (!this.selectedParty || !this.historyRecords) return 0;
-        const pName = (this.selectedParty.name || '').toLowerCase().trim();
-        const pId = this.selectedParty.id;
-        return this.historyRecords.filter((r) => {
-          if (pId && r.partyId && Number(r.partyId) === Number(pId)) return true;
-          return (r.party_name || '').toLowerCase().trim() === pName;
-        }).length;
-      },
-      filteredParties() {
-        const q = (this.partySearchQuery || '').toLowerCase().trim();
-        return this.parties.filter((p) => {
-          if (!q) return true;
-          return (
-            (p.name && p.name.toLowerCase().includes(q)) ||
-            (p.gstin && p.gstin.toLowerCase().includes(q)) ||
-            (p.phone && p.phone.toLowerCase().includes(q)) ||
-            (p.state && p.state.toLowerCase().includes(q))
-          );
-        });
-      },
-      filteredStocks() {
-        if (!this.stockSearchQuery || !this.stockSearchQuery.trim()) return this.stocks;
-        const q = this.stockSearchQuery.toLowerCase().trim();
-        return this.stocks.filter((s) => {
-          return (
-            (s.item && s.item.toLowerCase().includes(q)) ||
-            (s.hsn && s.hsn.toLowerCase().includes(q)) ||
-            (s.pno && s.pno.toLowerCase().includes(q)) ||
-            (s.oem && s.oem.toLowerCase().includes(q)) ||
-            (s.category && s.category.toLowerCase().includes(q))
-          );
-        });
-      },
-      flatStockNavigableList() {
-        const list = [];
-        for (const stock of this.filteredStocks) {
-          list.push({ type: 'stock', stock });
-          const stockId = stock.id || stock._id;
-          if (this.expandedStockId === stockId) {
-            const batches = this.getStockBatches(stock);
-            if (batches.length > 1) {
-              for (const batch of batches) {
-                list.push({ type: 'batch', stock, batch });
-              }
-            }
-          }
-        }
-        return list;
       },
       canSave() {
         return Boolean(
@@ -434,6 +299,16 @@
       amountInWords() {
         if (!global.numberToWords) return '';
         return global.numberToWords(this.totals.netTotal);
+      },
+      selectedPartyLocations() {
+        if (!this.selectedParty || !this.selectedParty.gstLocations) return [];
+        if (Array.isArray(this.selectedParty.gstLocations)) return this.selectedParty.gstLocations;
+        try {
+          const parsed = JSON.parse(this.selectedParty.gstLocations);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          return [];
+        }
       }
     },
     methods: {
@@ -463,22 +338,79 @@
       selectParty(p) {
         this.selectedPartyJustSet = true;
         this.selectedParty = p;
-        this.selectedConsignee = {
-          name: p.name || '',
-          address: p.address || '',
-          gstin: p.gstin || '',
-          state: p.state || 'Maharashtra',
-          stateCode: p.stateCode || '27'
-        };
+        this.selectedPartyLocation = (this.selectedPartyLocations && this.selectedPartyLocations[0]) || null;
+        this.buildConsigneeFromParty();
         this.determineTaxType();
         this.showPartyDrawer = false;
         setTimeout(() => {
-          const refInput = this.$el.querySelector('.detail-panel input, .field-grid input');
-          if (refInput) {
-            refInput.focus();
-            if (typeof refInput.select === 'function') refInput.select();
+          // Focus the 'Ship to billing address' toggle checkbox or the billing branch selector
+          const targetInput = this.$el.querySelector('.same-toggle input, .consignee-block input, .party-panel select');
+          if (targetInput) {
+            targetInput.focus();
+          } else {
+            const sideInput = this.$el.querySelector('.side-panel input, .field-grid input');
+            if (sideInput) {
+              sideInput.focus();
+              if (typeof sideInput.select === 'function') sideInput.select();
+            }
           }
         }, 60);
+      },
+      handleConsigneeToggle() {
+        if (this.consigneeSameAsBillTo) {
+          this.buildConsigneeFromParty();
+          return;
+        }
+        this.ensureConsignee();
+        this.$nextTick(() => {
+          const firstShipInput = this.$el.querySelector('.ship-fields input, .ship-fields select');
+          if (firstShipInput) {
+            firstShipInput.focus();
+            if (typeof firstShipInput.select === 'function') firstShipInput.select();
+          }
+        });
+      },
+      ensureConsignee() {
+        if (!this.selectedConsignee || !this.selectedConsignee.name) {
+          this.buildConsigneeFromParty();
+        }
+      },
+      buildConsigneeFromParty() {
+        const p = this.selectedParty || {};
+        this.selectedConsignee = {
+          name: p.name || '',
+          address: (this.selectedPartyLocation && this.selectedPartyLocation.address) || p.address || '',
+          gstin: (this.selectedPartyLocation && this.selectedPartyLocation.gstin) || p.gstin || 'UNREGISTERED',
+          state: (this.selectedPartyLocation && this.selectedPartyLocation.state) || p.state || 'Maharashtra',
+          stateCode: (this.selectedPartyLocation && this.selectedPartyLocation.stateCode) || p.stateCode || '27',
+          pin: (this.selectedPartyLocation && this.selectedPartyLocation.pin) || p.pin || p.pincode || '',
+          contact: (this.selectedPartyLocation && this.selectedPartyLocation.contact) || p.contact || p.phone || '',
+          deliveryInstructions: this.selectedConsignee?.deliveryInstructions || ''
+        };
+      },
+      onPartyGstinChange(e) {
+        const gstin = e.target.value;
+        const loc = this.selectedPartyLocations.find((l) => (l.gstin || l.id) === gstin) || null;
+        this.selectedPartyLocation = loc;
+        if (loc) {
+          if (loc.state) this.selectedParty.state = loc.state;
+          if (loc.stateCode) this.selectedParty.stateCode = loc.stateCode;
+          this.determineTaxType();
+        }
+      },
+      onConsigneeLocationChange(e) {
+        const gstin = e.target.value;
+        if (!gstin) return;
+        const loc = this.selectedPartyLocations.find((l) => (l.gstin || l.id) === gstin);
+        if (loc) {
+          this.selectedConsignee.name = this.selectedParty?.name || '';
+          this.selectedConsignee.gstin = loc.gstin || 'UNREGISTERED';
+          this.selectedConsignee.address = loc.address || '';
+          this.selectedConsignee.state = loc.state || '';
+          this.selectedConsignee.stateCode = loc.stateCode || (loc.gstin && loc.gstin.length >= 2 ? loc.gstin.substring(0, 2) : '');
+          this.selectedConsignee.pin = loc.pincode || loc.pin || '';
+          this.selectedConsignee.contact = loc.contact || this.selectedParty?.contact || '';
+        }
       },
       addCartRow(itemType = 'GOODS') {
         this.cart.push({
@@ -497,62 +429,7 @@
           narration: ''
         });
       },
-      getStockBatches(stock) {
-        if (!stock) return [];
-        let batches = stock.batches;
-        if (typeof batches === 'string' && batches.trim()) {
-          try {
-            batches = JSON.parse(batches);
-          } catch (_) {
-            batches = [];
-          }
-        }
-        if (Array.isArray(batches) && batches.length > 0) {
-          return batches;
-        }
-        if (stock.batch) {
-          return [{
-            batch: stock.batch,
-            qty: Number(stock.qty) || 0,
-            uom: stock.uom || 'PCS',
-            rate: Number(stock.cost_rate || stock.rate) || 0,
-            sale_rate: Number(stock.rate) || 0,
-            grate: Number(stock.grate) !== undefined ? Number(stock.grate) : 18,
-            mrp: Number(stock.mrp) || 0,
-            expiry: stock.expiry || ''
-          }];
-        }
-        return [];
-      },
-      isStockActive(stock) {
-        const current = this.flatStockNavigableList[this.stockSelectedIndex];
-        const currentStockId = current?.stock?.id || current?.stock?._id;
-        const stockId = stock.id || stock._id;
-        return current?.type === 'stock' && currentStockId === stockId;
-      },
-      isBatchActive(stock, batch) {
-        const current = this.flatStockNavigableList[this.stockSelectedIndex];
-        if (current?.type !== 'batch') return false;
-        const currentStockId = current.stock?.id || current.stock?._id;
-        const stockId = stock.id || stock._id;
-        if (currentStockId !== stockId) return false;
-        const currentBatchId = current.batch?._id || current.batch?.id;
-        const batchId = batch._id || batch.id;
-        if (batchId && currentBatchId) {
-          return currentBatchId === batchId;
-        }
-        return current.batch?.batch === batch.batch && Number(current.batch?.rate) === Number(batch.rate);
-      },
-      toggleStock(stock) {
-        const batches = this.getStockBatches(stock);
-        const stockId = stock.id || stock._id;
-        if (batches.length > 1) {
-          this.expandedStockId = this.expandedStockId === stockId ? null : stockId;
-        } else {
-          this.selectStockRow(stock, batches[0] || null);
-        }
-      },
-      selectStockRow(stock, batch) {
+      selectStockFromCatalog({ stock, batch }) {
         const stockObj = {
           ...stock,
           selectedBatch: batch
@@ -608,7 +485,6 @@
         }
         this.stockItemJustInserted = true;
         this.showStockSelectorModal = false;
-        this.expandedStockId = null;
 
         setTimeout(() => {
           const lastIndex = this.cart.length - 1;
@@ -620,221 +496,79 @@
         }, 60);
       },
       openQuickAddStock() {
-        this.editingStockId = null;
-        const q = this.stockSearchQuery ? this.stockSearchQuery.trim() : '';
-        this.newStockForm = {
-          item: q,
-          pno: '',
-          oem: '',
-          hsn: '',
-          uom: 'PCS',
-          grate: 18,
-          minLevel: 0,
-          batches: [
-            { batch: 'DEFAULT / B01', qty: 0, uom: 'PCS', rate: 0, sale_rate: 0, grate: 18, mrp: 0, expiry: '' }
-          ]
-        };
+        this.editingStock = null;
         this.wasStockSelectorOpen = this.showStockSelectorModal;
         this.showStockSelectorModal = false;
         this.showQuickAddStockModal = true;
-        this.focusQuickStockInput();
       },
       openEditStock(stock) {
-        this.editingStockId = stock.id || stock._id;
-        const batches = this.getStockBatches(stock);
-        this.newStockForm = {
-          item: stock.item || '',
-          pno: stock.pno || '',
-          oem: stock.oem || '',
-          hsn: stock.hsn || '',
-          uom: stock.uom || 'PCS',
-          grate: stock.grate !== undefined ? Number(stock.grate) : 18,
-          minLevel: Number(stock.min_qty || stock.minLevel) || 0,
-          batches: batches.length > 0 ? JSON.parse(JSON.stringify(batches)) : [
-            { batch: stock.batch || 'DEFAULT / B01', qty: Number(stock.qty) || 0, uom: stock.uom || 'PCS', rate: Number(stock.cost_rate || stock.rate) || 0, sale_rate: Number(stock.rate) || 0, grate: Number(stock.grate) || 18, mrp: Number(stock.mrp) || 0, expiry: '' }
-          ]
-        };
+        this.editingStock = stock;
         this.wasStockSelectorOpen = this.showStockSelectorModal;
         this.showStockSelectorModal = false;
         this.showQuickAddStockModal = true;
-        this.focusQuickStockInput();
       },
       closeQuickAddStock() {
         this.showQuickAddStockModal = false;
-        this.editingStockId = null;
+        this.editingStock = null;
         if (this.wasStockSelectorOpen) {
           this.wasStockSelectorOpen = false;
           this.showStockSelectorModal = true;
-          this.focusStockSelectorInput();
         } else {
           this.restoreFocus();
         }
       },
-      syncStockUomToBatches() {
-        this.newStockForm.batches.forEach(b => {
-          b.uom = this.newStockForm.uom;
-        });
-      },
-      syncStockGrateToBatches() {
-        this.newStockForm.batches.forEach(b => {
-          b.grate = this.newStockForm.grate;
-        });
-      },
-      addStockBatch() {
-        this.newStockForm.batches.push({
-          batch: '',
-          qty: 0,
-          uom: this.newStockForm.uom,
-          rate: 0,
-          sale_rate: 0,
-          grate: this.newStockForm.grate,
-          mrp: 0,
-          expiry: ''
-        });
-      },
-      removeStockBatch(idx) {
-        if (this.newStockForm.batches.length <= 1) return;
-        this.newStockForm.batches.splice(idx, 1);
-      },
-      async handleQuickAddStock() {
-        if (!this.newStockForm.item || !this.newStockForm.item.trim()) {
-          if (this.$notify) this.$notify('Item Description / Name is required', 'warning');
-          return;
-        }
-        if (this.gstEnabled && (!this.newStockForm.hsn || !this.newStockForm.hsn.trim())) {
-          if (this.$notify) this.$notify('HSN / SAC Code is required in GST mode', 'warning');
-          return;
-        }
-        if (!this.newStockForm.batches || this.newStockForm.batches.length === 0) {
-          if (this.$notify) this.$notify('At least one batch row is required', 'warning');
-          return;
-        }
-
-        const b0 = this.newStockForm.batches[0];
-        const totalQty = this.totalStockOpeningQty;
-        const primaryRate = Number(b0.sale_rate || b0.rate) || 0;
-        const primaryCostRate = Number(b0.rate) || primaryRate;
-        const primaryGrate = Number(this.newStockForm.grate !== undefined ? this.newStockForm.grate : b0.grate) || 18;
-        const primaryMrp = Number(b0.mrp) || 0;
-
-        const itemPayload = {
-          item: this.newStockForm.item.trim(),
-          pno: this.newStockForm.pno ? this.newStockForm.pno.trim() : '',
-          oem: this.newStockForm.oem ? this.newStockForm.oem.trim() : '',
-          hsn: this.newStockForm.hsn.trim(),
-          uom: this.newStockForm.uom || 'PCS',
-          rate: primaryRate,
-          cost_rate: primaryCostRate,
-          grate: primaryGrate,
-          min_qty: Number(this.newStockForm.minLevel) || 0,
-          mrp: primaryMrp,
-          batch: b0.batch || '',
-          batches: JSON.parse(JSON.stringify(this.newStockForm.batches)),
-          qty: totalQty
-        };
-
-        if (this.editingStockId) {
-          const stockId = this.editingStockId;
+      async handleSavedStock(payload) {
+        if (this.editingStock && (this.editingStock.id || this.editingStock._id)) {
+          const stockId = this.editingStock.id || this.editingStock._id;
           const now = new Date().toISOString();
           try {
             await global.WebSqlService.executeSql(
               `UPDATE stocks SET item = ?, pno = ?, oem = ?, hsn = ?, uom = ?, rate = ?, cost_rate = ?, grate = ?, min_qty = ?, mrp = ?, batches = ?, updated_at = ? WHERE id = ?`,
               [
-                itemPayload.item,
-                itemPayload.pno,
-                itemPayload.oem,
-                itemPayload.hsn,
-                itemPayload.uom,
-                itemPayload.rate,
-                itemPayload.cost_rate,
-                itemPayload.grate,
-                itemPayload.min_qty,
-                itemPayload.mrp,
-                JSON.stringify(itemPayload.batches),
+                payload.item,
+                payload.pno,
+                payload.oem,
+                payload.hsn,
+                payload.uom,
+                payload.rate,
+                payload.cost_rate,
+                payload.grate,
+                payload.min_qty,
+                payload.mrp,
+                JSON.stringify(payload.batches),
                 now,
                 stockId
               ]
             );
             const found = this.stocks.find(s => (s.id || s._id) === stockId);
             if (found) {
-              Object.assign(found, itemPayload, { id: stockId, _id: stockId });
+              Object.assign(found, payload, { id: stockId, _id: stockId });
             }
+            if (this.$notify) this.$notify('Stock item updated successfully', 'success');
           } catch (err) {
             console.error('Failed to update stock:', err);
           }
-          this.editingStockId = null;
+          this.editingStock = null;
           this.showQuickAddStockModal = false;
           this.showStockSelectorModal = true;
           return;
         }
 
-        this.$emit('add-stock', itemPayload);
-        this.insertStockIntoCart({
+        const newStock = {
           id: Date.now(),
-          ...itemPayload
-        });
+          ...payload
+        };
+        this.$emit('add-stock', newStock);
+        this.insertStockIntoCart(newStock);
         this.showQuickAddStockModal = false;
         this.showStockSelectorModal = false;
         this.wasStockSelectorOpen = false;
-        this.stockSearchQuery = '';
+        this.editingStock = null;
+        if (this.$notify) this.$notify(`Stock "${payload.item}" created & added to invoice`, 'success');
       },
       addBlankLineFromModal() {
         this.addCartRow(this.mode === 'purchase' ? 'GOODS' : 'GOODS');
         this.showStockSelectorModal = false;
-      },
-      handleStockModalKeydown(e) {
-        const list = this.flatStockNavigableList;
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          if (list.length > 0) {
-            this.stockSelectedIndex = (this.stockSelectedIndex + 1) % list.length;
-          }
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          if (list.length > 0) {
-            this.stockSelectedIndex = (this.stockSelectedIndex - 1 + list.length) % list.length;
-          }
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          if (list.length > 0 && this.stockSelectedIndex < list.length) {
-            const item = list[this.stockSelectedIndex];
-            if (item.type === 'batch') {
-              this.selectStockRow(item.stock, item.batch);
-            } else {
-              const stock = item.stock;
-              const batches = this.getStockBatches(stock);
-              const stockId = stock.id || stock._id;
-              if (batches.length > 1) {
-                if (this.expandedStockId === stockId) {
-                  this.selectStockRow(stock, batches[0]);
-                } else {
-                  this.expandedStockId = stockId;
-                  this.stockSelectedIndex = this.stockSelectedIndex + 1;
-                }
-              } else {
-                this.selectStockRow(stock, batches[0] || null);
-              }
-            }
-          } else {
-            this.openQuickAddStock();
-          }
-        } else if (e.key === 'Insert' || e.key === 'F5' || (e.altKey && e.key.toLowerCase() === 'c') || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
-          e.preventDefault();
-          this.openQuickAddStock();
-        } else if (e.key === 'F3' || ((e.ctrlKey || e.altKey) && e.key.toLowerCase() === 'e')) {
-          e.preventDefault();
-          if (list.length > 0 && this.stockSelectedIndex < list.length) {
-            const item = list[this.stockSelectedIndex];
-            this.openEditStock(item.stock);
-          }
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          if (this.expandedStockId) {
-            this.expandedStockId = null;
-          } else {
-            this.showStockSelectorModal = false;
-          }
-        }
       },
       removeCartRow(index) {
         this.cart.splice(index, 1);
@@ -862,6 +596,7 @@
 
       // Party-Item Rate History (Alt+H / F7)
       async openHistoryModal(index) {
+        this.saveFocus();
         this.historyItemIndex = index;
         const row = this.cart[index];
         if (!row || (!row.item && !row.stockId)) {
@@ -902,7 +637,7 @@
         } finally {
           this.historyLoading = false;
           this.$nextTick(() => {
-            const el = this.$el.querySelector('.history-modal-container');
+            const el = this.$el.querySelector ? this.$el.querySelector('.history-modal-container') : document.querySelector('.history-modal-container');
             if (el) el.focus();
           });
         }
@@ -931,135 +666,178 @@
         }, 80);
       },
 
-      openEditPartyModal(party) {
-        if (!party) return;
-        this.editingPartyId = party.id;
-        this.newPartyForm = {
-          name: party.name || '',
-          type: party.type || (this.mode === 'purchase' ? 'SUPPLIER' : 'CUSTOMER'),
-          gstin: (party.gstin && party.gstin !== 'UNREGISTERED') ? party.gstin : '',
-          phone: party.phone || '',
-          email: party.email || '',
-          address: party.address || '',
-          state: party.state || 'Maharashtra',
-          stateCode: party.stateCode || '27'
-        };
-        this.wasPartyDrawerOpen = this.showPartyDrawer;
-        this.showPartyDrawer = false;
-        this.showQuickAddPartyModal = true;
-        this.focusQuickPartyInput();
+      closeHistoryModal() {
+        this.showHistoryModal = false;
+        const rowIdx = this.historyItemIndex;
+        setTimeout(() => {
+          if (rowIdx !== null && rowIdx !== undefined && this.cart[rowIdx]) {
+            const target = this.$el.querySelector(`tr[data-row="${rowIdx}"] input.rate-input, tr[data-row="${rowIdx}"] input.qty-input, tr[data-row="${rowIdx}"] input.item-name-input`);
+            if (target) {
+              target.focus();
+              if (typeof target.select === 'function') target.select();
+            } else {
+              this.restoreFocus();
+            }
+          } else {
+            this.restoreFocus();
+          }
+        }, 50);
       },
 
-      openQuickAddParty() {
-        this.editingPartyId = null;
-        this.newPartyForm = {
-          name: this.partySearchQuery ? this.partySearchQuery.trim() : '',
-          type: this.mode === 'purchase' ? 'SUPPLIER' : 'CUSTOMER',
-          gstin: '',
-          phone: '',
-          email: '',
-          address: '',
-          state: 'Maharashtra',
-          stateCode: '27'
-        };
+      // Return Workflow: Load source bill header and line items
+      async loadSourceBill(bill) {
+        if (!bill || this._isLoadingSourceBill) return;
+        this._isLoadingSourceBill = true;
+
+        try {
+          // 1. Resolve and select party
+          if (bill.partyId || bill.partyName) {
+            const p = (this.parties || []).find(
+              (item) => (bill.partyId && Number(item.id) === Number(bill.partyId)) ||
+                        (item.name && item.name.toLowerCase().trim() === (bill.partyName || '').toLowerCase().trim())
+            );
+            if (p) {
+              this.selectParty(p);
+            } else {
+              this.selectedParty = {
+                id: bill.partyId || null,
+                name: bill.partyName || 'Cash Party',
+                gstin: bill.partyGstin || 'UNREGISTERED',
+                address: bill.partyAddress || '',
+                state: bill.partyState || '',
+                state_code: bill.partyStateCode || '27'
+              };
+              this.selectedPartyGstin = bill.partyGstin || 'UNREGISTERED';
+            }
+          }
+
+          // 2. Set bill metadata, tax subtype, and references
+          if (bill.partyGstin) this.selectedPartyGstin = bill.partyGstin;
+          const isInterState = (Number(bill.igst) || 0) > 0 || (bill.billType === 'inter-state');
+          this.meta.billType = isInterState ? 'inter-state' : 'intra-state';
+          this.meta.reverseCharge = Boolean(bill.reverseCharge);
+          this.meta.referenceNo = bill.bno ? `Return of ${bill.bno}` : (bill.orderNo || '');
+          if (bill.vehicleNo) this.meta.vehicleNo = bill.vehicleNo;
+          if (bill.dispatchThrough) this.meta.dispatchThrough = bill.dispatchThrough;
+
+          // Consignee / Ship-to details if present
+          if (bill.consigneeName) {
+            this.consigneeSameAsBillTo = false;
+            this.selectedConsignee = {
+              name: bill.consigneeName || '',
+              gstin: bill.consigneeGstin || '',
+              address: bill.consigneeAddress || '',
+              state: bill.consigneeState || '',
+              stateCode: bill.consigneeStateCode || '27',
+              pin: bill.consigneePin || '',
+              contact: '',
+              deliveryInstructions: ''
+            };
+          }
+
+          // 3. Fetch line items from passed bill or SQLite
+          let items = Array.isArray(bill.items) && bill.items.length > 0 ? bill.items : [];
+          if (items.length === 0 && bill.id) {
+            try {
+              const db = global.WebSqlService || global.webSqlService;
+              if (db) {
+                const query = 'SELECT * FROM bill_items WHERE billId = ? ORDER BY id ASC';
+                const res = await (db.executeSql ? db.executeSql(query, [Number(bill.id)]) : db.execute(query, [Number(bill.id)]));
+                items = (res && res.rows) || [];
+              }
+            } catch (err) {
+              console.error('[InvoiceWorkspaceComponent] Error fetching return bill items:', err);
+            }
+          }
+
+          // 4. Populate cart with items and pre-fill return quantities
+          if (items.length > 0) {
+            this.cart = items.map((it) => {
+              const qtyNum = Number(it.qty) || 0;
+              return {
+                stockId: it.stockId || null,
+                item: it.item || '',
+                hsn: it.hsn || '',
+                qty: qtyNum,
+                origQty: qtyNum,
+                returnQty: qtyNum,
+                uom: it.uom || 'PCS',
+                rate: Number(it.rate) || 0,
+                grate: it.grate !== undefined && it.grate !== null ? Number(it.grate) : 18,
+                disc: Number(it.disc) || 0,
+                batch: it.batch || '',
+                itemType: it.itemType || 'GOODS',
+                narration: it.narration || '',
+                originalItem: true
+              };
+            });
+
+            this.$nextTick(() => {
+              const firstQtyInput = this.$el.querySelector ? this.$el.querySelector('tr[data-row="0"] input.qty-input') : document.querySelector('tr[data-row="0"] input.qty-input');
+              if (firstQtyInput) {
+                firstQtyInput.focus();
+                if (typeof firstQtyInput.select === 'function') firstQtyInput.select();
+              }
+            });
+          }
+        } finally {
+          this._isLoadingSourceBill = false;
+        }
+      },
+
+      openEditPartyModal(party) {
+        if (!party) return;
+        this.editingParty = party;
         this.wasPartyDrawerOpen = this.showPartyDrawer;
         this.showPartyDrawer = false;
         this.showQuickAddPartyModal = true;
-        this.focusQuickPartyInput();
+      },
+      openQuickAddParty(searchQuery) {
+        this.editingParty = null;
+        if (searchQuery) this.partySearchQuery = searchQuery;
+        this.wasPartyDrawerOpen = this.showPartyDrawer;
+        this.showPartyDrawer = false;
+        this.showQuickAddPartyModal = true;
       },
       closeQuickAddParty() {
         this.showQuickAddPartyModal = false;
-        this.editingPartyId = null;
+        this.editingParty = null;
         if (this.wasPartyDrawerOpen) {
           this.wasPartyDrawerOpen = false;
           this.showPartyDrawer = true;
-          this.focusPartyDrawerInput();
         } else {
           this.restoreFocus();
         }
       },
-
-      // Quick Add Party Form submission
-      handleQuickAddParty() {
-        if (!this.newPartyForm.name.trim()) {
+      async handleQuickAddParty(partyData) {
+        const partyName = (partyData.name || partyData.account_name || '').trim();
+        if (!partyName) {
           if (this.$notify) this.$notify('Party Name is required', 'warning');
           return;
         }
-        if (this.editingPartyId) {
-          const updated = {
-            id: this.editingPartyId,
-            name: this.newPartyForm.name.trim(),
-            type: this.newPartyForm.type,
-            gstin: this.newPartyForm.gstin.trim().toUpperCase() || 'UNREGISTERED',
-            phone: this.newPartyForm.phone.trim(),
-            email: this.newPartyForm.email ? this.newPartyForm.email.trim() : '',
-            address: this.newPartyForm.address ? this.newPartyForm.address.trim() : '',
-            state: this.newPartyForm.state || 'Maharashtra',
-            stateCode: this.newPartyForm.stateCode || '27'
-          };
-          this.selectParty(updated);
-          const idx = this.parties.findIndex(p => p.id === this.editingPartyId);
-          if (idx !== -1) {
-            Object.assign(this.parties[idx], updated);
-          }
-          if (global.webSqlService) {
-            global.webSqlService.execute(
-              'UPDATE parties SET name = ?, type = ?, gstin = ?, phone = ?, email = ?, address = ?, state = ?, stateCode = ? WHERE id = ?',
-              [updated.name, updated.type, updated.gstin, updated.phone, updated.email, updated.address, updated.state, updated.stateCode, updated.id]
-            ).catch(err => console.error('Party update error:', err));
-          }
-          this.editingPartyId = null;
-        } else {
-          const created = {
-            id: Date.now(),
-            name: this.newPartyForm.name.trim(),
-            type: this.newPartyForm.type,
-            gstin: this.newPartyForm.gstin.trim().toUpperCase() || 'UNREGISTERED',
-            phone: this.newPartyForm.phone.trim(),
-            email: this.newPartyForm.email ? this.newPartyForm.email.trim() : '',
-            address: this.newPartyForm.address ? this.newPartyForm.address.trim() : '',
-            state: this.newPartyForm.state || 'Maharashtra',
-            stateCode: this.newPartyForm.stateCode || '27'
-          };
 
-          this.$emit('add-party', created);
-          this.selectParty(created);
-        }
+        const partyId = partyData.id || (this.editingParty && this.editingParty.id) || null;
+        const normalized = {
+          ...partyData,
+          id: partyId,
+          name: partyName,
+          account_name: partyName,
+          partyType: partyData.partyType || partyData.account_type || (this.mode === 'purchase' ? 'SUPPLIER' : 'CUSTOMER'),
+          type: partyData.partyType || partyData.account_type || (this.mode === 'purchase' ? 'SUPPLIER' : 'CUSTOMER'),
+          gstin: (partyData.gstin && partyData.gstin.trim().toUpperCase()) || 'UNREGISTERED',
+          contact: (partyData.contact || partyData.phone || '').trim(),
+          phone: (partyData.phone || partyData.contact || '').trim(),
+          address: (partyData.address || '').trim(),
+          state: partyData.state || 'Maharashtra',
+          stateCode: partyData.stateCode || '27'
+        };
+
+        this.$emit('add-party', normalized);
+        this.selectParty(normalized);
+        this.editingParty = null;
         this.showQuickAddPartyModal = false;
         this.showPartyDrawer = false;
         this.wasPartyDrawerOpen = false;
-        this.newPartyForm.name = '';
-        this.newPartyForm.gstin = '';
-        this.newPartyForm.phone = '';
-        this.newPartyForm.address = '';
-      },
-
-      // Party Drawer Keyboard navigation
-      handlePartyDrawerKeydown(e) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          if (this.filteredParties.length > 0) {
-            this.partySelectedIndex = (this.partySelectedIndex + 1) % this.filteredParties.length;
-          }
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          if (this.filteredParties.length > 0) {
-            this.partySelectedIndex = (this.partySelectedIndex - 1 + this.filteredParties.length) % this.filteredParties.length;
-          }
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          if (this.filteredParties.length > 0 && this.partySelectedIndex < this.filteredParties.length) {
-            this.selectParty(this.filteredParties[this.partySelectedIndex]);
-          } else {
-            this.openQuickAddParty();
-          }
-        } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
-          e.preventDefault();
-          this.openQuickAddParty();
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          this.showPartyDrawer = false;
-        }
       },
 
       toggleGst() {
@@ -1118,9 +896,11 @@
           firmGstin: this.selectedFirmGstin || this.meta.firmGstin || (this.firm && this.firm.gstin) || '',
           firmState: this.meta.firmState || (this.firm && this.firm.state) || '',
           firmStateCode: this.meta.firmStateCode || (this.firm && this.firm.stateCode) || '',
-          consigneeName: this.consigneeSameAsBillTo ? this.selectedParty.name : this.selectedConsignee.name,
-          consigneeAddress: this.consigneeSameAsBillTo ? this.selectedParty.address : this.selectedConsignee.address,
+          consigneeName: this.consigneeSameAsBillTo ? this.selectedParty.name : (this.selectedConsignee.name || this.selectedParty.name),
+          consigneeAddress: this.consigneeSameAsBillTo ? this.selectedParty.address : (this.selectedConsignee.address || this.selectedParty.address),
           consigneeGstin: this.consigneeSameAsBillTo ? (this.selectedParty.gstin || '') : (this.selectedConsignee.gstin || ''),
+          consigneeState: this.consigneeSameAsBillTo ? (this.selectedParty.state || '') : (this.selectedConsignee.state || this.selectedParty.state || ''),
+          consigneePin: this.consigneeSameAsBillTo ? (this.selectedParty.pin || '') : (this.selectedConsignee.pin || ''),
           supplierBillNo: this.meta.supplierBillNo || '',
           orderNo: this.meta.referenceNo || '',
           vehicleNo: this.meta.vehicleNo || '',
@@ -1186,95 +966,11 @@
       },
 
       handleGlobalKeydown(e) {
-        // 1. Quick Add Stock Modal (Level 2)
-        if (this.showQuickAddStockModal) {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            this.closeQuickAddStock();
-          } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
-            e.preventDefault();
-            this.handleQuickAddStock();
-          } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
-            e.preventDefault();
-            this.addStockBatch();
-          }
+        if (this.showQuickAddStockModal || this.showQuickAddPartyModal || this.showStockSelectorModal || this.showPartyDrawer || this.showOtherChargesModal || this.showHistoryModal || this.showHelpModal || this.showPrintModal) {
           return;
         }
 
-        // 2. Quick Add Party Modal (Level 2)
-        if (this.showQuickAddPartyModal) {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            this.closeQuickAddParty();
-          } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
-            e.preventDefault();
-            this.handleQuickAddParty();
-          }
-          return;
-        }
-
-        // 3. Stock Selector Modal (Level 1)
-        if (this.showStockSelectorModal) {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            if (this.expandedStockId) {
-              this.expandedStockId = null;
-            } else {
-              this.showStockSelectorModal = false;
-            }
-          } else if (e.key === 'Insert' || e.key === 'F5' || (e.altKey && e.key.toLowerCase() === 'c') || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
-            e.preventDefault();
-            this.openQuickAddStock();
-          } else if (e.key === 'F3' || ((e.ctrlKey || e.altKey) && e.key.toLowerCase() === 'e')) {
-            e.preventDefault();
-            if (this.flatStockNavigableList.length > 0 && this.stockSelectedIndex < this.flatStockNavigableList.length) {
-              const item = this.flatStockNavigableList[this.stockSelectedIndex];
-              this.openEditStock(item.stock);
-            }
-          }
-          return;
-        }
-
-        // 4. Party Drawer (Level 1)
-        if (this.showPartyDrawer) {
-          this.handlePartyDrawerKeydown(e);
-          return;
-        }
-
-        // 5. Other Charges Modal
-        if (this.showOtherChargesModal) {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            this.showOtherChargesModal = false;
-          } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
-            e.preventDefault();
-            this.addOtherChargeRow();
-          }
-          return;
-        }
-
-        // 6. Rate History Modal
-        if (this.showHistoryModal) {
-          this.handleHistoryModalKeydown(e);
-          return;
-        }
-
-        // 7. Help Modal
-        if (this.showHelpModal) {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            this.showHelpModal = false;
-          }
-          return;
-        }
-
-        // 8. Print Modal
-        if (this.showPrintModal) {
-          this.handlePrintModalKeydown(e);
-          return;
-        }
-
-        // 9. Root Page Shortcuts (Only active when ALL modals are closed)
+        // Root Page Shortcuts (Only active when ALL modals are closed)
         if (e.key === 'F1' || (e.shiftKey && e.key === '?')) {
           e.preventDefault();
           this.showHelpModal = true;
@@ -1330,78 +1026,6 @@
           }
         }
       },
-
-      // Keyboard Navigation Composable Proxies
-      focusQuickPartyInput() {
-        const tryFocus = () => {
-          const input = (this.$el && this.$el.querySelector('.quick-party-modal input, #quick-party-name-input, input[placeholder*="Business or Person"]')) || this.$refs.quickPartyNameInput;
-          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
-            input.focus();
-            if (typeof input.select === 'function') input.select();
-            return true;
-          }
-          return false;
-        };
-        this.$nextTick(() => {
-          if (!tryFocus()) {
-            setTimeout(tryFocus, 30);
-            setTimeout(tryFocus, 90);
-            setTimeout(tryFocus, 200);
-          }
-        });
-        setTimeout(tryFocus, 30);
-        setTimeout(tryFocus, 90);
-        setTimeout(tryFocus, 200);
-      },
-      focusQuickStockInput() {
-        const tryFocus = () => {
-          const input = (this.$el && this.$el.querySelector('.quick-stock-modal input, #quick-stock-name-input, input[placeholder*="Item / Part Name"]')) || this.$refs.quickStockNameInput;
-          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
-            input.focus();
-            if (typeof input.select === 'function') input.select();
-            return true;
-          }
-          return false;
-        };
-        this.$nextTick(() => {
-          if (!tryFocus()) {
-            setTimeout(tryFocus, 30);
-            setTimeout(tryFocus, 90);
-            setTimeout(tryFocus, 200);
-          }
-        });
-        setTimeout(tryFocus, 30);
-        setTimeout(tryFocus, 90);
-        setTimeout(tryFocus, 200);
-      },
-      focusPartyDrawerInput() {
-        const tryFocus = () => {
-          const input = this.$refs.partyDrawerSearchInput || (this.$el && this.$el.querySelector('.party-drawer input, input[placeholder*="Search party"]'));
-          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
-            input.focus();
-            if (typeof input.select === 'function') input.select();
-            return true;
-          }
-          return false;
-        };
-        this.$nextTick(tryFocus);
-        setTimeout(tryFocus, 30);
-        setTimeout(tryFocus, 90);
-      },
-      focusStockSelectorInput() {
-        const tryFocus = () => {
-          const input = this.$refs.stockSearchInput || (this.$el && this.$el.querySelector('.stock-selector-modal input, input[placeholder*="Search by Item name"]'));
-          if (input && typeof input.focus === 'function' && input.offsetHeight > 0) {
-            input.focus();
-            if (typeof input.select === 'function') input.select();
-            return true;
-          }
-          return false;
-        };
-        this.$nextTick(tryFocus);
-        setTimeout(tryFocus, 30);
-        setTimeout(tryFocus, 90);
-      },
       saveFocus() {
         if (this.nav && typeof this.nav.saveFocus === 'function') {
           this.nav.saveFocus();
@@ -1428,10 +1052,10 @@
             this.saveFocus();
             this.showPartyDrawer = true;
           } else {
-            const refInput = this.$el.querySelector('.detail-panel input, .detail-panel textarea');
-            if (refInput) {
-              refInput.focus();
-              if (refInput.select) refInput.select();
+            const sideInput = this.$el.querySelector('.same-toggle input, .consignee-block input, .party-panel select, .detail-panel input, .field-grid input');
+            if (sideInput) {
+              sideInput.focus();
+              if (typeof sideInput.select === 'function') sideInput.select();
             }
           }
         }
@@ -1441,18 +1065,102 @@
         if (container && this.nav) this.nav.handleBackspaceKey(e, container);
       },
 
+      // Party & Consignee Navigation (Ship to billing address & Custom Ship Fields)
+      onPartyInputEnter(e) {
+        const container = (e.target && e.target.closest('.side-panel')) || this.$el.querySelector('.side-panel');
+        if (container && this.nav) {
+          this.nav.handleEnterKey(e, container, () => {
+            this.focusFirstCartRowOrAddStock();
+          });
+        }
+      },
+      onPartyInputBackspace(e) {
+        const target = e.target;
+        // If backspace on same-toggle checkbox or the first field in side panel, move focus back to header
+        if (target && (target.closest('.same-toggle') || target.closest('.consignee-block'))) {
+          const sideInputs = this.nav ? this.nav.getFocusableInputs(this.$el.querySelector('.side-panel')) : [];
+          if (sideInputs.indexOf(target) <= 0) {
+            e.preventDefault();
+            const headerInputs = this.nav ? this.nav.getFocusableInputs(this.$el.querySelector('.header-fields')) : [];
+            if (headerInputs.length > 0) {
+              const lastHeaderInput = headerInputs[headerInputs.length - 1];
+              if (lastHeaderInput) {
+                lastHeaderInput.focus();
+                if (lastHeaderInput.select) lastHeaderInput.select();
+              }
+            }
+            return;
+          }
+        }
+        const container = (e.target && e.target.closest('.side-panel')) || this.$el.querySelector('.side-panel');
+        if (container && this.nav) {
+          this.nav.handleBackspaceKey(e, container);
+        }
+      },
+      onSameToggleEnter(e) {
+        e.preventDefault();
+        if (this.consigneeSameAsBillTo) {
+          // Checkbox is checked -> jump directly to Reference / PO in detail-panel
+          const refInput = this.$el.querySelector('.detail-panel input, .field-grid input');
+          if (refInput) {
+            refInput.focus();
+            if (typeof refInput.select === 'function') refInput.select();
+          }
+        } else {
+          // Checkbox is unchecked -> jump into the first ship field
+          const firstShipInput = this.$el.querySelector('.ship-fields input, .ship-fields select, .ship-fields textarea');
+          if (firstShipInput) {
+            firstShipInput.focus();
+            if (typeof firstShipInput.select === 'function') firstShipInput.select();
+          }
+        }
+      },
+      onConsigneeAddressEnter(e) {
+        if (e.shiftKey) return; // Shift+Enter allows newline in delivery address
+        e.preventDefault();
+        const container = (e.target && e.target.closest('.side-panel')) || this.$el.querySelector('.side-panel');
+        if (container && this.nav) {
+          this.nav.handleEnterKey(e, container);
+        }
+      },
+
       // Details Panel Navigation (Reference, Vehicle, Dispatch, Narration)
       onDetailEnter(e) {
-        const container = (e.target && e.target.closest('.field-grid')) || this.$el.querySelector('.detail-panel');
-        if (container && this.nav) this.nav.handleEnterKey(e, container);
+        const container = (e.target && e.target.closest('.side-panel')) || this.$el.querySelector('.side-panel');
+        if (container && this.nav) {
+          this.nav.handleEnterKey(e, container, () => {
+            this.focusFirstCartRowOrAddStock();
+          });
+        }
       },
       onDetailBackspace(e) {
-        const container = (e.target && e.target.closest('.field-grid')) || this.$el.querySelector('.detail-panel');
-        if (container && this.nav) this.nav.handleBackspaceKey(e, container);
+        const target = e.target;
+        // If in referenceNo and it's empty, and backspace pressed:
+        // Move back to either the last ship-to field (if visible) or same-toggle checkbox
+        if (target && target.closest('.field-grid') && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
+          const sideInputs = this.nav ? this.nav.getFocusableInputs(this.$el.querySelector('.side-panel')) : [];
+          const idx = sideInputs.indexOf(target);
+          if (idx > 0) {
+            e.preventDefault();
+            const prev = sideInputs[idx - 1];
+            if (prev) {
+              prev.focus();
+              if (prev.select) prev.select();
+              return;
+            }
+          }
+        }
+        const container = (e.target && e.target.closest('.side-panel')) || this.$el.querySelector('.side-panel');
+        if (container && this.nav) {
+          this.nav.handleBackspaceKey(e, container);
+        }
       },
       onNarrationEnter(e) {
         if (e.shiftKey) return;
         e.preventDefault();
+        this.focusFirstCartRowOrAddStock();
+      },
+      focusFirstCartRowOrAddStock() {
         if (this.cart.length > 0) {
           const firstQtyInput = this.$el.querySelector('tr[data-row="0"] input.qty-input, tr[data-row="0"] input.item-name-input');
           if (firstQtyInput) {
@@ -1512,126 +1220,56 @@
             return;
           }
         }
+        if (this.isReturnMode) {
+          const saveBtn = this.$el.querySelector('button.bg-emerald-600, button.bg-blue-600, .save-invoice-btn, footer button:last-child');
+          if (saveBtn) {
+            saveBtn.focus();
+            return;
+          }
+        }
         this.saveFocus();
         this.showStockSelectorModal = true;
       },
       onCellBackspace(e) {
+        const target = e.target;
+        // If in row 0, first editable cell, and backspace pressed on empty cell:
+        if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
+          const activeRow = target.closest('tr[data-row="0"]');
+          if (activeRow) {
+            const rowInputs = this.nav ? this.nav.getFocusableInputs(activeRow) : [];
+            if (rowInputs.indexOf(target) <= 0) {
+              e.preventDefault();
+              const narration = this.$el.querySelector('.field-grid textarea');
+              if (narration) {
+                narration.focus();
+                if (narration.select) narration.select();
+                return;
+              }
+            }
+          }
+        }
         const container = (e.target && e.target.closest('.table-wrap')) || this.$el.querySelector('.table-wrap');
         if (container && this.nav) this.nav.handleBackspaceKey(e, container);
-      },
-
-      // Other Charges Form Navigation
-      onChargesEnter(e) {
-        const container = (e.target && e.target.closest('.charges-container')) || (e.target && e.target.closest('.other-charges-modal')) || this.$el.querySelector('.other-charges-modal');
-        if (container && this.nav) {
-          this.nav.handleEnterKey(e, container, () => {
-            this.showOtherChargesModal = false;
-          });
-        }
-      },
-      onChargesBackspace(e) {
-        const container = (e.target && e.target.closest('.charges-container')) || (e.target && e.target.closest('.other-charges-modal')) || this.$el.querySelector('.other-charges-modal');
-        if (container && this.nav) this.nav.handleBackspaceKey(e, container);
-      },
-
-      // Modal Form Navigation
-      onFormEnter(e) {
-        const form = (e.target && e.target.closest('form')) || (e.target && e.target.closest('.modal-form')) || (e.target && e.target.parentElement);
-        if (form && this.nav) this.nav.handleEnterKey(e, form);
-      },
-      onPartyFormEnter(e) {
-        const form = (e.target && e.target.closest('.modal-form')) || (e.target && e.target.parentElement);
-        if (form && this.nav) {
-          this.nav.handleEnterKey(e, form, () => {
-            this.handleQuickAddParty();
-          });
-        }
-      },
-      onStockFormEnter(e) {
-        const form = (e.target && e.target.closest('#stock-item-form')) || (e.target && e.target.closest('form')) || (e.target && e.target.parentElement);
-        if (form && this.nav) {
-          this.nav.handleEnterKey(e, form, () => {
-            this.handleQuickAddStock();
-          });
-        }
-      },
-      onFormBackspace(e) {
-        const form = (e.target && e.target.closest('form')) || (e.target && e.target.closest('.modal-form')) || (e.target && e.target.parentElement);
-        if (form && this.nav) this.nav.handleBackspaceKey(e, form);
-      },
-
-      // History Modal Navigation (↑↓, Enter, ESC, 1-9 Quick Apply, P/A Filter, Tab Toggle)
-      handleHistoryModalKeydown(e) {
-        const list = this.filteredHistoryRecords;
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          if (list.length > 0) {
-            this.historySelectedIndex = (this.historySelectedIndex + 1) % list.length;
-          }
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          if (list.length > 0) {
-            this.historySelectedIndex = (this.historySelectedIndex - 1 + list.length) % list.length;
-          }
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          if (list.length > 0 && this.historySelectedIndex < list.length) {
-            this.applyHistoryRate(list[this.historySelectedIndex]);
-          }
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          this.showHistoryModal = false;
-        } else if (e.key === 'p' || e.key === 'P') {
-          if (this.selectedParty) {
-            e.preventDefault();
-            this.historyFilter = 'PARTY';
-          }
-        } else if (e.key === 'a' || e.key === 'A') {
-          e.preventDefault();
-          this.historyFilter = 'ALL';
-        } else if (e.key === 'Tab') {
-          if (this.selectedParty) {
-            e.preventDefault();
-            this.historyFilter = this.historyFilter === 'ALL' ? 'PARTY' : 'ALL';
-          }
-        } else if (/^[1-9]$/.test(e.key)) {
-          const idx = parseInt(e.key, 10) - 1;
-          if (idx >= 0 && idx < list.length) {
-            e.preventDefault();
-            this.historySelectedIndex = idx;
-            this.applyHistoryRate(list[idx]);
-          }
-        }
-      },
-
-      // Print Modal Navigation
-      handlePrintModalKeydown(e) {
-        if (e.key === 'p' || e.key === 'P') {
-          e.preventDefault();
-          this.downloadCreatedPDF();
-        } else if (e.key === 'e' || e.key === 'E') {
-          e.preventDefault();
-          this.downloadCreatedExcel();
-        } else if (e.key === 'w' || e.key === 'W') {
-          e.preventDefault();
-          this.downloadCreatedWord();
-        } else if (e.key === 'Escape' || e.key === 'Enter') {
-          e.preventDefault();
-          this.closePrintModal();
-        }
       }
     },
-    mounted() {
+    async mounted() {
       if (this.isReturnMode && this.sourceBill) {
-        if (this.sourceBill.partyId) {
-          const p = this.parties.find((item) => item.id === this.sourceBill.partyId || item.name === this.sourceBill.partyName);
-          if (p) this.selectParty(p);
-        }
+        await this.loadSourceBill(this.sourceBill);
       }
       if (global.useKeyboardNavigation) {
         this.nav = global.useKeyboardNavigation();
         this.nav.trackPageFocus(this.$el);
-        this.nav.focusFirstInput(this.$el);
+        if (this.isReturnMode && this.cart.length > 0) {
+          this.$nextTick(() => {
+            const firstQtyInput = this.$el.querySelector ? this.$el.querySelector('tr[data-row="0"] input.qty-input') : document.querySelector('tr[data-row="0"] input.qty-input');
+            if (firstQtyInput) {
+              firstQtyInput.focus();
+              if (typeof firstQtyInput.select === 'function') firstQtyInput.select();
+            }
+          });
+        } else {
+          this.nav.focusFirstInput(this.$el);
+        }
       }
       window.addEventListener('keydown', this.handleGlobalKeydown);
     },
@@ -1761,22 +1399,159 @@
                 <div class="party-title-row">
                   <div class="min-w-0 flex-1">
                     <h3 class="truncate">{{ selectedParty.name }}</h3>
-                    <p class="font-mono text-xs font-bold text-slate-500">{{ selectedParty.gstin || 'UNREGISTERED' }}</p>
+                    <p class="font-mono text-xs font-bold text-slate-500">{{ (selectedPartyLocation && selectedPartyLocation.gstin) || selectedParty.gstin || 'UNREGISTERED' }}</p>
                   </div>
                   <button v-if="!isReturnMode" class="change-btn shrink-0" type="button" title="Change party (F3)" @click="showPartyDrawer = true">
                     Change (F3)
                   </button>
                 </div>
-                <div class="text-[11px] text-slate-600 mt-1 truncate">{{ selectedParty.address || '-' }}</div>
-                <div class="text-[10px] text-slate-500 font-semibold mt-0.5">State: {{ selectedParty.state }} ({{ selectedParty.stateCode }})</div>
-              </div>
 
-              <!-- Consignee / Ship-To Section -->
-              <div class="consignee-block">
-                <label class="same-toggle">
-                  <input type="checkbox" v-model="consigneeSameAsBillTo" />
-                  <span>Ship to billing address</span>
-                </label>
+                <!-- GST Location Selector for Billing (Bill-To) if Party has multiple branches -->
+                <div v-if="gstEnabled && selectedPartyLocations && selectedPartyLocations.length > 1" class="mt-1.5">
+                  <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">
+                    <span>Billing GSTIN / Branch</span>
+                    <select 
+                      :value="selectedPartyLocation?.gstin || selectedParty.gstin || ''" 
+                      @change="onPartyGstinChange" 
+                      @keydown.enter.prevent="onPartyInputEnter($event)"
+                      @keydown.backspace="onPartyInputBackspace($event)"
+                      class="w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-700 outline-none"
+                    >
+                      <option 
+                        v-for="loc in selectedPartyLocations" 
+                        :key="loc.gstin || loc.stateCode || loc.state" 
+                        :value="loc.gstin || ''"
+                      >
+                        {{ loc.gstin || 'UNREGISTERED' }} - {{ loc.state || loc.stateCode || '' }}{{ loc.isPrimary ? ' (Primary)' : '' }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="text-[11px] text-slate-600 mt-1 truncate">{{ (selectedPartyLocation && selectedPartyLocation.address) || selectedParty.address || '-' }}</div>
+                <div class="text-[10px] text-slate-500 font-semibold mt-0.5">State: {{ (selectedPartyLocation && selectedPartyLocation.state) || selectedParty.state }} ({{ (selectedPartyLocation && selectedPartyLocation.stateCode) || selectedParty.stateCode }})</div>
+
+                <!-- Consignee / Ship-To Section (100% Matching Nuxt 4 PartyManager.vue lines 79-194) -->
+                <div class="consignee-block">
+                  <label class="same-toggle">
+                    <input 
+                      type="checkbox" 
+                      v-model="consigneeSameAsBillTo" 
+                      @change="handleConsigneeToggle"
+                      @keydown.enter.prevent="onSameToggleEnter($event)"
+                      @keydown.backspace="onPartyInputBackspace($event)"
+                    />
+                    <span>Ship to billing address</span>
+                  </label>
+
+                  <!-- Different Consignee / Ship-To View -->
+                  <div v-if="!consigneeSameAsBillTo && selectedConsignee" class="ship-fields">
+                    <!-- Quick Pick from Party Locations if Party has multiple branches -->
+                    <div v-if="selectedPartyLocations && selectedPartyLocations.length > 1" class="party-branch-picker">
+                      <label>
+                        <span>Ship to Party Branch:</span>
+                        <select 
+                          @change="onConsigneeLocationChange" 
+                          @keydown.enter.prevent="onPartyInputEnter($event)"
+                          @keydown.backspace="onPartyInputBackspace($event)"
+                          class="w-full"
+                        >
+                          <option value="">-- Choose Party Location or Custom --</option>
+                          <option 
+                            v-for="loc in selectedPartyLocations" 
+                            :key="loc.gstin || loc.stateCode || loc.state" 
+                            :value="loc.gstin || ''"
+                          >
+                            {{ loc.gstin || 'Branch' }} - {{ loc.state || '' }} ({{ loc.address ? loc.address.substring(0, 25) + '...' : '' }})
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <label>
+                      <span>Consignee Name *</span>
+                      <input 
+                        v-model="selectedConsignee.name" 
+                        type="text" 
+                        placeholder="Consignee / Company name" 
+                        @keydown.enter.prevent="onPartyInputEnter($event)"
+                        @keydown.backspace="onPartyInputBackspace($event)"
+                      />
+                    </label>
+
+                    <label>
+                      <span>Delivery Address *</span>
+                      <textarea 
+                        v-model="selectedConsignee.address" 
+                        rows="2" 
+                        placeholder="Delivery address (Shift+Enter for newline)"
+                        @keydown.enter="onConsigneeAddressEnter($event)"
+                        @keydown.backspace="onPartyInputBackspace($event)"
+                      ></textarea>
+                    </label>
+
+                    <div class="ship-grid">
+                      <label v-if="gstEnabled">
+                        <span>GSTIN</span>
+                        <input 
+                          v-model="selectedConsignee.gstin" 
+                          type="text" 
+                          maxlength="15" 
+                          placeholder="27ABCDE1234F1Z5" 
+                          @keydown.enter.prevent="onPartyInputEnter($event)"
+                          @keydown.backspace="onPartyInputBackspace($event)"
+                          class="uppercase font-mono"
+                        />
+                      </label>
+                      <label :style="!gstEnabled ? 'grid-column: span 2;' : ''">
+                        <span>State *</span>
+                        <input 
+                          v-model="selectedConsignee.state" 
+                          type="text" 
+                          placeholder="e.g. Maharashtra" 
+                          @keydown.enter.prevent="onPartyInputEnter($event)"
+                          @keydown.backspace="onPartyInputBackspace($event)"
+                        />
+                      </label>
+                    </div>
+
+                    <div class="ship-grid">
+                      <label>
+                        <span>PIN Code</span>
+                        <input 
+                          v-model="selectedConsignee.pin" 
+                          type="text" 
+                          maxlength="6" 
+                          placeholder="PIN" 
+                          @keydown.enter.prevent="onPartyInputEnter($event)"
+                          @keydown.backspace="onPartyInputBackspace($event)"
+                          class="font-mono"
+                        />
+                      </label>
+                      <label>
+                        <span>Contact</span>
+                        <input 
+                          v-model="selectedConsignee.contact" 
+                          type="text" 
+                          placeholder="Phone / Contact" 
+                          @keydown.enter.prevent="onPartyInputEnter($event)"
+                          @keydown.backspace="onPartyInputBackspace($event)"
+                        />
+                      </label>
+                    </div>
+
+                    <label>
+                      <span>Delivery Instructions</span>
+                      <input 
+                        v-model="selectedConsignee.deliveryInstructions" 
+                        type="text" 
+                        placeholder="Special dispatch instructions"
+                        @keydown.enter.prevent="onPartyInputEnter($event)"
+                        @keydown.backspace="onPartyInputBackspace($event)"
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -1998,1082 +1773,85 @@
         <!-- ============================================== -->
 
         <!-- 1. Party Selector Slide-Over Drawer (F3) -->
-        <div v-if="showPartyDrawer" class="fixed inset-0 z-[60] flex justify-end bg-slate-900/40 backdrop-blur-2xs" style="z-index: 60;" @click.self="showPartyDrawer = false">
-          <div class="w-full max-w-md h-full bg-white shadow-2xl flex flex-col" @keydown="handlePartyDrawerKeydown">
-            <header class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <p class="text-[9px] font-black uppercase tracking-widest text-slate-400">Records</p>
-                <h2 class="text-sm font-black text-slate-900 uppercase">Choose Party</h2>
-              </div>
-              <div class="flex items-center space-x-2">
-                <button
-                  type="button"
-                  @click="openQuickAddParty"
-                  class="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded cursor-pointer"
-                >
-                  + New Party (Insert)
-                </button>
-                <button
-                  type="button"
-                  @click="showPartyDrawer = false"
-                  class="px-2.5 py-1 border border-slate-300 rounded text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </header>
+        <invoice-party-drawer-component
+          :show="showPartyDrawer"
+          :parties="parties"
+          :selected-party="selectedParty"
+          :mode="mode"
+          @close="showPartyDrawer = false"
+          @select="selectParty"
+          @open-quick-add="openQuickAddParty"
+        ></invoice-party-drawer-component>
 
-            <div class="p-3 border-b border-slate-200 bg-slate-50">
-              <input
-                ref="partyDrawerSearchInput"
-                v-model="partySearchQuery"
-                type="text"
-                placeholder="Search party... (↑↓ Navigate • Enter Select • Insert New • ESC Close)"
-                class="w-full border-2 border-blue-500 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none bg-white shadow-2xs"
-              />
-            </div>
-
-            <div class="flex-1 overflow-y-auto p-2 space-y-1.5">
-              <button
-                v-for="(party, idx) in filteredParties"
-                :key="party.id"
-                type="button"
-                @click="selectParty(party)"
-                :class="partySelectedIndex === idx ? 'bg-blue-600 text-white border-blue-700 shadow-sm' : 'bg-white hover:bg-blue-50/70 border-slate-200 text-slate-800'"
-                class="w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col gap-1"
-              >
-                <div class="flex items-center justify-between">
-                  <strong :class="partySelectedIndex === idx ? 'text-white' : 'text-slate-900'" class="text-xs font-black truncate">{{ party.name }}</strong>
-                  <span :class="partySelectedIndex === idx ? 'bg-white/20 text-white border-white/30' : 'bg-amber-50 text-amber-700 border-amber-200'" class="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded border">
-                    ₹0.00 DR
-                  </span>
-                </div>
-                <div :class="partySelectedIndex === idx ? 'text-blue-100' : 'text-slate-500'" class="text-[10px] font-medium flex items-center justify-between">
-                  <span>GSTIN: {{ party.gstin || 'UNREGISTERED' }}</span>
-                  <span>{{ party.state || '-' }}</span>
-                </div>
-              </button>
-
-              <div v-if="filteredParties.length === 0" class="p-8 text-center text-slate-400 text-xs">
-                <p>No matching party found.</p>
-                <button type="button" class="mt-2 text-emerald-600 font-bold underline cursor-pointer" @click="openQuickAddParty">
-                  Press Insert to Register New Party
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 2. Stock Item Selector Modal (F2) - 100% Faithful Replica of Nuxt 4 app/components/inventory/StockModal.vue -->
-        <div v-if="showStockSelectorModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md" style="z-index: 60;" @click.self="showStockSelectorModal = false">
-          <div class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-in border border-slate-200 dark:border-zinc-800">
-            <!-- Header (100% matching Nuxt 4 StockModal.vue lines 5-22) -->
-            <div class="p-4 px-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center bg-slate-50/80 dark:bg-zinc-850/80">
-              <div class="flex items-center gap-3">
-                 <div class="w-10 h-10 bg-gradient-to-br from-indigo-600 to-blue-700 rounded-xl flex items-center justify-center text-white shadow-md shadow-blue-200 ring-2 ring-white">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                    </svg>
-                 </div>
-                 <div>
-                    <h2 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight leading-none">Stock Browser</h2>
-                    <p class="text-[9px] font-black text-slate-400 dark:text-zinc-500 uppercase tracking-widest mt-1">Inventory Management Hub</p>
-                 </div>
-              </div>
-              <button 
-                type="button"
-                @click="showStockSelectorModal = false" 
-                class="w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-400 hover:text-red-500 hover:border-red-100 transition-all shadow-sm group cursor-pointer"
-                title="Close Browser (ESC)"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transform group-hover:rotate-90 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <!-- Search & Filters (100% matching Nuxt 4 StockModal.vue lines 24-44) -->
-            <div class="px-6 pt-4 pb-2">
-               <div class="relative group">
-                  <input 
-                    type="text" 
-                    v-model="stockSearchQuery" 
-                    placeholder="Filter by Name, HSN, Part No or OEM..." 
-                    class="w-full pl-10 pr-6 py-2.5 bg-slate-50 dark:bg-zinc-800 border-2 border-transparent rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:border-blue-600 focus:ring-4 focus:ring-blue-50/50 outline-none transition-all font-bold text-xs text-slate-800 dark:text-zinc-200 placeholder-slate-400 shadow-inner"
-                    ref="stockSearchInput"
-                    @keydown="handleStockModalKeydown"
-                  />
-                  <div class="absolute left-3.5 top-3 text-slate-400 group-focus-within:text-blue-600 transition-colors pointer-events-none">
-                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                     </svg>
-                  </div>
-                  <div class="absolute right-3.5 top-2.5 hidden sm:flex items-center gap-2 pointer-events-none">
-                     <span class="px-1.5 py-0.5 bg-slate-200 dark:bg-zinc-700 text-slate-500 dark:text-zinc-400 rounded font-mono text-[9px] font-bold">
-                       Insert: New Item • F3/Ctrl+E: Edit Item • ↑↓: Navigate • Enter: Select • ESC: Close
-                     </span>
-                  </div>
-               </div>
-            </div>
-
-            <!-- Advanced Stock Table (100% matching Nuxt 4 StockModal.vue lines 46-206) -->
-            <div class="flex-1 overflow-y-auto px-6 pb-4 custom-scrollbar bg-slate-50/50 dark:bg-zinc-900/50">
-               <div class="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-100 dark:border-zinc-800 overflow-hidden shadow-sm">
-                  <table class="w-full text-left border-collapse">
-                     <thead>
-                        <tr class="bg-slate-100 dark:bg-zinc-800 text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider border-b border-slate-200 dark:border-zinc-700">
-                           <th class="px-4 py-2">Item Description</th>
-                           <th class="px-3 py-2">HSN</th>
-                           <th class="px-3 py-2">Batch</th>
-                           <th class="px-3 py-2">Expiry</th>
-                           <th class="px-3 py-2 text-right">Available</th>
-                           <th class="px-3 py-2 text-right">{{ mode === 'purchase' ? 'Cost Rate' : 'Rate' }}</th>
-                           <th class="px-3 py-2 text-right">GST %</th>
-                           <th class="px-3 py-2 text-right">MRP</th>
-                           <th class="px-4 py-2 text-center">Action</th>
-                        </tr>
-                     </thead>
-                     <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-                        <template v-for="(stock, index) in filteredStocks" :key="stock.id || stock._id">
-                           <!-- Main Stock Item Row -->
-                            <tr 
-                              class="transition-colors cursor-pointer group text-xs font-bold text-slate-700 dark:text-zinc-300"
-                              :class="[
-                                isStockActive(stock) ? 'bg-blue-100/90 dark:bg-blue-950/90 ring-2 ring-blue-500 ring-inset shadow-md active-stock-row' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
-                              ]"
-                              @click="toggleStock(stock)"
-                            >
-                              <td class="px-4 py-1.5">
-                                 <div class="font-black text-slate-900 dark:text-white text-xs leading-tight">{{ stock.item }}</div>
-                                 <div class="flex items-center gap-1.5 mt-0.5 text-[9px] text-slate-400 dark:text-zinc-500 font-semibold">
-                                    <span v-if="stock.pno">P/N: {{ stock.pno }}</span>
-                                    <span v-if="stock.pno && stock.oem" class="w-0.5 h-0.5 bg-slate-300 rounded-full"></span>
-                                    <span v-if="stock.oem">OEM: {{ stock.oem }}</span>
-                                 </div>
-                              </td>
-                              <td class="px-3 py-1.5 font-mono text-[9px] uppercase tracking-wider text-slate-500 dark:text-zinc-400">{{ stock.hsn || '-' }}</td>
-                              <td class="px-3 py-1.5">
-                                 <div v-if="getStockBatches(stock).length > 1" class="flex items-center gap-1">
-                                    <span class="bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 border-indigo-100 border rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase">
-                                       {{ getStockBatches(stock).length }} Batches
-                                    </span>
-                                    <svg 
-                                      class="w-3 h-3 text-indigo-500 transition-transform duration-200"
-                                      :class="expandedStockId === (stock.id || stock._id) ? 'rotate-180' : ''"
-                                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                                    >
-                                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                 </div>
-                                 <span v-else-if="getStockBatches(stock).length === 1" class="bg-slate-50 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border-slate-100 dark:border-zinc-700 px-1.5 py-0.5 border rounded-md text-[9px] font-black uppercase">
-                                     {{ getStockBatches(stock)[0].batch || '-' }}
-                                 </span>
-                                 <span v-else class="text-slate-400">-</span>
-                              </td>
-                              <td class="px-3 py-1.5 text-slate-500 dark:text-zinc-400 font-medium text-[11px]">
-                                 <span v-if="getStockBatches(stock).length > 1" class="text-slate-400 italic">Various</span>
-                                 <span v-else-if="getStockBatches(stock).length === 1">
-                                    {{ formatDate(getStockBatches(stock)[0].expiry) }}
-                                 </span>
-                                 <span v-else>-</span>
-                              </td>
-                              <td class="px-3 py-1.5 text-right">
-                                 <span class="text-xs font-black text-slate-900 dark:text-white" :class="Number(stock.qty || 0) <= 0 ? 'text-red-500 animate-pulse' : ''">{{ Number(stock.qty || 0).toLocaleString() }}</span>
-                                 <span class="text-[9px] font-black text-slate-400 uppercase ml-0.5">{{ stock.uom || 'PCS' }}</span>
-                              </td>
-                              <td class="px-3 py-1.5 text-right font-mono text-slate-900 dark:text-zinc-200 text-[11px]">₹{{ Number((mode === 'purchase' ? (stock.cost_rate || stock.rate) : stock.rate) || 0).toFixed(2) }}</td>
-                              <td class="px-3 py-1.5 text-right text-slate-500 dark:text-zinc-400 font-medium text-[11px]">{{ stock.grate || 0 }}%</td>
-                              <td class="px-3 py-1.5 text-right font-mono text-slate-900 dark:text-zinc-200 text-[11px]">
-                                 <span v-if="getStockBatches(stock).length > 1" class="text-slate-400 italic">Various</span>
-                                 <span v-else-if="getStockBatches(stock).length === 1">
-                                    {{ getStockBatches(stock)[0].mrp ? '₹' + Number(getStockBatches(stock)[0].mrp).toFixed(2) : '-' }}
-                                 </span>
-                                 <span v-else-if="stock.mrp">₹{{ Number(stock.mrp).toFixed(2) }}</span>
-                                 <span v-else>-</span>
-                              </td>
-                              <td class="px-4 py-1.5 text-center">
-                                 <div class="flex items-center justify-center gap-1.5">
-                                    <button 
-                                      type="button"
-                                      @click.stop="toggleStock(stock)"
-                                      class="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer"
-                                      :class="getStockBatches(stock).length > 1 
-                                        ? (expandedStockId === (stock.id || stock._id) ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white') 
-                                        : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-blue-600 hover:text-white'"
-                                    >
-                                       {{ getStockBatches(stock).length > 1 ? (expandedStockId === (stock.id || stock._id) ? 'Close' : 'Expand') : 'Select' }}
-                                    </button>
-                                    <button 
-                                      type="button"
-                                      @click.stop="openEditStock(stock)"
-                                      class="px-2 py-0.5 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 hover:bg-amber-600 hover:text-white rounded-md text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer"
-                                    >
-                                       Edit
-                                    </button>
-                                 </div>
-                              </td>
-                           </tr>
-
-                           <!-- Nested Batches Sub-Table Row (100% matching Nuxt 4 StockModal.vue lines 142-196) -->
-                           <tr v-if="expandedStockId === (stock.id || stock._id) && getStockBatches(stock).length > 1" class="bg-slate-50/50 dark:bg-zinc-850/50">
-                              <td colspan="9" class="px-4 py-2">
-                                 <div class="border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-sm max-w-4xl animate-scale-in">
-                                    <div class="bg-slate-50 dark:bg-zinc-800 px-3 py-1.5 border-b border-slate-100 dark:border-zinc-700 flex items-center justify-between">
-                                       <span class="text-[9px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest">Select Batch for {{ stock.item }}</span>
-                                       <span class="text-[9px] text-slate-400 dark:text-zinc-500 font-bold uppercase">{{ getStockBatches(stock).length }} Batches Available</span>
-                                    </div>
-                                    <table class="w-full text-left text-xs border-collapse">
-                                       <thead>
-                                          <tr class="bg-slate-50/50 dark:bg-zinc-800/50 text-[9px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-zinc-800">
-                                             <th class="px-3 py-1.5">Batch No</th>
-                                             <th class="px-3 py-1.5">Expiry</th>
-                                             <th class="px-3 py-1.5 text-right">Available Qty</th>
-                                             <th class="px-3 py-1.5 text-right">{{ mode === 'purchase' ? 'Cost Rate' : 'Rate' }}</th>
-                                             <th class="px-3 py-1.5 text-right">GST %</th>
-                                             <th class="px-3 py-1.5 text-right">MRP</th>
-                                             <th class="px-3 py-1.5 text-center">Action</th>
-                                          </tr>
-                                       </thead>
-                                       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800 font-bold text-slate-600 dark:text-zinc-300 text-[11px]">
-                                          <tr 
-                                            v-for="batch in getStockBatches(stock)" 
-                                            :key="batch._id || batch.id || batch.batch"
-                                            class="transition-colors cursor-pointer"
-                                            :class="[
-                                               isBatchActive(stock, batch) ? 'bg-indigo-100 dark:bg-indigo-900/90 ring-2 ring-indigo-500 font-extrabold text-indigo-900 dark:text-white active-stock-row' : 'hover:bg-blue-50/20 dark:hover:bg-blue-950/20'
-                                            ]"
-                                            @click.stop="selectStockRow(stock, batch)"
-                                          >
-                                             <td class="px-3 py-1">
-                                                <span class="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 rounded text-[9px] font-black uppercase">
-                                                   {{ batch.batch || '-' }}
-                                                </span>
-                                             </td>
-                                             <td class="px-3 py-1 text-slate-500 dark:text-zinc-400 font-medium">
-                                                {{ formatDate(batch.expiry) }}
-                                             </td>
-                                             <td class="px-3 py-1 text-right text-slate-900 dark:text-white">
-                                                {{ Number(batch.qty || 0).toLocaleString() }} <span class="text-[9px] text-slate-400 uppercase ml-0.5">{{ batch.uom || stock.uom || 'PCS' }}</span>
-                                             </td>
-                                             <td class="px-3 py-1 text-right text-slate-900 dark:text-white font-mono">₹{{ Number((mode === 'purchase' ? (batch.rate || stock.cost_rate || stock.rate) : (batch.sale_rate || batch.rate || stock.rate)) || 0).toFixed(2) }}</td>
-                                             <td class="px-3 py-1 text-right text-slate-500 dark:text-zinc-400 font-medium">{{ batch.grate !== undefined ? batch.grate : (stock.grate || 0) }}%</td>
-                                             <td class="px-3 py-1 text-right text-slate-900 dark:text-white font-mono">{{ batch.mrp ? '₹' + Number(batch.mrp).toFixed(2) : '-' }}</td>
-                                             <td class="px-3 py-1 text-center">
-                                                <button type="button" class="px-2 py-0.5 bg-indigo-600 text-white rounded-md text-[9px] font-black uppercase tracking-wider hover:bg-indigo-700 transition-colors cursor-pointer">
-                                                   Select
-                                                </button>
-                                             </td>
-                                          </tr>
-                                       </tbody>
-                                    </table>
-                                 </div>
-                              </td>
-                           </tr>
-                        </template>
-                        <tr v-if="filteredStocks.length === 0">
-                           <td colspan="9" class="px-5 py-8 text-center text-slate-400 font-black uppercase text-xs tracking-widest">
-                              No stock items match your search
-                           </td>
-                        </tr>
-                     </tbody>
-                  </table>
-               </div>
-            </div>
-
-            <!-- High-Fidelity Footer (100% matching Nuxt 4 StockModal.vue lines 208-220) -->
-            <div class="p-4 px-6 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-850/50 flex justify-between items-center">
-               <button 
-                 type="button" 
-                 @click="openQuickAddStock" 
-                 class="group flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white px-4 py-1.5 rounded-xl transition-all duration-300 cursor-pointer"
-               >
-                  <div class="w-6 h-6 bg-white/50 rounded-lg flex items-center justify-center group-hover:bg-white/20 transition-colors shadow-sm font-black text-xs">
-                     +
-                  </div>
-                  <span class="text-[10px] font-black uppercase tracking-widest">+ Register New Stock Item (F5 / Ctrl+N / Insert)</span>
-               </button>
-               <div class="flex items-center gap-2">
-                 <button
-                   type="button"
-                   @click="addBlankLineFromModal"
-                   class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
-                 >
-                   + Add Blank Row (F5)
-                 </button>
-                 <button 
-                   type="button" 
-                   @click="showStockSelectorModal = false" 
-                   class="px-4 py-1.5 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 text-slate-500 dark:text-zinc-400 hover:text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm cursor-pointer"
-                 >
-                    Close Browser
-                 </button>
-               </div>
-            </div>
-          </div>
-        </div>
+        <!-- 2. Stock Item Selector Modal (F2) -->
+        <invoice-stock-selector-modal
+          :show="showStockSelectorModal"
+          :stocks="stocks"
+          :mode="mode"
+          @close="showStockSelectorModal = false"
+          @select-stock="selectStockFromCatalog"
+          @register-new="openQuickAddStock"
+          @edit-stock="openEditStock"
+          @add-blank="addBlankLineFromModal"
+        ></invoice-stock-selector-modal>
 
         <!-- 3. Other Charges Modal (F4) -->
-        <div v-if="showOtherChargesModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-2xs p-4" style="z-index: 60;" @click.self="showOtherChargesModal = false">
-          <div class="other-charges-modal bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
-            <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 class="text-sm font-black text-slate-900 uppercase">Other Charges (F4)</h3>
-                <p class="text-[10px] text-slate-500">Freight, Packing, Insurance & Delivery charges with GST</p>
-              </div>
-              <button @click="showOtherChargesModal = false" class="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer" title="Close (ESC)">&times;</button>
-            </div>
-            <div class="charges-container p-4 space-y-3">
-              <div v-for="(ch, cIdx) in otherCharges" :key="cIdx" class="flex items-center gap-2">
-                <input type="text" v-model="ch.label" placeholder="Charge description" class="flex-1 bg-white border border-slate-300 rounded px-2 py-1 text-xs font-semibold" @keydown.enter.prevent="onChargesEnter($event)" @keydown.backspace="onChargesBackspace($event)" />
-                <input type="number" step="any" v-model="ch.amount" placeholder="Amount (₹)" class="w-24 bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-right" @keydown.enter.prevent="onChargesEnter($event)" @keydown.backspace="onChargesBackspace($event)" />
-                <select v-model="ch.grate" class="w-20 bg-white border border-slate-300 rounded px-1.5 py-1 text-xs font-bold" @keydown.enter.prevent="onChargesEnter($event)" @keydown.backspace="onChargesBackspace($event)">
-                  <option :value="0">0%</option>
-                  <option :value="5">5%</option>
-                  <option :value="12">12%</option>
-                  <option :value="18">18%</option>
-                  <option :value="28">28%</option>
-                </select>
-                <button type="button" @click="removeOtherCharge(cIdx)" class="text-rose-500 font-bold px-1.5 cursor-pointer" title="Remove">&times;</button>
-              </div>
+        <invoice-charges-modal
+          :show="showOtherChargesModal"
+          :charges="otherCharges"
+          @close="showOtherChargesModal = false"
+          @add-row="addOtherChargeRow"
+          @remove-row="removeOtherCharge"
+        ></invoice-charges-modal>
 
-              <button
-                type="button"
-                @click="addOtherChargeRow"
-                class="px-3 py-1 rounded text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 cursor-pointer"
-              >
-                + Add Charge Row
-              </button>
-            </div>
-            <div class="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
-              <button
-                type="button"
-                @click="showOtherChargesModal = false"
-                class="px-4 py-1.5 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
-              >
-                Done (ESC)
-              </button>
-            </div>
-          </div>
-        </div>
 
         <!-- 4. Party-Item Rate History Modal (Alt+H) -->
-        <div v-if="showHistoryModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4" style="z-index: 60;" @click.self="showHistoryModal = false">
-          <div 
-            class="history-modal-container bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden outline-none flex flex-col max-h-[85vh]" 
-            tabindex="0"
-            @keydown="handleHistoryModalKeydown"
-          >
-            <!-- Modal Header -->
-            <div class="p-4 border-b border-slate-200 bg-slate-50 flex items-start justify-between">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
-                  <h3 class="text-sm font-black text-slate-900 uppercase tracking-wide">Rate & Transaction History</h3>
-                  <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-mono font-black text-[10px]">Alt+H / F7</span>
-                </div>
-                <div class="mt-1 flex items-center gap-3 text-xs">
-                  <span class="font-bold text-slate-800 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-2xs">
-                    📦 {{ activeHistoryItem ? activeHistoryItem.item : 'Selected Item' }}
-                  </span>
-                  <span v-if="selectedParty" class="text-slate-500 font-medium">
-                    Party: <strong class="text-slate-700">{{ selectedParty.name }}</strong>
-                  </span>
-                </div>
-              </div>
-              <button @click="showHistoryModal = false" class="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer leading-none p-1" title="Close (ESC)">&times;</button>
-            </div>
+        <invoice-history-modal-component
+          :show="showHistoryModal"
+          :active-item="activeHistoryItem"
+          :selected-party="selectedParty"
+          :history-records="historyRecords"
+          :loading="historyLoading"
+          @close="showHistoryModal = false; closeHistoryModal()"
+          @apply-rate="applyHistoryRate"
+        ></invoice-history-modal-component>
 
-            <!-- Filter Switch Bar (Party vs All) -->
-            <div class="px-4 py-2 border-b border-slate-100 bg-slate-100/60 flex items-center justify-between text-xs">
-              <div class="flex items-center gap-1.5">
-                <button 
-                  type="button"
-                  @click="historyFilter = 'PARTY'"
-                  :disabled="!selectedParty || partyHistoryCount === 0"
-                  :class="historyFilter === 'PARTY' ? 'bg-indigo-600 text-white shadow-xs font-black' : 'bg-white hover:bg-slate-200 text-slate-600 border border-slate-200 font-bold disabled:opacity-40 disabled:hover:bg-white cursor-pointer'"
-                  class="px-2.5 py-1 rounded-lg text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <span>This Party Only</span>
-                  <span :class="historyFilter === 'PARTY' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'" class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold">{{ partyHistoryCount }}</span>
-                  <kbd :class="historyFilter === 'PARTY' ? 'text-indigo-200' : 'text-slate-400'" class="font-mono text-[9px] font-bold">[P]</kbd>
-                </button>
-
-                <button 
-                  type="button"
-                  @click="historyFilter = 'ALL'"
-                  :class="historyFilter === 'ALL' ? 'bg-indigo-600 text-white shadow-xs font-black' : 'bg-white hover:bg-slate-200 text-slate-600 border border-slate-200 font-bold cursor-pointer'"
-                  class="px-2.5 py-1 rounded-lg text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <span>All Parties</span>
-                  <span :class="historyFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'" class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold">{{ historyRecords.length }}</span>
-                  <kbd :class="historyFilter === 'ALL' ? 'text-indigo-200' : 'text-slate-400'" class="font-mono text-[9px] font-bold">[A]</kbd>
-                </button>
-              </div>
-
-              <div class="text-[10px] text-slate-400 font-semibold hidden sm:block">
-                Press <kbd class="px-1 py-0.2 bg-white border border-slate-300 rounded font-mono text-[9px] font-bold">Tab</kbd> to toggle filter
-              </div>
-            </div>
-
-            <!-- Table Body -->
-            <div class="p-0 overflow-y-auto flex-1 min-h-[180px] max-h-[380px]">
-              <div v-if="historyLoading" class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
-                <span class="animate-spin text-lg">⏳</span>
-                <span>Fetching transaction history from local database...</span>
-              </div>
-              <div v-else-if="filteredHistoryRecords.length === 0" class="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-1">
-                <span class="text-slate-300 text-2xl font-bold">∅</span>
-                <span class="font-bold text-slate-600">No past transactions found</span>
-                <span v-if="historyFilter === 'PARTY'" class="text-[11px] text-slate-400">
-                  No previous records with {{ selectedParty ? selectedParty.name : 'this party' }}. Press <kbd class="px-1 py-0.5 bg-slate-100 border border-slate-200 rounded font-mono font-bold text-slate-600">A</kbd> to view all parties.
-                </span>
-                <span v-else class="text-[11px] text-slate-400">
-                  No prior sales or purchases recorded for this item.
-                </span>
-              </div>
-              <table v-else class="w-full text-left text-xs divide-y divide-slate-100 border-collapse">
-                <thead class="sticky top-0 bg-slate-50 shadow-2xs z-10">
-                  <tr class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    <th class="py-2 px-3 text-center w-10">#</th>
-                    <th class="py-2 px-2 w-16">Type</th>
-                    <th class="py-2 px-2">Date</th>
-                    <th class="py-2 px-2">Bill #</th>
-                    <th class="py-2 px-3">Party</th>
-                    <th class="py-2 px-2 text-right">Qty</th>
-                    <th class="py-2 px-2 text-right">Disc %</th>
-                    <th class="py-2 px-3 text-right">Rate</th>
-                    <th class="py-2 px-3 text-center w-20">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                  <tr 
-                    v-for="(rec, rIdx) in filteredHistoryRecords" 
-                    :key="rIdx" 
-                    :class="historySelectedIndex === rIdx ? 'active-history-row bg-indigo-600 text-white font-semibold' : 'hover:bg-slate-50/80 text-slate-700'"
-                    class="transition-colors cursor-pointer group"
-                    @click="applyHistoryRate(rec)"
-                  >
-                    <td class="py-2 px-3 text-center">
-                      <span v-if="rIdx < 9" :class="historySelectedIndex === rIdx ? 'bg-white/20 text-white border-white/40' : 'bg-slate-100 text-slate-600 border-slate-200'" class="px-1.5 py-0.5 rounded font-mono font-black text-[10px] border shadow-2xs">
-                        {{ rIdx + 1 }}
-                      </span>
-                      <span v-else class="text-[10px] text-slate-400 font-mono">{{ rIdx + 1 }}</span>
-                    </td>
-                    <td class="py-2 px-2">
-                      <span 
-                        v-if="rec.btype === 'PURCHASE'"
-                        :class="historySelectedIndex === rIdx ? 'bg-purple-200 text-purple-900' : 'bg-purple-100 text-purple-700 border border-purple-200'" 
-                        class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider"
-                      >
-                        PUR
-                      </span>
-                      <span 
-                        v-else
-                        :class="historySelectedIndex === rIdx ? 'bg-sky-200 text-sky-900' : 'bg-sky-100 text-sky-700 border border-sky-200'" 
-                        class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider"
-                      >
-                        SALE
-                      </span>
-                    </td>
-                    <td class="py-2 px-2 whitespace-nowrap text-[11px]" :class="historySelectedIndex === rIdx ? 'text-indigo-100' : 'text-slate-500'">{{ rec.bdate }}</td>
-                    <td class="py-2 px-2 font-mono font-bold text-[11px] whitespace-nowrap">{{ rec.bno }}</td>
-                    <td class="py-2 px-3 truncate max-w-[150px]">
-                      <div class="flex items-center gap-1">
-                        <span class="truncate font-semibold">{{ rec.party_name }}</span>
-                        <span 
-                          v-if="selectedParty && ((rec.partyId && Number(rec.partyId) === Number(selectedParty.id)) || (rec.party_name && rec.party_name.toLowerCase().trim() === (selectedParty.name || '').toLowerCase().trim()))" 
-                          :class="historySelectedIndex === rIdx ? 'bg-amber-400 text-amber-950' : 'bg-amber-100 text-amber-700 border border-amber-200'" 
-                          class="px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-widest shrink-0"
-                          title="Matches current party"
-                        >
-                          ★ MATCH
-                        </span>
-                      </div>
-                    </td>
-                    <td class="py-2 px-2 text-right whitespace-nowrap text-[11px]">{{ rec.qty }} <span class="text-[9px] opacity-75">{{ rec.uom }}</span></td>
-                    <td class="py-2 px-2 text-right text-[11px]" :class="historySelectedIndex === rIdx ? 'text-indigo-100' : 'text-slate-400'">
-                      {{ Number(rec.disc) > 0 ? (rec.disc + '%') : '-' }}
-                    </td>
-                    <td class="py-2 px-3 text-right font-black text-xs whitespace-nowrap" :class="historySelectedIndex === rIdx ? 'text-white' : 'text-indigo-700'">
-                      {{ formatCurrency(rec.rate) }}
-                    </td>
-                    <td class="py-2 px-3 text-center">
-                      <button
-                        type="button"
-                        @click.stop="applyHistoryRate(rec)"
-                        :class="historySelectedIndex === rIdx ? 'bg-white text-indigo-700 font-black shadow-sm' : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 font-bold'"
-                        class="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider cursor-pointer transition-all"
-                      >
-                        Apply
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Modal Footer with Keyboard Shortcuts -->
-            <div class="p-3 px-4 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-              <div class="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
-                <span class="flex items-center gap-1 font-bold">
-                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">1-9</kbd>
-                  <span>Quick Pick</span>
-                </span>
-                <span class="text-slate-300">&bull;</span>
-                <span class="flex items-center gap-1 font-bold">
-                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">↑↓</kbd>
-                  <span>Navigate</span>
-                </span>
-                <span class="text-slate-300">&bull;</span>
-                <span class="flex items-center gap-1 font-bold">
-                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">Enter</kbd>
-                  <span>Apply Rate</span>
-                </span>
-                <span class="text-slate-300">&bull;</span>
-                <span class="flex items-center gap-1 font-bold">
-                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">P/A/Tab</kbd>
-                  <span>Filter</span>
-                </span>
-                <span class="text-slate-300">&bull;</span>
-                <span class="flex items-center gap-1 font-bold">
-                  <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-700 shadow-2xs">ESC</kbd>
-                  <span>Close</span>
-                </span>
-              </div>
-              <div class="flex items-center gap-2">
-                <button 
-                  type="button" 
-                  @click="showHistoryModal = false"
-                  class="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                >
-                  Close (ESC)
-                </button>
-                <button 
-                  v-if="filteredHistoryRecords.length > 0"
-                  type="button" 
-                  @click="applyHistoryRate(filteredHistoryRecords[historySelectedIndex])"
-                  class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black transition-all cursor-pointer shadow-sm"
-                >
-                  Apply Rate (Enter)
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <!-- 5. Help & Shortcuts Modal (F1 / Shift+?) -->
-        <div v-if="showHelpModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4" style="z-index: 60;" @click.self="showHelpModal = false">
-          <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-                <h3 class="text-sm font-black text-slate-900 uppercase">Keyboard Shortcuts & Commands (F1)</h3>
-              </div>
-              <button @click="showHelpModal = false" class="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer">&times;</button>
-            </div>
-            <div class="p-4 space-y-2 text-xs divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Select Stock Item / Open Catalog</span>
-                <kbd class="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded font-mono font-black text-[11px]">F2</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Pick Customer / Supplier Party</span>
-                <kbd class="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded font-mono font-black text-[11px]">F3</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Add Freight & Other Charges</span>
-                <kbd class="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded font-mono font-black text-[11px]">F4</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Add Blank Goods Line</span>
-                <kbd class="px-2 py-0.5 bg-slate-100 text-slate-800 border border-slate-300 rounded font-mono font-black text-[11px]">Shift+F5</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Add Blank Service Line</span>
-                <kbd class="px-2 py-0.5 bg-slate-100 text-slate-800 border border-slate-300 rounded font-mono font-black text-[11px]">F5</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Save Voucher / Finalize Invoice</span>
-                <kbd class="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-mono font-black text-[11px]">F8 / Ctrl+S</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Discard & Cancel Workspace</span>
-                <kbd class="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded font-mono font-black text-[11px]">F9</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Register New Party / New Item</span>
-                <kbd class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded font-mono font-black text-[11px]">Insert</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">View Rate & Transaction History</span>
-                <kbd class="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-mono font-black text-[11px]">Alt+H</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Edit Selected Party</span>
-                <kbd class="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-mono font-black text-[11px]">Alt+E</kbd>
-              </div>
-              <div class="flex items-center justify-between py-1.5">
-                <span class="font-bold text-slate-700">Close Open Modal / Drawer</span>
-                <kbd class="px-2 py-0.5 bg-slate-100 text-slate-800 border border-slate-300 rounded font-mono font-black text-[11px]">ESC</kbd>
-              </div>
-            </div>
-            <div class="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
-              <button
-                type="button"
-                @click="showHelpModal = false"
-                class="help-modal-close-btn px-4 py-1.5 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
-              >
-                Got It (ESC)
-              </button>
-            </div>
-          </div>
-        </div>
+        <invoice-help-modal
+          :show="showHelpModal"
+          @close="showHelpModal = false"
+        ></invoice-help-modal>
 
         <!-- 6. Quick Add Party Modal (Insert) -->
-        <div v-if="showQuickAddPartyModal" class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4" style="z-index: 70;" @click.self="closeQuickAddParty">
-          <div class="quick-party-modal bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
-            <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <h3 class="text-sm font-black text-slate-900 uppercase">
-                {{ editingPartyId ? 'Edit Party (Alt+E)' : 'Quick Add Party (Insert)' }}
-              </h3>
-              <button @click="closeQuickAddParty" class="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer" title="Cancel (ESC)">&times;</button>
-            </div>
-            <div class="modal-form p-4 space-y-2.5 text-xs" @keydown.enter="onPartyFormEnter($event)" @keydown.backspace="onFormBackspace($event)">
-              <div>
-                <span class="font-bold text-slate-700 block mb-0.5">Party Name *</span>
-                <input ref="quickPartyNameInput" id="quick-party-name-input" type="text" v-model="newPartyForm.name" placeholder="Business or Person Name" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold outline-none focus:border-blue-500" />
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <span class="font-bold text-slate-700 block mb-0.5">GSTIN</span>
-                  <input type="text" v-model="newPartyForm.gstin" placeholder="27XXXXX..." class="w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono uppercase" />
-                </div>
-                <div>
-                  <span class="font-bold text-slate-700 block mb-0.5">Phone</span>
-                  <input type="text" v-model="newPartyForm.phone" placeholder="+91..." class="w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs" />
-                </div>
-              </div>
-              <div>
-                <span class="font-bold text-slate-700 block mb-0.5">Address</span>
-                <input type="text" v-model="newPartyForm.address" placeholder="Billing Street Address" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1 text-xs" />
-              </div>
-            </div>
-            <div class="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
-              <span class="text-[10px] text-slate-400 font-bold hidden sm:inline">ENTER: Next • F8/Ctrl+S: Save • ESC: Cancel</span>
-              <div class="flex items-center gap-2">
-                <button type="button" @click="closeQuickAddParty" class="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200 cursor-pointer">Cancel (ESC)</button>
-                <button type="button" @click="handleQuickAddParty" class="px-4 py-1.5 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 cursor-pointer">
-                  {{ editingPartyId ? 'Update & Select (F8)' : 'Save & Select (F8)' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <invoice-quick-party-modal
+          :show="showQuickAddPartyModal"
+          :editing-party="editingParty"
+          :initial-name="partySearchQuery"
+          :mode="mode"
+          @close="closeQuickAddParty"
+          @save="handleQuickAddParty"
+        ></invoice-quick-party-modal>
 
-        <!-- 7. Stock Master Registration Modal (100% Faithful Replica of Nuxt 4 ItemStockMasterModal.vue) -->
-        <div v-if="showQuickAddStockModal" class="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md" style="z-index: 70;" @click.self="closeQuickAddStock">
-          <div 
-            class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col"
-          >
-            <!-- Modal Header (Vibrant Gradient Matching Nuxt 4) -->
-            <header class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-blue-600 px-6 sm:px-8 py-4 text-white flex justify-between items-center shrink-0">
-              <div class="space-y-0.5">
-                <div class="flex items-center gap-2">
-                  <span class="px-2 py-0.5 rounded-md bg-white/20 text-[9px] font-black uppercase tracking-wider">
-                    Stock Master Registration
-                  </span>
-                  <span v-if="newStockForm.hsn" class="px-2 py-0.5 rounded-md bg-indigo-950/40 text-[9px] font-mono font-bold tracking-wider">
-                    HSN: {{ newStockForm.hsn }}
-                  </span>
-                </div>
-                <h2 class="text-lg sm:text-xl font-black uppercase tracking-tight text-white flex items-center gap-2">
-                  <span>{{ editingStockId ? 'Edit Stock Item Master' : 'Register New Stock Item' }}</span>
-                </h2>
-                <p class="text-[9px] sm:text-[10px] font-bold text-indigo-100 uppercase tracking-widest">
-                  ENTER: NEXT FIELD • INSERT / CTRL+N: ADD BATCH • F8: SAVE MASTER • ESC: CLOSE
-                </p>
-              </div>
+        <!-- 7. Stock Master Modal (Reusing StockModalComponent) -->
+        <stock-modal-component
+          :show="showQuickAddStockModal"
+          :stock-to-edit="editingStock"
+          @close="closeQuickAddStock"
+          @save="handleSavedStock"
+        ></stock-modal-component>
 
-              <button 
-                @click="closeQuickAddStock" 
-                type="button" 
-                class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer text-xl font-bold"
-                title="Close (ESC)"
-              >
-                &times;
-              </button>
-            </header>
-
-            <!-- Modal Body -->
-            <div class="overflow-y-auto p-5 sm:p-6 flex-1 custom-scrollbar space-y-6">
-              <form @submit.prevent="handleQuickAddStock" id="stock-item-form" class="space-y-5" @keydown.enter="onStockFormEnter($event)" @keydown.backspace="onFormBackspace($event)">
-                
-                <!-- Section 1: Item Basic Identity & Categorization -->
-                <div class="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
-                  <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                    </svg>
-                    <span>1. ITEM SPECIFICATIONS & CLASSIFICATION</span>
-                  </h3>
-
-                  <div class="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-                    <!-- Item Name -->
-                    <div class="sm:col-span-6 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        ITEM DESCRIPTION / NAME *
-                      </label>
-                      <input 
-                        ref="quickStockNameInput"
-                        type="text" 
-                        v-model="newStockForm.item" 
-                        required 
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" 
-                        placeholder="e.g. Castrol MAGNATEC 5W-30 (1L)" 
-                      />
-                    </div>
-
-                    <!-- SKU / Part No -->
-                    <div class="sm:col-span-3 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        SKU / PART NUMBER
-                      </label>
-                      <input 
-                        type="text" 
-                        v-model="newStockForm.pno" 
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" 
-                        placeholder="PNO-1002" 
-                      />
-                    </div>
-
-                    <!-- OEM / Brand -->
-                    <div class="sm:col-span-3 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        OEM / MANUFACTURER BRAND
-                      </label>
-                      <input 
-                        type="text" 
-                        v-model="newStockForm.oem" 
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" 
-                        placeholder="e.g. Castrol / Bosch" 
-                      />
-                    </div>
-
-                    <!-- HSN Code -->
-                    <div class="sm:col-span-3 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        HSN / SAC CODE *
-                      </label>
-                      <input 
-                        type="text" 
-                        v-model="newStockForm.hsn" 
-                        required
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 outline-none focus:border-indigo-500" 
-                        placeholder="27101981" 
-                      />
-                    </div>
-
-                    <!-- Primary UOM -->
-                    <div class="sm:col-span-3 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        DEFAULT UNIT OF MEASURE (UOM)
-                      </label>
-                      <select 
-                        v-model="newStockForm.uom" 
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs text-slate-900 outline-none focus:border-indigo-500"
-                        @change="syncStockUomToBatches"
-                      >
-                        <option value="PCS">PCS (Pieces)</option>
-                        <option value="NOS">NOS (Numbers)</option>
-                        <option value="KGS">KGS (Kilograms)</option>
-                        <option value="LTR">LTR (Litres)</option>
-                        <option value="BOX">BOX (Boxes)</option>
-                        <option value="MTR">MTR (Metres)</option>
-                        <option value="SET">SET (Sets)</option>
-                        <option value="PAC">PAC (Packs)</option>
-                        <option value="UNT">UNT (Units)</option>
-                      </select>
-                    </div>
-
-                    <!-- Default GST % -->
-                    <div class="sm:col-span-3 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        DEFAULT GST RATE (%)
-                      </label>
-                      <select 
-                        v-model.number="newStockForm.grate" 
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs text-slate-900 outline-none focus:border-indigo-500"
-                        @change="syncStockGrateToBatches"
-                      >
-                        <option :value="0">0% (Nil / Exempt)</option>
-                        <option :value="5">5% GST</option>
-                        <option :value="12">12% GST</option>
-                        <option :value="18">18% GST</option>
-                        <option :value="28">28% GST</option>
-                      </select>
-                    </div>
-
-                    <!-- Reorder / Min Level -->
-                    <div class="sm:col-span-3 space-y-1">
-                      <label class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                        MIN REORDER LEVEL
-                      </label>
-                      <input 
-                        type="number" 
-                        v-model.number="newStockForm.minLevel" 
-                        min="0"
-                        class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900 outline-none focus:border-indigo-500" 
-                        placeholder="0" 
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Section 2: Multi-Batch Inventory & Pricing Matrix -->
-                <div class="p-4 bg-indigo-50/40 rounded-2xl border border-indigo-200/80 space-y-3">
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <h3 class="text-xs font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
-                        <svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <span>2. BATCHES, STOCK QUANTITIES & RATES</span>
-                      </h3>
-                      <p class="text-[9px] font-bold text-indigo-600/80 uppercase tracking-widest mt-0.5">
-                        TOTAL OPENING STOCK: {{ totalStockOpeningQty }} {{ newStockForm.uom }} • STOCK VALUE: ₹{{ Number(totalStockValuation).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
-                      </p>
-                    </div>
-
-                    <button 
-                      type="button" 
-                      @click="addStockBatch" 
-                      class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm transition-all cursor-pointer"
-                    >
-                      <span class="text-xs font-black">+</span>
-                      <span>ADD BATCH (INSERT)</span>
-                    </button>
-                  </div>
-
-                  <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                    <table class="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr class="bg-slate-100 text-[9px] font-black text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                          <th class="px-3 py-2">BATCH NO</th>
-                          <th class="px-3 py-2 text-right">OPENING QTY</th>
-                          <th class="px-3 py-2">UOM</th>
-                          <th class="px-3 py-2 text-right">PURCHASE RATE (₹)</th>
-                          <th class="px-3 py-2 text-right">SALE RATE / UNIT (₹)</th>
-                          <th class="px-3 py-2 text-right">MRP (₹)</th>
-                          <th class="px-3 py-2 text-right">GST %</th>
-                          <th class="px-3 py-2">EXPIRY DATE</th>
-                          <th class="px-2 py-2 text-center w-10">ACT</th>
-                        </tr>
-                      </thead>
-                      <tbody class="divide-y divide-slate-100">
-                        <tr 
-                          v-for="(batch, idx) in newStockForm.batches" 
-                          :key="idx" 
-                          class="hover:bg-slate-50 transition-colors"
-                        >
-                          <!-- Batch No -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="text" 
-                              v-model="batch.batch" 
-                              placeholder="DEFAULT / B01" 
-                              class="w-full px-2 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono font-bold text-xs outline-none"
-                            />
-                          </td>
-
-                          <!-- Qty -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="number" 
-                              step="any"
-                              min="0"
-                              v-model.number="batch.qty" 
-                              class="w-full px-2 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono font-bold text-xs text-right outline-none"
-                            />
-                          </td>
-
-                          <!-- UOM -->
-                          <td class="px-2.5 py-1.5">
-                            <select 
-                              v-model="batch.uom"
-                              class="px-1.5 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-bold text-[11px] outline-none"
-                            >
-                              <option value="PCS">PCS</option>
-                              <option value="NOS">NOS</option>
-                              <option value="KGS">KGS</option>
-                              <option value="LTR">LTR</option>
-                              <option value="BOX">BOX</option>
-                              <option value="MTR">MTR</option>
-                              <option value="SET">SET</option>
-                              <option value="PAC">PAC</option>
-                              <option value="UNT">UNT</option>
-                            </select>
-                          </td>
-
-                          <!-- Purchase Rate -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="number" 
-                              step="any"
-                              min="0"
-                              v-model.number="batch.rate" 
-                              class="w-full px-2 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono font-bold text-xs text-right outline-none"
-                              placeholder="0.00"
-                            />
-                          </td>
-
-                          <!-- Sale Rate -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="number" 
-                              step="any"
-                              min="0"
-                              v-model.number="batch.sale_rate" 
-                              class="w-full px-2 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono font-bold text-xs text-right outline-none text-emerald-600 font-bold"
-                              placeholder="0.00"
-                            />
-                          </td>
-
-                          <!-- MRP -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="number" 
-                              step="any"
-                              min="0"
-                              v-model.number="batch.mrp" 
-                              class="w-full px-2 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono font-bold text-xs text-right outline-none"
-                              placeholder="0.00"
-                            />
-                          </td>
-
-                          <!-- GST % -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="number" 
-                              v-model.number="batch.grate" 
-                              class="w-14 px-1.5 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono font-bold text-xs text-right outline-none"
-                            />
-                          </td>
-
-                          <!-- Expiry -->
-                          <td class="px-2.5 py-1.5">
-                            <input 
-                              type="date" 
-                              v-model="batch.expiry" 
-                              class="px-1.5 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-mono text-[10px] outline-none"
-                            />
-                          </td>
-
-                          <!-- Action -->
-                          <td class="px-2 py-1.5 text-center">
-                            <button 
-                              type="button" 
-                              @click="removeStockBatch(idx)" 
-                              :disabled="newStockForm.batches.length <= 1"
-                              class="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-30 cursor-pointer"
-                              title="Remove batch row"
-                            >
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </form>
-            </div>
-
-            <!-- Modal Footer -->
-            <footer class="p-4 sm:p-5 border-t border-slate-100 flex justify-between items-center shrink-0 bg-slate-50">
-              <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest hidden sm:block">
-                SHORTCUT: PRESS <kbd class="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded font-mono font-bold">F8</kbd> TO SAVE MASTER
-              </div>
-              <div class="flex items-center gap-2 ml-auto">
-                <button 
-                  type="button" 
-                  @click="closeQuickAddStock" 
-                  class="px-4 py-2 text-slate-400 font-black uppercase text-xs tracking-widest hover:text-slate-600 transition-colors cursor-pointer"
-                >
-                  DISCARD (ESC)
-                </button>
-                <button 
-                  type="button" 
-                  @click="handleQuickAddStock" 
-                  class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>{{ editingStockId ? 'UPDATE STOCK ITEM (F8)' : 'SAVE STOCK ITEM (F8)' }}</span>
-                </button>
-              </div>
-            </footer>
-          </div>
-        </div>
-
-        <!-- 8. Print & Success Modal with Complete Zero-Mouse Keyboard Support (P, E, W, ESC) -->
-        <div v-if="showPrintModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4" style="z-index: 60;" @click.self="closePrintModal">
-          <div 
-            tabindex="0" 
-            class="print-modal-container bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 flex flex-col items-center text-center gap-4 animate-in fade-in zoom-in-95 duration-150 outline-none" 
-            @keydown="handlePrintModalKeydown"
-          >
-            <div class="p-3 bg-emerald-50 rounded-full text-emerald-600 border border-emerald-200">
-              <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <h3 class="text-base font-black text-slate-900">
-                {{ mode === 'purchase' ? 'Purchase Bill' : 'Sales Invoice' }} Saved Successfully
-              </h3>
-              <p class="text-xs text-slate-500 mt-1 font-medium">
-                Press <kbd class="px-1.5 py-0.5 bg-slate-100 rounded font-bold font-mono">P</kbd> for PDF, <kbd class="px-1.5 py-0.5 bg-slate-100 rounded font-bold font-mono">E</kbd> for Excel, <kbd class="px-1.5 py-0.5 bg-slate-100 rounded font-bold font-mono">W</kbd> for Word, or <kbd class="px-1.5 py-0.5 bg-slate-100 rounded font-bold font-mono">ESC</kbd> for Next Bill
-              </p>
-            </div>
-            <div class="flex flex-wrap gap-2 mt-2 w-full justify-center">
-              <button
-                type="button"
-                @click="downloadCreatedPDF"
-                class="px-3 py-2 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <span>Download PDF</span>
-                <span class="px-1 bg-blue-800 text-[10px] rounded font-mono">P</span>
-              </button>
-              <button
-                type="button"
-                @click="downloadCreatedExcel"
-                class="px-3 py-2 rounded-lg text-xs font-black text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <span>Export Excel</span>
-                <span class="px-1 bg-emerald-200 text-[10px] rounded font-mono">E</span>
-              </button>
-              <button
-                type="button"
-                @click="downloadCreatedWord"
-                class="px-3 py-2 rounded-lg text-xs font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <span>Download Word</span>
-                <span class="px-1 bg-indigo-200 text-[10px] rounded font-mono">W</span>
-              </button>
-              <button
-                type="button"
-                @click="closePrintModal"
-                class="px-3 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <span>Next Bill</span>
-                <span class="px-1 bg-slate-200 text-[10px] rounded font-mono">ESC</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <!-- 8. Print Modal -->
+        <invoice-print-modal
+          :show="showPrintModal"
+          :bill="createdBill"
+          :items="createdItems"
+          :firm="firm"
+          @close="closePrintModal"
+          @download-pdf="downloadCreatedPDF"
+          @download-excel="downloadCreatedExcel"
+          @download-word="downloadCreatedWord"
+        ></invoice-print-modal>
       </div>
     `
   };

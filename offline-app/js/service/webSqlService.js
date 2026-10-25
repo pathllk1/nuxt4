@@ -508,6 +508,7 @@
           total REAL DEFAULT 0,
           cost_rate REAL DEFAULT 0,
           stock_id INTEGER,
+          stockId INTEGER,
           bill_id INTEGER,
           partyName TEXT,
           qtyh REAL NOT NULL,
@@ -563,6 +564,22 @@
       `;
 
       this.db.exec(schemaSql);
+
+      // Safe column migration for stock_reg to guarantee both stock_id and stockId are supported
+      try {
+        const tableInfo = this.db.exec("PRAGMA table_info(stock_reg);");
+        if (tableInfo && tableInfo[0] && tableInfo[0].values) {
+          const colNames = tableInfo[0].values.map(c => c[1]);
+          if (!colNames.includes('stockId')) {
+            this.db.exec("ALTER TABLE stock_reg ADD COLUMN stockId INTEGER;");
+          }
+          if (!colNames.includes('stock_id')) {
+            this.db.exec("ALTER TABLE stock_reg ADD COLUMN stock_id INTEGER;");
+          }
+        }
+      } catch (migErr) {
+        console.warn('[SQLite] Column migration notice for stock_reg:', migErr);
+      }
     }
   }
 

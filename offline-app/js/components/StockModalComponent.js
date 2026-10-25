@@ -187,21 +187,53 @@
 
         this.$emit('save', payload);
       },
+      onInputEnter(e) {
+        const target = e.target;
+        const formEl = (target && target.closest('form')) || (this.$el && this.$el.querySelector('form'));
+        if (!formEl) return;
+        const focusable = Array.from(
+          formEl.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
+        ).filter(el => el.offsetHeight > 0);
+        const idx = focusable.indexOf(target);
+        if (idx > -1 && idx < focusable.length - 1) {
+          e.preventDefault();
+          focusable[idx + 1].focus();
+          if (typeof focusable[idx + 1].select === 'function') focusable[idx + 1].select();
+        } else {
+          e.preventDefault();
+          this.handleSubmit();
+        }
+      },
       handleModalKeydown(e) {
         if (e.key === 'Escape') {
           e.preventDefault();
+          e.stopPropagation();
           this.$emit('close');
         } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
           e.preventDefault();
+          e.stopPropagation();
           this.handleSubmit();
         } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
           e.preventDefault();
+          e.stopPropagation();
           this.addBatch();
         }
       }
     },
+    mounted() {
+      this._windowKeyHandler = (e) => {
+        if (!this.show) return;
+        this.handleModalKeydown(e);
+      };
+      window.addEventListener('keydown', this._windowKeyHandler, true);
+    },
+    beforeUnmount() {
+      if (this._windowKeyHandler) {
+        window.removeEventListener('keydown', this._windowKeyHandler, true);
+      }
+    },
     template: `
-      <div v-if="show" class="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md" style="z-index: 60;" @click.self="$emit('close')" @keydown="handleModalKeydown">
+      <div v-if="show" class="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md" style="z-index: 60;" @click.self="$emit('close')">
         <div 
           class="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col"
         >
@@ -236,7 +268,7 @@
 
           <!-- Modal Body -->
           <div class="overflow-y-auto p-5 sm:p-6 flex-1 custom-scrollbar space-y-6">
-            <form @submit.prevent="handleSubmit" id="stock-master-modal-form" class="space-y-5">
+            <form @submit.prevent="handleSubmit" id="stock-master-modal-form" class="space-y-5" @keydown.enter="onInputEnter($event)">
               
               <!-- Section 1: Item Basic Identity & Categorization -->
               <div class="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">

@@ -10,7 +10,64 @@
       loading: { type: Boolean, default: false }
     },
     emits: ['update:searchQuery', 'update:typeFilter'],
+    data() {
+      return {
+        selectedRowIndex: -1
+      };
+    },
+    mounted() {
+      window.addEventListener('keydown', this.handleKeydown);
+    },
+    beforeUnmount() {
+      window.removeEventListener('keydown', this.handleKeydown);
+    },
     methods: {
+      handleKeydown(e) {
+        if (e.key === 'F2' || (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT')) {
+          e.preventDefault();
+          const input = this.$el.querySelector('input[placeholder*="Search item"]');
+          if (input) {
+            input.focus();
+            if (input.select) input.select();
+          }
+          return;
+        }
+
+        const len = (this.movements || []).length;
+        if (len === 0) return;
+
+        if (e.key === 'ArrowDown') {
+          if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+            e.preventDefault();
+            document.activeElement.blur();
+            this.selectedRowIndex = 0;
+            this.scrollRow(0);
+            return;
+          }
+          if (this.selectedRowIndex < len - 1) {
+            e.preventDefault();
+            this.selectedRowIndex++;
+            this.scrollRow(this.selectedRowIndex);
+          }
+        } else if (e.key === 'ArrowUp') {
+          if (this.selectedRowIndex > 0) {
+            e.preventDefault();
+            this.selectedRowIndex--;
+            this.scrollRow(this.selectedRowIndex);
+          } else if (this.selectedRowIndex === 0) {
+            e.preventDefault();
+            this.selectedRowIndex = -1;
+            const input = this.$el.querySelector('input[placeholder*="Search item"]');
+            if (input) input.focus();
+          }
+        }
+      },
+      scrollRow(idx) {
+        this.$nextTick(() => {
+          const row = this.$el.querySelector(`tbody tr[data-index="${idx}"]`);
+          if (row) row.scrollIntoView({ block: 'nearest' });
+        });
+      },
       formatDate(dateStr) {
         return global.Formatters ? global.Formatters.formatDate(dateStr) : dateStr;
       },
@@ -40,7 +97,9 @@
                 type="text"
                 :value="searchQuery"
                 @input="$emit('update:searchQuery', $event.target.value)"
-                placeholder="Search item, voucher, party..."
+                @keydown.esc.prevent="$event.target.blur()"
+                @keydown.down.prevent="$event.target.blur(); selectedRowIndex = 0; scrollRow(0)"
+                placeholder="Search item, voucher, party... (/ to focus • ESC to blur)"
                 class="w-full bg-white border border-slate-300 rounded-md pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 shadow-2xs"
               />
             </div>
@@ -81,9 +140,14 @@
             </thead>
             <tbody class="divide-y divide-slate-100">
               <tr
-                v-for="m in movements"
+                v-for="(m, idx) in movements"
                 :key="m.id"
-                class="hover:bg-amber-50/30 transition-colors"
+                :data-index="idx"
+                :class="{
+                  'bg-amber-100/70 ring-1 ring-amber-400 font-bold': selectedRowIndex === idx,
+                  'hover:bg-amber-50/30': selectedRowIndex !== idx
+                }"
+                class="transition-colors"
               >
                 <!-- Timestamp -->
                 <td class="py-2 px-3 whitespace-nowrap text-slate-500 text-[11px]">
