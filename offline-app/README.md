@@ -24,7 +24,7 @@ A self-contained Windows desktop executable for the **Accounting & Inventory ERP
 
 ## 🚀 How to Run
 
-1. Simply double-click **`AccountingERP.exe`** (or **`offline-app.exe`**).
+1. Simply double-click **`bin\AccountingERP.exe`** (or **`bin\offline-app.exe`**).
 2. The ERP window will immediately open on screen.
 3. The app is also accessible in any browser at:
    ```
@@ -40,13 +40,13 @@ You can customize port or behavior via command-line:
 
 ```powershell
 # Run on a custom port
-.\AccountingERP.exe -port 9000
+.\bin\AccountingERP.exe -port 9000
 
 # Open in standard default browser instead of Edge/Chrome App Window
-.\AccountingERP.exe -app=false
+.\bin\AccountingERP.exe -app=false
 
 # Start server only without opening browser
-.\AccountingERP.exe -browser=false
+.\bin\AccountingERP.exe -browser=false
 ```
 
 ---
@@ -55,4 +55,4 @@ You can customize port or behavior via command-line:
 
 Whenever you edit JavaScript, CSS, or HTML files in `offline-app/`:
 
-Double-click **`build.bat`** (or run `go build -mod=mod -ldflags="-H windowsgui -s -w" -o AccountingERP.exe .` from PowerShell).
+Double-click **`build.bat`** (or run `go build -mod=mod -ldflags="-H windowsgui -s -w" -o bin\AccountingERP.exe .` from PowerShell).

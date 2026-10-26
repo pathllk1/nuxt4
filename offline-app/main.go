@@ -22,7 +22,7 @@ import (
 
 // Embed all web assets, icons, and pre-seeded database directly into the binary
 //
-//go:embed index.html css js vendor icon.png icon.ico tray_icon.png database.sqlite
+//go:embed index.html css js vendor assets database.sqlite
 var embeddedFS embed.FS
 
 const (
@@ -275,10 +275,10 @@ func fileExists(path string) bool {
 }
 
 func setupSystemTray(appURL, port string) {
-	trayIconBytes, err := embeddedFS.ReadFile("tray_icon.png")
+	trayIconBytes, err := embeddedFS.ReadFile("assets/tray_icon.png")
 	if err != nil {
-		// Fallback to icon.png if tray_icon.png is somehow missing
-		trayIconBytes, _ = embeddedFS.ReadFile("icon.png")
+		// Fallback to assets/icon.png if tray_icon.png is somehow missing
+		trayIconBytes, _ = embeddedFS.ReadFile("assets/icon.png")
 	}
 
 	tray := systray.New()
