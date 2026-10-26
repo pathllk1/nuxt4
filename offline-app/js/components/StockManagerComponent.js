@@ -136,6 +136,11 @@
           return { label: 'LOW STOCK', color: 'bg-amber-100 text-amber-800 border-amber-300' };
         }
         return { label: 'IN STOCK', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+      },
+      exportPdf() {
+        if (global.PdfExportService) {
+          global.PdfExportService.exportStocksPdf(this.stocks);
+        }
       }
     },
     template: `
@@ -183,11 +188,25 @@
               type="button"
               @click="$emit('export-excel')"
               class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-2xs transition-all cursor-pointer"
+              title="Export Stock Inventory to Excel (ExcelJS)"
             >
               <svg class="w-3.5 h-3.5 mr-1 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               <span>Export Excel</span>
+            </button>
+
+            <!-- Formatted PDF Export -->
+            <button
+              type="button"
+              @click="exportPdf"
+              class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 shadow-2xs transition-all cursor-pointer"
+              title="Export Stock Valuation Report to PDF"
+            >
+              <svg class="w-3.5 h-3.5 mr-1 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              <span>PDF Report</span>
             </button>
 
             <!-- Add Stock Item -->

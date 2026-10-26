@@ -2,7 +2,8 @@ import sqlite3
 import os
 import datetime
 
-db_path = r'c:\PROJECT\android\flutter_application_1\nuxt4\offline-app\database.sqlite'
+script_dir = os.path.dirname(os.path.abspath(__file__))
+db_path = os.path.join(script_dir, 'database.sqlite')
 
 if os.path.exists(db_path):
     os.remove(db_path)

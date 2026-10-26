@@ -189,7 +189,8 @@
       },
       onInputEnter(e) {
         const target = e.target;
-        const formEl = (target && target.closest('form')) || (this.$el && this.$el.querySelector('form'));
+        if (target && target.tagName === 'TEXTAREA' && !e.ctrlKey) return;
+        const formEl = (target && target.closest('form')) || (this.$el && typeof this.$el.querySelector === 'function' ? this.$el.querySelector('form') : document.querySelector('form'));
         if (!formEl) return;
         const focusable = Array.from(
           formEl.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
@@ -204,12 +205,51 @@
           this.handleSubmit();
         }
       },
+      onInputBackspace(e) {
+        const target = e.target;
+        if (!target) return;
+
+        let shouldMoveBack = false;
+
+        if (target instanceof HTMLInputElement) {
+          const textTypes = ['text', 'number', 'search', 'tel', 'url', 'date', 'email', 'password'];
+          if (textTypes.includes(target.type)) {
+            // Only move back if field is empty or cursor is at the start with no text selected
+            if (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0)) {
+              shouldMoveBack = true;
+            }
+          } else if (target.type === 'checkbox' || target.type === 'radio') {
+            shouldMoveBack = true;
+          }
+        } else if (target instanceof HTMLSelectElement) {
+          shouldMoveBack = true;
+        } else if (target instanceof HTMLTextAreaElement) {
+          if (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0)) {
+            shouldMoveBack = true;
+          }
+        }
+
+        if (shouldMoveBack) {
+          const formEl = (target && target.closest('form')) || (this.$el && typeof this.$el.querySelector === 'function' ? this.$el.querySelector('form') : document.querySelector('form'));
+          if (!formEl) return;
+          const focusable = Array.from(
+            formEl.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
+          ).filter(el => el.offsetHeight > 0);
+          const idx = focusable.indexOf(target);
+          if (idx > 0) {
+            e.preventDefault();
+            const prev = focusable[idx - 1];
+            prev.focus();
+            if (typeof prev.select === 'function') prev.select();
+          }
+        }
+      },
       handleModalKeydown(e) {
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
           this.$emit('close');
-        } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
+        } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 's' || e.key === 'Enter'))) {
           e.preventDefault();
           e.stopPropagation();
           this.handleSubmit();
@@ -252,7 +292,7 @@
                 <span>{{ isEditing ? ('Edit: ' + (form.item || 'Stock Item')) : 'Register New Stock Item' }}</span>
               </h2>
               <p class="text-[9px] sm:text-[10px] font-bold text-indigo-100 uppercase tracking-widest">
-                ENTER: NEXT FIELD • INSERT / CTRL+N: ADD BATCH • F8: SAVE MASTER • ESC: CLOSE
+                ENTER: NEXT FIELD • BACKSPACE: PREVIOUS FIELD • INSERT / CTRL+N: ADD BATCH • F8: SAVE • ESC: CLOSE
               </p>
             </div>
 
@@ -268,7 +308,7 @@
 
           <!-- Modal Body -->
           <div class="overflow-y-auto p-5 sm:p-6 flex-1 custom-scrollbar space-y-6">
-            <form @submit.prevent="handleSubmit" id="stock-master-modal-form" class="space-y-5" @keydown.enter="onInputEnter($event)">
+            <form @submit.prevent="handleSubmit" id="stock-master-modal-form" class="space-y-5" @keydown.enter="onInputEnter($event)" @keydown.backspace="onInputBackspace($event)">
               
               <!-- Section 1: Item Basic Identity & Categorization -->
               <div class="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">

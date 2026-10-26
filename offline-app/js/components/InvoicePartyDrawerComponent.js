@@ -85,7 +85,7 @@
           } else {
             this.$emit('open-quick-add', this.searchQuery);
           }
-        } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
+        } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') || (e.altKey && (e.key.toLowerCase() === 'c' || e.code === 'KeyC'))) {
           e.preventDefault();
           e.stopPropagation();
           this.$emit('open-quick-add', this.searchQuery);

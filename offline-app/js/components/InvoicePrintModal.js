@@ -128,9 +128,15 @@
         }
       },
       handleDownloadExcel() {
+        if (global.ExcelExportService && this.bill) {
+          global.ExcelExportService.exportSingleBill(this.bill, this.items, this.activeFirm);
+        }
         this.$emit('download-excel');
       },
       handleDownloadWord() {
+        if (global.WordExportService && this.bill) {
+          global.WordExportService.generateBillWordDoc(this.bill, this.items, null, this.activeFirm);
+        }
         this.$emit('download-word');
       },
       handleKeydown(e) {

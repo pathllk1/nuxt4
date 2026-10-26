@@ -195,10 +195,11 @@
         }
       };
 
-      const handleExportExcelBills = async () => {
+      const handleExportExcelBills = async (customBills = null) => {
         if (!global.ExcelExportService) return;
         try {
-          await global.ExcelExportService.exportBills(billsManager.bills.value);
+          const list = Array.isArray(customBills) ? customBills : billsManager.bills.value;
+          await global.ExcelExportService.exportBills(list);
           if (notify) notify('Bills register exported to Excel', 'success');
         } catch (err) {
           if (notify) notify('Excel export failed: ' + err.message, 'error');
@@ -449,6 +450,9 @@
           :show="showExportModal"
           :stocks="inventory.stocks.value"
           :bills="billsManager.bills.value"
+          :parties="partiesManager.parties.value"
+          :movements="stockLedger.movements.value"
+          :firm="firmManager.firm.value"
           @close="showExportModal = false"
         />
 

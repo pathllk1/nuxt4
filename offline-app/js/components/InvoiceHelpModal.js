@@ -79,7 +79,7 @@
             </div>
             <div class="flex items-center justify-between py-1.5">
               <span class="font-bold text-slate-700">Register New Party / New Item</span>
-              <kbd class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded font-mono font-black text-[11px]">Insert</kbd>
+              <kbd class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded font-mono font-black text-[11px]">Insert / Alt+C</kbd>
             </div>
             <div class="flex items-center justify-between py-1.5">
               <span class="font-bold text-slate-700">View Rate & Transaction History</span>

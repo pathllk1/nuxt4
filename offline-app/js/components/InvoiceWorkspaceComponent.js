@@ -952,7 +952,7 @@
       },
       downloadCreatedExcel() {
         if (global.ExcelExportService && this.createdBill) {
-          global.ExcelExportService.exportBills([this.createdBill]);
+          global.ExcelExportService.exportSingleBill(this.createdBill, this.createdItems, this.firm);
         }
       },
       downloadCreatedWord() {
@@ -1016,7 +1016,7 @@
           if (this.selectedParty && !this.isReturnMode) {
             this.openEditPartyModal(this.selectedParty);
           }
-        } else if (e.key === 'Insert') {
+        } else if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') || (e.altKey && (e.key.toLowerCase() === 'c' || e.code === 'KeyC'))) {
           e.preventDefault();
           const isInsideCart = document.activeElement && document.activeElement.closest('.table-wrap, .cart-table');
           if (isInsideCart) {

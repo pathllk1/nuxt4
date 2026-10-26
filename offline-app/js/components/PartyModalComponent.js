@@ -71,6 +71,7 @@
     data() {
       return {
         pillars,
+        typeOptions,
         selectedPillar: 'ALL',
         isSaving: false,
         form: {
@@ -461,7 +462,8 @@
       },
       focusFirstInput() {
         const tryFocus = () => {
-          const el = this.$refs.firstInput || (this.$el && this.$el.querySelector('input.first-input, input[type="text"]:not([disabled])'));
+          const container = (this.$el && typeof this.$el.querySelector === 'function') ? this.$el : document.querySelector('[role="dialog"]');
+          const el = this.$refs.firstInput || (container && typeof container.querySelector === 'function' && container.querySelector('input.first-input, input[type="text"]:not([disabled])'));
           if (el && typeof el.focus === 'function' && el.offsetHeight > 0) {
             el.focus();
             if (typeof el.select === 'function') el.select();
@@ -476,7 +478,8 @@
       },
       onInputEnter(e) {
         const target = e.target;
-        const formEl = (target && target.closest('form')) || (this.$el && this.$el.querySelector('form'));
+        if (target && target.tagName === 'TEXTAREA' && !e.ctrlKey) return;
+        const formEl = (target && target.closest('form')) || (this.$el && typeof this.$el.querySelector === 'function' ? this.$el.querySelector('form') : document.querySelector('form'));
         if (!formEl) return;
         const focusable = Array.from(
           formEl.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
@@ -491,12 +494,52 @@
           this.handleSave();
         }
       },
+      onInputBackspace(e) {
+        const target = e.target;
+        if (!target) return;
+
+        let shouldMoveBack = false;
+
+        if (target instanceof HTMLInputElement) {
+          const textTypes = ['text', 'number', 'search', 'tel', 'url', 'date', 'email', 'password'];
+          if (textTypes.includes(target.type)) {
+            // Only move back if field is empty or cursor is at the very beginning with no selection
+            if (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0)) {
+              shouldMoveBack = true;
+            }
+          } else if (target.type === 'checkbox' || target.type === 'radio') {
+            shouldMoveBack = true;
+          }
+        } else if (target instanceof HTMLSelectElement) {
+          // Select dropdowns have no text to delete, so backspace navigates to the previous field
+          shouldMoveBack = true;
+        } else if (target instanceof HTMLTextAreaElement) {
+          if (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0)) {
+            shouldMoveBack = true;
+          }
+        }
+
+        if (shouldMoveBack) {
+          const formEl = (target && target.closest('form')) || (this.$el && typeof this.$el.querySelector === 'function' ? this.$el.querySelector('form') : document.querySelector('form'));
+          if (!formEl) return;
+          const focusable = Array.from(
+            formEl.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
+          ).filter(el => el.offsetHeight > 0);
+          const idx = focusable.indexOf(target);
+          if (idx > 0) {
+            e.preventDefault();
+            const prev = focusable[idx - 1];
+            prev.focus();
+            if (typeof prev.select === 'function') prev.select();
+          }
+        }
+      },
       handleGlobalKeydown(e) {
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
           this.$emit('close');
-        } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
+        } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 's' || e.key === 'Enter'))) {
           e.preventDefault();
           e.stopPropagation();
           this.handleSave();
@@ -603,7 +646,7 @@
                 {{ isEditing ? ('Edit: ' + (form.account_name || 'Account Head')) : modalTitleByType }}
               </h2>
               <p class="text-[10px] font-bold text-emerald-100 uppercase tracking-wider mt-0.5">
-                ENTER: NEXT FIELD • INSERT: ADD LOCATION • F8 / CTRL+S: SAVE MASTER • ESC: CLOSE
+                ENTER: NEXT FIELD • BACKSPACE: PREV FIELD • INSERT: ADD LOCATION • F8 / CTRL+S: SAVE • ESC: CLOSE
               </p>
             </div>
             <button 
@@ -618,7 +661,7 @@
 
           <!-- Scrollable Form Body -->
           <div class="overflow-y-auto p-5 sm:p-6 flex-1 custom-scrollbar space-y-4">
-            <form @submit.prevent="handleSave" class="space-y-4" @keydown.enter="onInputEnter($event)">
+            <form @submit.prevent="handleSave" class="space-y-4" @keydown.enter="onInputEnter($event)" @keydown.backspace="onInputBackspace($event)">
               
               <!-- Classification Selector (Adaptive Switch with Category Pillars) -->
               <div class="p-3.5 bg-slate-50 dark:bg-zinc-800/70 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
@@ -629,6 +672,25 @@
                   <span class="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
                     {{ selectedPillarLabel }}
                   </span>
+                </div>
+
+                <!-- Keyboard-accessible Entity Type Dropdown -->
+                <div class="flex items-center gap-2">
+                  <select
+                    v-model="form.account_type"
+                    @change="setType(form.account_type)"
+                    class="w-full px-2.5 py-1.5 bg-white dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <optgroup v-for="p in pillars.filter(x => x.id !== 'ALL')" :key="p.id" :label="p.label">
+                      <option 
+                        v-for="opt in typeOptions.filter(t => t.pillar === p.id)" 
+                        :key="opt.value" 
+                        :value="opt.value"
+                      >
+                        {{ opt.icon }} {{ opt.label }} ({{ opt.badge }})
+                      </option>
+                    </optgroup>
+                  </select>
                 </div>
 
                 <!-- Category Pillar Tabs -->

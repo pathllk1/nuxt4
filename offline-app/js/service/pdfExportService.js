@@ -1150,6 +1150,230 @@
           }, 1000);
         }
       }, 350);
+    },
+
+    /**
+     * Tabular Landscape PDF Report for Bills & Vouchers Register
+     * Faithful replica of Nuxt 4's exportBillsToPdfBuffer()
+     */
+    exportBillsPdf(bills = [], firm = {}, subtitle = '') {
+      if (!global.jspdf || !global.jspdf.jsPDF) {
+        throw new Error('jsPDF library is not loaded');
+      }
+
+      const doc = new global.jspdf.jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+
+      const firmObj = (firm && firm.value) ? firm.value : (firm || {});
+      const firmName = (firmObj.name || firmObj.legal_name || 'OFFLINE ACCOUNTING ERP').toUpperCase();
+      const firmGstin = firmObj.gstin || firmObj.gst_number || '';
+
+      // Title & Subtitle
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(30, 58, 138); // Navy
+      doc.text(firmName, 148.5, 14, { align: 'center' });
+
+      doc.setFontSize(10.5);
+      doc.setTextColor(15, 118, 110); // Teal
+      doc.text('SALES & PURCHASE VOUCHERS REGISTER', 148.5, 20, { align: 'center' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      const subInfo = [
+        firmGstin ? `GSTIN: ${firmGstin}` : '',
+        subtitle || `Generated: ${new Date().toLocaleString()}`,
+        `Total Vouchers: ${bills.length}`
+      ].filter(Boolean).join('  |  ');
+      doc.text(subInfo, 148.5, 25, { align: 'center' });
+
+      let sumTaxable = 0;
+      let sumCgst = 0;
+      let sumSgst = 0;
+      let sumIgst = 0;
+      let sumNet = 0;
+
+      const body = bills.map((b) => {
+        const taxable = Number(b.taxableTotal || b.grossTotal) || 0;
+        const cgst = Number(b.cgst) || 0;
+        const sgst = Number(b.sgst) || 0;
+        const igst = Number(b.igst) || 0;
+        const net = Number(b.netTotal) || 0;
+
+        sumTaxable += taxable;
+        sumCgst += cgst;
+        sumSgst += sgst;
+        sumIgst += igst;
+        sumNet += net;
+
+        return [
+          b.bno || '-',
+          b.bdate || '-',
+          (b.btype || 'SALES').replace(/_/g, ' '),
+          b.partyName || 'Cash',
+          b.partyGstin || '-',
+          formatCurrency(taxable),
+          cgst > 0 ? formatCurrency(cgst) : '-',
+          sgst > 0 ? formatCurrency(sgst) : '-',
+          igst > 0 ? formatCurrency(igst) : '-',
+          formatCurrency(net)
+        ];
+      });
+
+      const foot = [[
+        'TOTAL',
+        '',
+        `${bills.length} Records`,
+        '',
+        '',
+        formatCurrency(sumTaxable),
+        formatCurrency(sumCgst),
+        formatCurrency(sumSgst),
+        formatCurrency(sumIgst),
+        formatCurrency(sumNet)
+      ]];
+
+      doc.autoTable({
+        startY: 28,
+        head: [['Voucher No', 'Date', 'Type', 'Party Name', 'Party GSTIN', 'Taxable Amt', 'CGST', 'SGST', 'IGST', 'Net Total']],
+        body: body,
+        foot: foot,
+        theme: 'grid',
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 1.8,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.15
+        },
+        headStyles: {
+          fillColor: [15, 118, 110],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        footStyles: {
+          fillColor: [241, 245, 249],
+          textColor: [15, 23, 42],
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { cellWidth: 26, halign: 'center', fontStyle: 'bold' },
+          1: { cellWidth: 22, halign: 'center' },
+          2: { cellWidth: 24, halign: 'center' },
+          3: { cellWidth: 60, halign: 'left' },
+          4: { cellWidth: 32, halign: 'center' },
+          5: { cellWidth: 26, halign: 'right' },
+          6: { cellWidth: 22, halign: 'right' },
+          7: { cellWidth: 22, halign: 'right' },
+          8: { cellWidth: 22, halign: 'right' },
+          9: { cellWidth: 28, halign: 'right', fontStyle: 'bold' }
+        },
+        didDrawPage: (data) => {
+          doc.setFontSize(7.5);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Page ${doc.internal.getNumberOfPages()}`, 280, 204, { align: 'right' });
+        }
+      });
+
+      doc.save(`Bills_Register_${Date.now()}.pdf`);
+    },
+
+    /**
+     * Stock Valuation PDF Report
+     */
+    exportStocksPdf(stocks = [], firm = {}) {
+      if (!global.jspdf || !global.jspdf.jsPDF) {
+        throw new Error('jsPDF library is not loaded');
+      }
+
+      const doc = new global.jspdf.jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+
+      const firmObj = (firm && firm.value) ? firm.value : (firm || {});
+      const firmName = (firmObj.name || firmObj.legal_name || 'OFFLINE ACCOUNTING ERP').toUpperCase();
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(30, 58, 138);
+      doc.text(firmName, 105, 14, { align: 'center' });
+
+      doc.setFontSize(10);
+      doc.setTextColor(37, 99, 235);
+      doc.text('INVENTORY STOCK VALUATION REPORT', 105, 20, { align: 'center' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated: ${new Date().toLocaleString()}  |  Total Products: ${stocks.length}`, 105, 25, { align: 'center' });
+
+      let totalVal = 0;
+      const body = stocks.map((it, idx) => {
+        const val = (Number(it.qty) || 0) * (Number(it.rate) || 0);
+        totalVal += val;
+        return [
+          idx + 1,
+          it.item || '-',
+          it.pno || '-',
+          it.hsn || '-',
+          it.uom || 'PCS',
+          Number(it.qty) || 0,
+          formatCurrency(it.rate),
+          formatCurrency(val)
+        ];
+      });
+
+      const foot = [['', 'TOTAL VALUATION', '', '', '', '', '', formatCurrency(totalVal)]];
+
+      doc.autoTable({
+        startY: 28,
+        head: [['#', 'Item Name', 'Part No', 'HSN', 'UOM', 'Qty', 'Selling Rate', 'Valuation']],
+        body: body,
+        foot: foot,
+        theme: 'grid',
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 1.8,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.15
+        },
+        headStyles: {
+          fillColor: [37, 99, 235],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        footStyles: {
+          fillColor: [220, 252, 231],
+          textColor: [21, 128, 61],
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 62, halign: 'left', fontStyle: 'bold' },
+          2: { cellWidth: 26, halign: 'left' },
+          3: { cellWidth: 20, halign: 'center' },
+          4: { cellWidth: 14, halign: 'center' },
+          5: { cellWidth: 16, halign: 'right' },
+          6: { cellWidth: 22, halign: 'right' },
+          7: { cellWidth: 26, halign: 'right', fontStyle: 'bold' }
+        },
+        didDrawPage: (data) => {
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Page ${doc.internal.getNumberOfPages()}`, 195, 290, { align: 'right' });
+        }
+      });
+
+      doc.save(`Stock_Report_${Date.now()}.pdf`);
     }
   };
 
