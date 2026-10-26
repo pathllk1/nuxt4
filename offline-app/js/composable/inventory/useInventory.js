@@ -17,16 +17,7 @@
         let res = await global.WebSqlService.executeSql(
           'SELECT * FROM stocks ORDER BY item ASC'
         );
-        let items = Array.isArray(res?.rows) ? res.rows : [];
-
-        // If database has 0 stock items, auto-seed demo items and reload
-        if (items.length === 0 && global.WebSqlService && typeof global.WebSqlService.seedDemoData === 'function') {
-          console.info('[useInventory] No stocks found. Auto-seeding demo inventory...');
-          await global.WebSqlService.seedDemoData(false);
-          res = await global.WebSqlService.executeSql('SELECT * FROM stocks ORDER BY item ASC');
-          items = Array.isArray(res?.rows) ? res.rows : [];
-        }
-
+        const items = Array.isArray(res?.rows) ? res.rows : [];
         stocks.value = items;
       } catch (err) {
         console.error('Error loading stocks:', err);

@@ -257,7 +257,7 @@
           const type = (r.accountType || '').toUpperCase();
           if (['ASSET', 'CURRENT_ASSET', 'FIXED_ASSET', 'BANK', 'CASH', 'CUSTOMER', 'SUNDRY_DEBTORS'].includes(type)) {
             assets += r.balanceType === 'DR' ? r.balance : -r.balance;
-          } else if (['LIABILITY', 'CURRENT_LIABILITY', 'LONG_TERM_LIABILITY', 'VENDOR', 'SUNDRY_CREDITORS', 'DUTIES_AND_TAXES'].includes(type)) {
+          } else if (['LIABILITY', 'CURRENT_LIABILITY', 'LONG_TERM_LIABILITY', 'VENDOR', 'SUNDRY_CREDITORS', 'DUTIES_AND_TAXES', 'CAPITAL', 'LOANS_BORROWINGS', 'EQUITY'].includes(type)) {
             liabilities += r.balanceType === 'CR' ? r.balance : -r.balance;
           } else if (['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'].includes(type)) {
             income += r.balance;
@@ -277,9 +277,9 @@
             textColor: 'text-blue-600 dark:text-blue-400'
           },
           {
-            label: 'Total Liabilities (CR)',
+            label: 'Total Liabilities & Equity (CR)',
             value: formatCurrency(Math.max(0, liabilities)),
-            meta: 'Creditors & Debt',
+            meta: 'Creditors, Debt & Capital',
             borderColor: 'border-l-rose-500',
             textColor: 'text-rose-600 dark:text-rose-400'
           },
@@ -709,19 +709,19 @@
                 <div class="grid grid-cols-4 gap-3">
                   <div class="p-3 rounded-xl bg-slate-50 border">
                     <span class="text-[9px] font-bold text-slate-400 uppercase">Opening Balance</span>
-                    <p class="text-sm font-mono font-bold mt-0.5">{{ formatCurrency(drillStatement.openingBalance) }} ({{ drillStatement.openingType }})</p>
+                    <p class="text-sm font-mono font-bold mt-0.5">{{ formatCurrency(drillStatement.openingBalance) }} ({{ drillStatement.openingBalanceType || drillStatement.openingType || 'DR' }})</p>
                   </div>
                   <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
                     <span class="text-[9px] font-bold text-emerald-600 uppercase">Total Debit (Dr)</span>
-                    <p class="text-sm font-mono font-bold text-emerald-800 mt-0.5">{{ formatCurrency(drillStatement.totalDebit) }}</p>
+                    <p class="text-sm font-mono font-bold text-emerald-800 mt-0.5">{{ formatCurrency(drillStatement.totalDebits ?? drillStatement.totalDebit) }}</p>
                   </div>
                   <div class="p-3 rounded-xl bg-rose-50 border border-rose-100">
                     <span class="text-[9px] font-bold text-rose-600 uppercase">Total Credit (Cr)</span>
-                    <p class="text-sm font-mono font-bold text-rose-800 mt-0.5">{{ formatCurrency(drillStatement.totalCredit) }}</p>
+                    <p class="text-sm font-mono font-bold text-rose-800 mt-0.5">{{ formatCurrency(drillStatement.totalCredits ?? drillStatement.totalCredit) }}</p>
                   </div>
                   <div class="p-3 rounded-xl bg-blue-50 border border-blue-100">
                     <span class="text-[9px] font-bold text-blue-600 uppercase">Closing Balance</span>
-                    <p class="text-sm font-mono font-bold text-blue-800 mt-0.5">{{ formatCurrency(drillStatement.closingBalance) }} ({{ drillStatement.closingType }})</p>
+                    <p class="text-sm font-mono font-bold text-blue-800 mt-0.5">{{ formatCurrency(drillStatement.finalBalance ?? drillStatement.closingBalance) }} ({{ drillStatement.finalBalanceType || drillStatement.closingType || 'DR' }})</p>
                   </div>
                 </div>
 
@@ -739,12 +739,12 @@
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                       <tr v-for="e in drillStatement.entries" :key="e.id">
-                        <td class="p-2.5 font-mono text-[11px]">{{ e.transactionDate }}</td>
+                        <td class="p-2.5 font-mono text-[11px]">{{ e.date || e.transactionDate }}</td>
                         <td class="p-2.5 font-bold font-mono">{{ e.voucherNo }}</td>
                         <td class="p-2.5 text-slate-600">{{ e.narration }}</td>
-                        <td class="p-2.5 text-right font-mono text-emerald-600">{{ e.debitAmount > 0 ? formatCurrency(e.debitAmount) : '-' }}</td>
-                        <td class="p-2.5 text-right font-mono text-rose-600">{{ e.creditAmount > 0 ? formatCurrency(e.creditAmount) : '-' }}</td>
-                        <td class="p-2.5 text-right font-mono font-bold">{{ formatCurrency(e.runningBalance) }} {{ e.runningBalanceType }}</td>
+                        <td class="p-2.5 text-right font-mono text-emerald-600">{{ (e.debit || e.debitAmount) > 0 ? formatCurrency(e.debit || e.debitAmount) : '-' }}</td>
+                        <td class="p-2.5 text-right font-mono text-rose-600">{{ (e.credit || e.creditAmount) > 0 ? formatCurrency(e.credit || e.creditAmount) : '-' }}</td>
+                        <td class="p-2.5 text-right font-mono font-bold">{{ formatCurrency(e.balance ?? e.runningBalance) }} {{ e.balanceType || e.runningBalanceType }}</td>
                       </tr>
                     </tbody>
                   </table>

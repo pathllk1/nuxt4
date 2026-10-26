@@ -17,7 +17,7 @@ if %errorlevel% neq 0 (
 )
 
 if not exist database.sqlite (
-    echo [0/3] database.sqlite template missing, auto-generating with demo data...
+    echo [0/3] database.sqlite template missing, initializing clean production database...
     python build\create_db.py
 )
 

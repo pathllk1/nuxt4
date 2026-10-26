@@ -65,14 +65,7 @@
     const loadFirmSettings = async () => {
       loading.value = true;
       try {
-        let res = await global.WebSqlService.executeSql('SELECT * FROM firm_settings ORDER BY id ASC LIMIT 1');
-        
-        // If no firm settings exist, auto-seed demo firm (GST OFF) and reload
-        if ((!res || !res.rows || res.rows.length === 0) && global.WebSqlService && typeof global.WebSqlService.seedDemoData === 'function') {
-          console.info('[useFirm] No firm settings found. Auto-seeding demo firm (GST OFF)...');
-          await global.WebSqlService.seedDemoData(false);
-          res = await global.WebSqlService.executeSql('SELECT * FROM firm_settings ORDER BY id ASC LIMIT 1');
-        }
+        const res = await global.WebSqlService.executeSql('SELECT * FROM firm_settings ORDER BY id ASC LIMIT 1');
 
         if (res && res.rows && res.rows.length > 0) {
           const row = res.rows[0];

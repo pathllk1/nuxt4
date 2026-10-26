@@ -375,8 +375,27 @@
         }
       };
 
+      const previewVoucherNo = ref('');
+
+      const updatePreviewVoucherNo = async () => {
+        try {
+          if (global.unifiedPostingService && typeof global.unifiedPostingService.previewNextBillNumber === 'function') {
+            previewVoucherNo.value = await global.unifiedPostingService.previewNextBillNumber(form.value.vtype, form.value.vdate);
+          }
+        } catch (e) {
+          console.warn('[VoucherModal] Error previewing voucher number:', e);
+        }
+      };
+
+      watch(() => props.modelValue, (val) => {
+        if (val) updatePreviewVoucherNo();
+      });
+      watch(() => form.value.vtype, () => updatePreviewVoucherNo());
+      watch(() => form.value.vdate, () => updatePreviewVoucherNo());
+
       onMounted(() => {
         window.addEventListener('keydown', onKeyDown);
+        updatePreviewVoucherNo();
       });
 
       onUnmounted(() => {
@@ -387,6 +406,7 @@
         form,
         loading,
         isEdit,
+        previewVoucherNo,
         liquidAccounts,
         allAccounts,
         parties,
@@ -423,6 +443,9 @@
                   </h2>
                   <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
                     {{ form.vtype === 'JOURNAL' ? 'Double-Entry' : 'Tally Single-Entry' }}
+                  </span>
+                  <span v-if="previewVoucherNo" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider bg-white/10 text-emerald-300 border border-emerald-400/30" title="Next Sequential Voucher Number (Strictly Read-only Preview)">
+                    Next: {{ previewVoucherNo }}
                   </span>
                 </div>
                 <p class="text-[11px] text-slate-300/80 mt-0.5 font-medium">

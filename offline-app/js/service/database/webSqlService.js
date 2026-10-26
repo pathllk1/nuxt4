@@ -66,26 +66,10 @@
             console.info(`[SQLite] Initializing database (${(savedBinary.length / 1024).toFixed(1)} KB)`);
             this.db = new this.SQL.Database(savedBinary);
             this._createTables();
-
-            // Auto-seed demo firm (GST OFF) and demo stocks if missing
-            let stockCount = 0;
-            let firmCount = 0;
-            try {
-              const sc = this.db.exec('SELECT COUNT(*) FROM stocks');
-              if (sc.length && sc[0].values.length) stockCount = sc[0].values[0][0];
-              const fc = this.db.exec('SELECT COUNT(*) FROM firm_settings');
-              if (fc.length && fc[0].values.length) firmCount = fc[0].values[0][0];
-            } catch (_) {}
-
-            if (stockCount === 0 || firmCount === 0) {
-              console.info(`[SQLite] Missing seed data (stocks: ${stockCount}, firm: ${firmCount}). Seeding demo data now...`);
-              await this.seedDemoData(true);
-            }
           } else {
-            console.info('[SQLite] Creating fresh SQLite database...');
+            console.info('[SQLite] Creating fresh clean SQLite database (zero demo/mock data)...');
             this.db = new this.SQL.Database();
             this._createTables();
-            await this.seedDemoData(true);
             await this.persist();
           }
 
@@ -344,36 +328,10 @@
     }
 
     /**
-     * Seeds realistic demo firm (GST OFF) and industrial demo stock items
+     * Clean environment: Zero demo/fake data
      */
-    async seedDemoData(force = false) {
-      if (!this.db) return false;
-
-      if (!force) {
-        try {
-          const sc = this.db.exec('SELECT COUNT(*) FROM stocks');
-          const fc = this.db.exec('SELECT COUNT(*) FROM firm_settings');
-          const scCount = (sc.length && sc[0].values.length) ? sc[0].values[0][0] : 0;
-          const fcCount = (fc.length && fc[0].values.length) ? fc[0].values[0][0] : 0;
-          if (scCount > 0 && fcCount > 0) {
-            console.info('[SQLite] Demo data already exists, skipping.');
-            return false;
-          }
-        } catch (_) {}
-      }
-
-      console.info('[SQLite] Seeding demo firm (GST OFF) and 8 demo stock items...');
-      const seedSql = ``;
-
-      try {
-        this.db.exec(seedSql);
-        await this.persist();
-        console.info('[SQLite] Demo data seeded successfully.');
-        return true;
-      } catch (err) {
-        console.error('[SQLite] Demo seed error:', err);
-        return false;
-      }
+    async seedDemoData() {
+      return false;
     }
 
     /**

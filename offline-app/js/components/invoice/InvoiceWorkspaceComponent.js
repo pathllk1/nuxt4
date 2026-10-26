@@ -27,13 +27,24 @@
     },
     emits: ['save-invoice', 'cancel', 'open-party-modal', 'add-party', 'add-stock'],
     data() {
+      const initialDate = new Date().toISOString().split('T')[0];
+      const initialType = this.initialItemType === 'SERVICE' ? 'SERVICE' : (this.mode === 'purchase' ? 'PURCHASE' : 'SALES');
+      const fy = (global.getFinancialYearFromDate ? global.getFinancialYearFromDate(initialDate) : null) || '2026-27';
+      const prefixMap = {
+        SALES: 'SI', PURCHASE: 'PI', CREDIT_NOTE: 'CN', DEBIT_NOTE: 'DN',
+        PROFORMA: 'PFI', DELIVERY_NOTE: 'DC', SERVICE: 'SI', SERVICE_PURCHASE: 'PI'
+      };
+      const effectiveType = this.isReturnMode ? (this.mode === 'purchase' ? 'DEBIT_NOTE' : 'CREDIT_NOTE') : initialType;
+      const initialPrefix = prefixMap[effectiveType.toUpperCase()] || 'SI';
+      const initialBillNo = `${initialPrefix}/${fy}/0001`;
+
       return {
         selectedFirmGstin: '',
         meta: {
-          btype: this.initialItemType === 'SERVICE' ? 'SERVICE' : (this.mode === 'purchase' ? 'PURCHASE' : 'SALES'),
-          billNo: '',
+          btype: initialType,
+          billNo: initialBillNo,
           supplierBillNo: '',
-          billDate: new Date().toISOString().split('T')[0],
+          billDate: initialDate,
           billType: 'intra-state', // 'intra-state' | 'inter-state'
           reverseCharge: false,
           referenceNo: '',
@@ -188,6 +199,15 @@
         } else {
           this.restoreFocus();
         }
+      },
+      'meta.btype'() {
+        this.fetchNextBillNo();
+      },
+      'meta.billDate'() {
+        this.fetchNextBillNo();
+      },
+      isReturnMode() {
+        this.fetchNextBillNo();
       }
     },
     computed: {
@@ -311,7 +331,53 @@
         }
       }
     },
+    mounted() {
+      this.fetchNextBillNo();
+      if (this.isReturnMode && this.sourceBill) {
+        this.loadSourceBill(this.sourceBill);
+      }
+    },
     methods: {
+      /**
+       * Synchronous formatter for immediate zero-lag preview
+       */
+      formatPreviewBillNo(btype, bdate) {
+        const d = bdate || this.meta?.billDate || new Date().toISOString().split('T')[0];
+        const fy = (global.getFinancialYearFromDate ? global.getFinancialYearFromDate(d) : null) || '2026-27';
+        const prefixMap = {
+          SALES: 'SI', PURCHASE: 'PI', CREDIT_NOTE: 'CN', DEBIT_NOTE: 'DN',
+          PROFORMA: 'PFI', DELIVERY_NOTE: 'DC', SERVICE: 'SI', SERVICE_PURCHASE: 'PI'
+        };
+        const effectiveType = this.isReturnMode ? (this.mode === 'purchase' ? 'DEBIT_NOTE' : 'CREDIT_NOTE') : (btype || 'SALES');
+        const prefix = prefixMap[effectiveType.toUpperCase()] || 'SI';
+        return `${prefix}/${fy}/0001`;
+      },
+
+      /**
+       * READ-ONLY PREVIEW of next bill number (STRICT CAUTION: ZERO DATABASE WRITES)
+       * Exact Nuxt 4 parity: SI/2026-27/0001, PI/2026-27/0001, etc.
+       */
+      async fetchNextBillNo() {
+        try {
+          let btype = this.meta.btype || 'SALES';
+          if (this.isReturnMode) {
+            btype = this.mode === 'purchase' ? 'DEBIT_NOTE' : 'CREDIT_NOTE';
+          }
+          const bdate = this.meta.billDate || new Date().toISOString().split('T')[0];
+
+          if (global.unifiedPostingService && typeof global.unifiedPostingService.previewNextBillNumber === 'function') {
+            const nextNo = await global.unifiedPostingService.previewNextBillNumber(btype, bdate);
+            if (nextNo) {
+              this.meta.billNo = nextNo;
+              return;
+            }
+          }
+          this.meta.billNo = this.formatPreviewBillNo(btype, bdate);
+        } catch (err) {
+          console.warn('[InvoiceWorkspaceComponent] Error previewing next bill number:', err);
+          this.meta.billNo = this.formatPreviewBillNo(this.meta.btype, this.meta.billDate);
+        }
+      },
       formatCurrency(val) {
         return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       },
@@ -1312,8 +1378,14 @@
 
             <!-- Bill No -->
             <label>
-              <span>Bill No</span>
-              <input :value="isReturnMode ? (mode === 'purchase' ? 'DN-AUTO' : 'CN-AUTO') : (meta.billNo || 'AUTO')" type="text" readonly class="readonly-input" />
+              <span>{{ mode === 'purchase' ? 'System Purchase No' : 'Bill No' }}</span>
+              <input 
+                :value="meta.billNo || formatPreviewBillNo(meta.btype, meta.billDate)" 
+                type="text" 
+                readonly 
+                class="readonly-input font-mono font-bold text-slate-900 bg-slate-50 border border-slate-200" 
+                :title="'Next sequential bill number preview: ' + (meta.billNo || formatPreviewBillNo(meta.btype, meta.billDate)) + ' (Strictly read-only: Zero DB write until F8)'" 
+              />
             </label>
 
             <!-- Invoice Date -->

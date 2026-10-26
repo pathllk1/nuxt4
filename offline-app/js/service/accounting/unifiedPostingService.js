@@ -22,7 +22,7 @@
     'FIXED_ASSETS'
   ];
 
-  // Voucher Types & Sequential Prefixes
+  // Voucher Types & Sequential Prefixes (100% Nuxt 4 Parity)
   const VOUCHER_PREFIX_MAP = {
     SALES: 'SI',
     PURCHASE: 'PI',
@@ -34,7 +34,13 @@
     DEBIT_NOTE: 'DN',
     STOCK_ADJUSTMENT: 'SA',
     OPENING_BALANCE: 'OB',
-    CLOSING_ENTRY: 'CL'
+    CLOSING_ENTRY: 'CL',
+    PROFORMA: 'PFI',
+    DELIVERY_NOTE: 'DC',
+    SERVICE: 'SI',
+    SERVICE_PURCHASE: 'PI',
+    ACCOUNTING_SALES: 'ASI',
+    ACCOUNTING_PURCHASE: 'API'
   };
 
   const DOUBLE_ENTRY_TOLERANCE = 0.01;
@@ -196,6 +202,60 @@
       );
 
       return res.rows[0].currentSequence;
+    }
+
+    /**
+     * READ-ONLY PREVIEW of next sequential bill/voucher number (STRICT: ZERO DATABASE WRITES)
+     * Exact 1:1 parity with Nuxt 4 previewNextBillNumber()
+     */
+    async previewNextBillNumber(voucherType, transactionDate) {
+      const vType = (voucherType || 'SALES').toUpperCase();
+      const fy = getFinancialYearFromDate(transactionDate);
+      const prefix = VOUCHER_PREFIX_MAP[vType] || vType.slice(0, 3).toUpperCase();
+
+      let maxNum = 0;
+
+      // Ensure database is initialized before running read-only SELECT
+      if (this.dbService && typeof this.dbService.init === 'function') {
+        try {
+          await this.dbService.init();
+        } catch (_) {}
+      }
+
+      // 1. Read currentSequence from voucher_sequences table (STRICT: SELECT ONLY)
+      try {
+        const seqRes = await this.dbService.executeSql(
+          'SELECT currentSequence FROM voucher_sequences WHERE voucherType = ? AND financialYear = ? LIMIT 1',
+          [vType, fy]
+        );
+        if (seqRes && seqRes.rows && seqRes.rows.length > 0) {
+          maxNum = Number(seqRes.rows[0].currentSequence) || 0;
+        }
+      } catch (e) {
+        // Safe read-only fallback
+      }
+
+      // 2. Cross-check against existing bills table to guarantee gapless uniqueness (STRICT: SELECT ONLY)
+      try {
+        const billsRes = await this.dbService.executeSql(
+          'SELECT bno FROM bills WHERE UPPER(btype) = ?',
+          [vType]
+        );
+        for (const row of (billsRes.rows || [])) {
+          if (row.bno) {
+            const m = row.bno.match(/[/|-](\d+)$/) || row.bno.match(/(\d+)$/);
+            if (m) {
+              const n = parseInt(m[1], 10);
+              if (!isNaN(n) && n > maxNum) maxNum = n;
+            }
+          }
+        }
+      } catch (e) {
+        // Safe read-only fallback
+      }
+
+      const nextNum = maxNum + 1;
+      return `${prefix}/${fy}/${String(nextNum).padStart(4, '0')}`;
     }
 
     /**

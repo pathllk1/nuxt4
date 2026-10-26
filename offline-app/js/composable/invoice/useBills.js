@@ -38,28 +38,35 @@
       }
     };
 
-    const getNextVoucherNo = (btype) => {
-      const year = new Date().getFullYear();
-      let prefix = 'INV';
-      if (btype === 'PURCHASE') prefix = 'PUR';
-      if (btype === 'CREDIT_NOTE') prefix = 'CN';
-      if (btype === 'DEBIT_NOTE') prefix = 'DN';
-      if (btype === 'DELIVERY_NOTE') prefix = 'DC';
-      if (btype === 'PROFORMA') prefix = 'PRO';
-
-      const existingMatching = bills.value.filter((b) => b.btype === btype);
+    /**
+     * READ-ONLY PREVIEW of next bill/voucher number (STRICT: ZERO DATABASE WRITES)
+     * Matches Nuxt 4 format: SI/2026-27/0001, PI/2026-27/0001, etc.
+     */
+    const previewNextBillNo = async (btype, bdate) => {
+      if (global.unifiedPostingService && typeof global.unifiedPostingService.previewNextBillNumber === 'function') {
+        return await global.unifiedPostingService.previewNextBillNumber(btype, bdate);
+      }
+      const fy = (global.getFinancialYearFromDate ? global.getFinancialYearFromDate(bdate) : null) || '2026-27';
+      const prefixMap = {
+        SALES: 'SI', PURCHASE: 'PI', CREDIT_NOTE: 'CN', DEBIT_NOTE: 'DN',
+        PROFORMA: 'PFI', DELIVERY_NOTE: 'DC', SERVICE: 'SI', SERVICE_PURCHASE: 'PI'
+      };
+      const prefix = prefixMap[btype ? btype.toUpperCase() : 'SALES'] || 'SI';
       let maxNum = 0;
-      existingMatching.forEach((b) => {
+      (bills.value || []).filter((b) => b.btype === btype).forEach((b) => {
         if (b.bno) {
-          const m = b.bno.match(/-(\d+)$/);
+          const m = b.bno.match(/[/|-](\d+)$/) || b.bno.match(/(\d+)$/);
           if (m) {
             const n = parseInt(m[1], 10);
-            if (n > maxNum) maxNum = n;
+            if (!isNaN(n) && n > maxNum) maxNum = n;
           }
         }
       });
-      const nextNum = maxNum + 1;
-      return `${prefix}-${year}-${String(nextNum).padStart(3, '0')}`;
+      return `${prefix}/${fy}/${String(maxNum + 1).padStart(4, '0')}`;
+    };
+
+    const getNextVoucherNo = async (btype, bdate) => {
+      return await previewNextBillNo(btype, bdate);
     };
 
     const createBill = async (billData, itemsData = []) => {
@@ -69,9 +76,19 @@
       }
 
       const now = new Date().toISOString();
-      const bno = billData.bno || getNextVoucherNo(billData.btype);
+      const bdate = billData.bdate || now.split('T')[0];
+      let bno = billData.bno;
+      if (!bno || bno.trim() === '' || bno === 'AUTO' || bno === 'DN-AUTO' || bno === 'CN-AUTO') {
+        bno = await previewNextBillNo(billData.btype, bdate);
+      }
 
       try {
+        // Double check uniqueness in case of concurrent entry
+        const checkRes = await global.WebSqlService.executeSql('SELECT id FROM bills WHERE bno = ? LIMIT 1', [bno]);
+        if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
+          bno = await previewNextBillNo(billData.btype, bdate);
+        }
+
         // 1. Insert Bill Header (all fields including firm, consignee, and gross)
         const billRes = await global.WebSqlService.executeSql(
           `INSERT INTO bills (
@@ -123,6 +140,25 @@
         );
 
         const newBillId = billRes.insertId;
+
+        // 1b. Commit sequence in voucher_sequences ONLY now upon successful save
+        try {
+          const m = bno.match(/[/|-](\d+)$/) || bno.match(/(\d+)$/);
+          if (m) {
+            const seqUsed = parseInt(m[1], 10);
+            const fy = global.getFinancialYearFromDate ? global.getFinancialYearFromDate(bdate) : '2026-27';
+            await global.WebSqlService.executeSql(
+              'INSERT OR IGNORE INTO voucher_sequences (voucherType, financialYear, currentSequence) VALUES (?, ?, 0)',
+              [billData.btype, fy]
+            );
+            await global.WebSqlService.executeSql(
+              'UPDATE voucher_sequences SET currentSequence = ? WHERE voucherType = ? AND financialYear = ? AND currentSequence < ?',
+              [seqUsed, billData.btype, fy, seqUsed]
+            );
+          }
+        } catch (seqErr) {
+          console.warn('[useBills] Sequence sync notice:', seqErr);
+        }
 
         // 2. Insert Line Items & Synchronize Stock
         const isInterState = (Number(billData.igst) || 0) > 0;
@@ -392,6 +428,7 @@
       loadBills,
       getBillItems,
       getNextVoucherNo,
+      previewNextBillNo,
       createBill,
       deleteBill
     };

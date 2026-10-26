@@ -130,13 +130,6 @@
           return;
         }
         this.$emit('save-firm', this.form);
-      },
-      async loadDemoData() {
-        if (!confirm('Load Demo Firm (GST Off) and 8 Industrial Stock Items?')) return;
-        if (global.WebSqlService && typeof global.WebSqlService.seedDemoData === 'function') {
-          await global.WebSqlService.seedDemoData(true);
-          window.location.reload();
-        }
       }
     },
     template: `
@@ -160,14 +153,6 @@
           </div>
 
           <div class="flex items-center space-x-2 shrink-0">
-            <button
-              type="button"
-              @click="loadDemoData"
-              title="Load demo firm profile with GST turned OFF and 8 industrial stock items"
-              class="px-3 py-1.5 rounded-lg text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition-colors cursor-pointer shadow-xs"
-            >
-              ⚡ Load Demo Data (GST Off)
-            </button>
             <button
               type="button"
               @click="$emit('close')"

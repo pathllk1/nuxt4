@@ -311,9 +311,8 @@ cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_bankAccountId ON ledger(bankA
 cur.execute('CREATE INDEX IF NOT EXISTS idx_coa_account_name ON chart_of_accounts(account_name);')
 
 now = datetime.datetime.now().isoformat()
-today = datetime.date.today().isoformat()
 
-# Seed Firm Settings (GST OFF: gst_enabled = 0)
+# Seed Firm Creation (WITHOUT GST: gst_enabled = 0)
 cur.execute('''
 INSERT INTO firm_settings (
   name, legal_name, code, description, phone_number, secondary_phone, email, website,
@@ -328,8 +327,8 @@ INSERT INTO firm_settings (
   'Wholesale & Retail Distributor of Tools, Hardware, Bearings, and Safety Gear',
   '+91 98765 43210',
   '+91 98230 11223',
-  'sales@apexhardware.demo',
-  'https://apexhardware.demo',
+  'sales@apexhardware.in',
+  'https://apexhardware.in',
   'Partnership / LLP',
   'Industrial & Hardware Supplies',
   2021,
@@ -341,58 +340,21 @@ INSERT INTO firm_settings (
   'Maharashtra',
   'India',
   '411018',
-  'HDFC Bank',
-  '50200012345678',
-  'Pimpri MIDC Branch',
-  'HDFC0001234',
+  '',
+  '',
+  '',
+  '',
   'Net 30 Days',
   'INR',
   '[]',
-  0, # GST OFF!
+  0, # WITHOUT GST
   now,
   now
 ))
 
-# Seed 8 Stock Items (grate = 0)
-demo_stocks = [
-  (1, 'Bosch Cordless Drill Driver 18V', 'GSR-18V-50', 'Bosch', '8467', 35, 'PCS', 4850.00, 3950.00, 0, 171500.00, 5800.00, 5, '', '[]', 'Admin', now, now),
-  (2, 'Makita Angle Grinder 850W 100mm', 'M0900B', 'Makita', '8467', 48, 'PCS', 2650.00, 2150.00, 0, 127200.00, 3200.00, 10, '', '[]', 'Admin', now, now),
-  (3, 'Stanley 46-Piece Metric Socket Set', 'STMT72794-8', 'Stanley', '8204', 28, 'SET', 1750.00, 1400.00, 0, 49000.00, 2250.00, 5, '', '[]', 'Admin', now, now),
-  (4, 'Taparia Heavy Duty Bench Vice 6 Inch', 'BV-06-HD', 'Taparia', '8205', 15, 'PCS', 3800.00, 3100.00, 0, 57000.00, 4500.00, 3, '', '[]', 'Admin', now, now),
-  (5, 'Fluke 101 Pocket Digital Multimeter', 'FLUKE-101', 'Fluke', '9030', 22, 'PCS', 3150.00, 2550.00, 0, 69300.00, 3850.00, 4, '', '[]', 'Admin', now, now),
-  (6, 'Karam Safety Helmet Ratchet Type', 'SHEL-RT-WHT', 'Karam', '6506', 120, 'PCS', 340.00, 260.00, 0, 40800.00, 480.00, 20, '', '[]', 'Admin', now, now),
-  (7, '3M Cut-Resistant Gloves Comfort Grip L', '3M-CG-L', '3M', '6116', 180, 'PAIR', 190.00, 140.00, 0, 34200.00, 270.00, 25, '', '[]', 'Admin', now, now),
-  (8, 'SKF Deep Groove Ball Bearing 6205-2RS', '6205-2RS1', 'SKF', '8482', 95, 'PCS', 220.00, 165.00, 0, 20900.00, 295.00, 15, '', '[]', 'Admin', now, now)
-]
-
-cur.executemany('''
-INSERT INTO stocks (id, item, pno, oem, hsn, qty, uom, rate, cost_rate, grate, total, mrp, min_qty, batch, batches, user, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-''', demo_stocks)
-
-# Seed Opening Balance Stock Register
-cur.execute('''
-INSERT INTO stock_reg (type, bno, bdate, supply, item_type, item, item_narration, batch, hsn, qty, uom, rate, grate, disc, total, cost_rate, stock_id, bill_id, partyName, qtyh, timestamp)
-SELECT 'OPENING_BALANCE', 'OB-2026-001', ?, 'INWARD', 'GOODS', item, 'Initial physical inventory audit', '', hsn, qty, uom, rate, grate, 0, total, cost_rate, id, NULL, 'Opening Stock Balance', qty, ?
-FROM stocks
-''', (today, now))
-
-# Seed 2 Bank Accounts
-demo_banks = [
-  (1, 'HDFC Bank - 5678', 'Apex Industrial & Hardware Mart LLP', 'HDFC Bank', 'Pimpri MIDC Branch', '50200012345678', 'HDFC0001234', 'CURRENT', 'apexhardware@hdfcbank', 'Primary operative business current account', 250000.00, 'DR', 250000.00, 1, 'ACTIVE', now, now),
-  (2, 'State Bank of India - 4321', 'Apex Industrial & Hardware Mart LLP', 'State Bank of India', 'Chinchwad Branch', '38900098764321', 'SBIN0004567', 'CURRENT', 'apexhardware@sbi', 'Secondary reserve & tax payment account', 75000.00, 'DR', 75000.00, 0, 'ACTIVE', now, now)
-]
-
-cur.executemany('''
-INSERT INTO bank_accounts (id, account_name, account_holder_name, bank_name, branch_name, account_number, ifsc_code, account_type, upi_id, notes, opening_balance, balance_type, current_balance, is_default, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-''', demo_banks)
-
-# Seed Chart of Accounts (COA)
+# Seed Universal Chart of Accounts (COA) - Essential double-entry system accounts only (Zero Fake Data)
 default_coa = [
   ('Cash in Hand', 'CASH', 'BALANCE_SHEET', 'Liquid physical cash kept in store petty cash register', 1, 1),
-  ('HDFC Bank - 5678', 'BANK', 'BALANCE_SHEET', 'Primary HDFC Current Account (Linked to Treasury)', 0, 1),
-  ('State Bank of India - 4321', 'BANK', 'BALANCE_SHEET', 'Secondary SBI Current Account (Linked to Treasury)', 0, 1),
   ('Sales', 'INCOME', 'PNL', 'Revenue earned from outward sales of goods and supplies', 1, 1),
   ('Purchases', 'EXPENSE', 'PNL', 'Cost of goods procured from wholesale suppliers', 1, 1),
   ('Inventory', 'ASSET', 'BALANCE_SHEET', 'Total value of physical stocks on hand', 1, 1),
@@ -422,24 +384,9 @@ INSERT INTO chart_of_accounts (account_name, account_type, bs_classification, de
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ''', [(row[0], row[1], row[2], row[3], row[4], row[5], now, now) for row in default_coa])
 
-# Seed Opening Balance Double-Entry Ledger (OB/2026-27/0001)
-# Total Demo Stocks: 569,900.00 | HDFC Bank: 250,000.00 | SBI Bank: 75,000.00 | Cash: 25,000.00 | Capital: 919,900.00
-ob_legs = [
-  (today, 'Inventory', 'ASSET', 569900.00, 0, 'Opening inventory valuation for 8 physical stock items', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, None, None, None, None, 'Admin', now, now),
-  (today, 'HDFC Bank - 5678', 'BANK', 250000.00, 0, 'Opening balance in HDFC Bank current account', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, 1, None, None, 'BANK_TRANSFER', 'Admin', now, now),
-  (today, 'State Bank of India - 4321', 'BANK', 75000.00, 0, 'Opening balance in SBI Bank current account', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, 2, None, None, 'BANK_TRANSFER', 'Admin', now, now),
-  (today, 'Cash in Hand', 'CASH', 25000.00, 0, 'Physical cash in hand opening register', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, None, None, None, 'CASH', 'Admin', now, now),
-  (today, 'Capital Account', 'CAPITAL', 0, 919900.00, 'Initial business equity investment and net opening reserves', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, None, None, None, None, 'Admin', now, now),
-]
-
-cur.executemany('''
-INSERT INTO ledger (transactionDate, accountHead, accountType, debitAmount, creditAmount, narration, voucherGroupId, voucherNo, voucherType, refType, refId, partyId, bankAccountId, stockId, stockRegId, paymentMode, createdBy, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-''', ob_legs)
-
-# Seed Voucher Sequences
+# Seed Initial Voucher Sequences (Clean 0 start)
 sequences = [
-  ('OPENING_BALANCE', '2026-27', 1),
+  ('OPENING_BALANCE', '2026-27', 0),
   ('PAYMENT', '2026-27', 0),
   ('RECEIPT', '2026-27', 0),
   ('CONTRA', '2026-27', 0),
@@ -448,6 +395,8 @@ sequences = [
   ('PURCHASE', '2026-27', 0),
   ('CREDIT_NOTE', '2026-27', 0),
   ('DEBIT_NOTE', '2026-27', 0),
+  ('PROFORMA', '2026-27', 0),
+  ('DELIVERY_NOTE', '2026-27', 0),
 ]
 
 cur.executemany('''
@@ -455,13 +404,8 @@ INSERT OR IGNORE INTO voucher_sequences (voucherType, financialYear, currentSequ
 VALUES (?, ?, ?)
 ''', sequences)
 
-# Seed Audit Log
-cur.execute('''
-INSERT INTO audit_log (action, details, timestamp) VALUES (?, ?, ?)
-''', ('DEMO_INITIALIZATION', 'Created physical database.sqlite with Apex Industrial (GST OFF), 8 stock items, 2 bank accounts, COA, and balanced opening ledger (Rs 919,900.00)', now))
-
 conn.commit()
 conn.close()
 
 size = os.path.getsize(db_path)
-print(f"Database created at: {db_path} ({size} bytes)")
+print(f"Clean Production Database created at: {db_path} ({size} bytes)")

@@ -34,7 +34,14 @@
       show(val) {
         if (val) {
           this.resetForm();
+          this.fetchNextBillNo();
         }
+      },
+      'form.btype'() {
+        this.fetchNextBillNo();
+      },
+      'form.bdate'() {
+        this.fetchNextBillNo();
       }
     },
     computed: {
@@ -47,11 +54,25 @@
       }
     },
     methods: {
+      /**
+       * READ-ONLY PREVIEW of next bill number (STRICT: ZERO DATABASE WRITES)
+       */
+      async fetchNextBillNo() {
+        try {
+          if (global.unifiedPostingService && typeof global.unifiedPostingService.previewNextBillNumber === 'function') {
+            this.form.bno = await global.unifiedPostingService.previewNextBillNumber(this.form.btype, this.form.bdate);
+          }
+        } catch (e) {
+          console.warn('[BillModalComponent] Failed to preview bill number:', e);
+        }
+      },
       resetForm() {
+        const bdate = new Date().toISOString().split('T')[0];
+        const fy = (global.getFinancialYearFromDate ? global.getFinancialYearFromDate(bdate) : null) || '2026-27';
         this.form = {
           btype: 'SALES',
-          bno: '',
-          bdate: new Date().toISOString().split('T')[0],
+          bno: `SI/${fy}/0001`,
+          bdate: bdate,
           partyId: '',
           partyName: '',
           partyGstin: '',
@@ -65,6 +86,7 @@
         this.items = [
           { stockId: '', item: '', hsn: '', qty: 1, uom: 'PCS', rate: 0, disc: 0, grate: 18, taxable: 0, total: 0 }
         ];
+        this.fetchNextBillNo();
       },
       onPartyChange() {
         const p = this.parties.find((item) => item.id === Number(this.form.partyId));

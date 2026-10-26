@@ -421,14 +421,19 @@
         return {
           id: row.id,
           date: row.transactionDate,
+          transactionDate: row.transactionDate,
           voucherNo: row.voucherNo,
           voucherType: row.voucherType,
           voucherGroupId: row.voucherGroupId,
           narration: row.narration,
           debit: dr,
+          debitAmount: dr,
           credit: cr,
+          creditAmount: cr,
           balance: currentBal,
-          balanceType: currentBalType
+          runningBalance: currentBal,
+          balanceType: currentBalType,
+          runningBalanceType: currentBalType
         };
       });
 
@@ -440,11 +445,16 @@
         accountHead,
         openingBalance,
         openingBalanceType,
+        openingType: openingBalanceType,
         entries,
         totalDebits: Math.round(totalDebits * 100) / 100,
+        totalDebit: Math.round(totalDebits * 100) / 100,
         totalCredits: Math.round(totalCredits * 100) / 100,
+        totalCredit: Math.round(totalCredits * 100) / 100,
         finalBalance: Math.round(finalBalance * 100) / 100,
-        finalBalanceType
+        closingBalance: Math.round(finalBalance * 100) / 100,
+        finalBalanceType,
+        closingType: finalBalanceType
       };
     }
 
