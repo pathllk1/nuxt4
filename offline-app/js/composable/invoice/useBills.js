@@ -202,8 +202,74 @@
           }
         }
 
+        // 3. Post to Centralized Double-Entry General Ledger
+        try {
+          if (global.unifiedPostingService && ['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'].includes(billData.btype)) {
+            const partyName = billData.partyName || 'Cash Party';
+            const partyId = Number(billData.partyId) || null;
+            const netTotal = Number(billData.netTotal) || 0;
+            const taxableTotal = Number(billData.taxableTotal) || 0;
+            const cgst = Number(billData.cgst) || 0;
+            const sgst = Number(billData.sgst) || 0;
+            const igst = Number(billData.igst) || 0;
+            const roundOff = Number(billData.roundOff) || 0;
+            const dateStr = billData.bdate || now.split('T')[0];
+            const legs = [];
+
+            if (billData.btype === 'SALES') {
+              legs.push({ accountHead: partyName, accountType: 'SUNDRY_DEBTORS', partyId, debitAmount: netTotal, creditAmount: 0, narration: `Sales Invoice: ${bno}` });
+              legs.push({ accountHead: 'Sales', accountType: 'INCOME', debitAmount: 0, creditAmount: taxableTotal, narration: `Sales of goods - ${bno}` });
+              if (cgst > 0) legs.push({ accountHead: 'CGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: cgst });
+              if (sgst > 0) legs.push({ accountHead: 'SGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: sgst });
+              if (igst > 0) legs.push({ accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst });
+              if (roundOff > 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: 0, creditAmount: roundOff });
+              else if (roundOff < 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: Math.abs(roundOff), creditAmount: 0 });
+            } else if (billData.btype === 'PURCHASE') {
+              legs.push({ accountHead: partyName, accountType: 'SUNDRY_CREDITORS', partyId, debitAmount: 0, creditAmount: netTotal, narration: `Purchase Bill: ${bno}` });
+              legs.push({ accountHead: 'Purchases', accountType: 'EXPENSE', debitAmount: taxableTotal, creditAmount: 0, narration: `Procurement - ${bno}` });
+              if (cgst > 0) legs.push({ accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: cgst, creditAmount: 0 });
+              if (sgst > 0) legs.push({ accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: sgst, creditAmount: 0 });
+              if (igst > 0) legs.push({ accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: igst, creditAmount: 0 });
+              if (roundOff < 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: 0, creditAmount: Math.abs(roundOff) });
+              else if (roundOff > 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: roundOff, creditAmount: 0 });
+            } else if (billData.btype === 'CREDIT_NOTE') {
+              legs.push({ accountHead: partyName, accountType: 'SUNDRY_DEBTORS', partyId, debitAmount: 0, creditAmount: netTotal, narration: `Credit Note: ${bno}` });
+              legs.push({ accountHead: 'Sales', accountType: 'INCOME', debitAmount: taxableTotal, creditAmount: 0, narration: `Sales return - ${bno}` });
+              if (cgst > 0) legs.push({ accountHead: 'CGST Payable', accountType: 'LIABILITY', debitAmount: cgst, creditAmount: 0 });
+              if (sgst > 0) legs.push({ accountHead: 'SGST Payable', accountType: 'LIABILITY', debitAmount: sgst, creditAmount: 0 });
+              if (igst > 0) legs.push({ accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: igst, creditAmount: 0 });
+              if (roundOff < 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: 0, creditAmount: Math.abs(roundOff) });
+              else if (roundOff > 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: roundOff, creditAmount: 0 });
+            } else if (billData.btype === 'DEBIT_NOTE') {
+              legs.push({ accountHead: partyName, accountType: 'SUNDRY_CREDITORS', partyId, debitAmount: netTotal, creditAmount: 0, narration: `Debit Note: ${bno}` });
+              legs.push({ accountHead: 'Purchases', accountType: 'EXPENSE', debitAmount: 0, creditAmount: taxableTotal, narration: `Purchase return - ${bno}` });
+              if (cgst > 0) legs.push({ accountHead: 'CGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: cgst });
+              if (sgst > 0) legs.push({ accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: sgst });
+              if (igst > 0) legs.push({ accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: igst });
+              if (roundOff > 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: 0, creditAmount: roundOff });
+              else if (roundOff < 0) legs.push({ accountHead: 'Round Off', accountType: 'GENERAL', debitAmount: Math.abs(roundOff), creditAmount: 0 });
+            }
+
+            if (legs.length > 0) {
+              await global.unifiedPostingService.postVoucher({
+                voucherType: billData.btype,
+                transactionDate: dateStr,
+                narration: `${billData.btype} #${bno} - ${partyName}`,
+                legs,
+                createdBy: 'Admin',
+                refType: 'BILL',
+                refId: newBillId,
+                externalVoucherGroupId: `BILL-${newBillId}`,
+                externalVoucherNo: bno
+              });
+            }
+          }
+        } catch (postErr) {
+          console.warn('[Ledger] Invoice GL posting notice:', postErr);
+        }
+
         if (audit) audit('VOUCHER_CREATED', `Generated ${billData.btype} #${bno} for ${billData.partyName} (₹${billData.netTotal})`);
-        if (notify) notify(`${billData.btype} #${bno} created and stocks updated!`, 'success');
+        if (notify) notify(`${billData.btype} #${bno} created, stocks and General Ledger updated!`, 'success');
 
         await loadBills();
         if (reloadInventory) await reloadInventory();
@@ -254,11 +320,20 @@
           }
         }
 
-        // 4. Delete records
+        // 4. Reverse / remove Double-Entry General Ledger posting
+        try {
+          if (global.unifiedPostingService) {
+            await global.unifiedPostingService.deleteVoucher(`BILL-${billId}`);
+          }
+        } catch (glDelErr) {
+          console.warn('[Ledger] Delete bill voucher notice:', glDelErr);
+        }
+
+        // 5. Delete records
         await global.WebSqlService.executeSql('DELETE FROM bill_items WHERE billId = ?', [billId]);
         await global.WebSqlService.executeSql('DELETE FROM bills WHERE id = ?', [billId]);
-        if (audit) audit('VOUCHER_DELETED', `Deleted voucher #${bno} and reversed stock`);
-        if (notify) notify(`Voucher #${bno} deleted and stock reversed`, 'info');
+        if (audit) audit('VOUCHER_DELETED', `Deleted voucher #${bno}, reversed stock and General Ledger`);
+        if (notify) notify(`Voucher #${bno} deleted, stock and General Ledger updated`, 'info');
         await loadBills();
         if (reloadInventory) await reloadInventory();
         return true;

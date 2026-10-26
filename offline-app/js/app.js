@@ -21,7 +21,14 @@
       PartyManagerComponent: global.PartyManagerComponent,
       ExportModalComponent: global.ExportModalComponent,
       SqlConsoleComponent: global.SqlConsoleComponent,
-      ToastNotificationComponent: global.ToastNotificationComponent
+      ToastNotificationComponent: global.ToastNotificationComponent,
+      BankingComponent: global.BankingComponent,
+      StatementsComponent: global.StatementsComponent,
+      VoucherModalComponent: global.VoucherModalComponent,
+      AccountingDashboardComponent: global.AccountingDashboardComponent,
+      SLGLAuditModalComponent: global.SLGLAuditModalComponent,
+      YearEndClosingModalComponent: global.YearEndClosingModalComponent,
+      PeriodLockModalComponent: global.PeriodLockModalComponent
     },
     setup() {
       const currentTab = ref('dashboard');
@@ -29,6 +36,8 @@
       const showStockModal = ref(false);
       const editingStock = ref(null);
       const showExportModal = ref(false);
+      const showVoucherModal = ref(false);
+      const voucherModalPreset = ref({});
 
       // Return mode state
       const isReturnMode = ref(false);
@@ -72,6 +81,23 @@
           await stockLedger.loadMovements();
         }
       );
+
+      // 5. Banking Composable
+      const bankingState = global.useBanking(
+        (msg, type) => notify && notify(msg, type),
+        (act, details) => audit && audit(act, details)
+      );
+
+      // Voucher Handlers
+      const openVoucherModal = (preset = {}) => {
+        voucherModalPreset.value = preset || {};
+        showVoucherModal.value = true;
+      };
+
+      const handleVoucherSaved = async () => {
+        await bankingState.fetchBankAccounts();
+        await partiesManager.loadParties();
+      };
 
       // Stock Modal Handlers
       const openAddStock = () => {
@@ -213,6 +239,7 @@
         await partiesManager.loadParties();
         await billsManager.loadBills();
         await stockLedger.loadMovements();
+        await bankingState.fetchBankAccounts();
       });
 
       return {
@@ -220,6 +247,8 @@
         showStockModal,
         editingStock,
         showExportModal,
+        showVoucherModal,
+        voucherModalPreset,
         isReturnMode,
         sourceReturnBill,
         workspaceInitialItemType,
@@ -232,6 +261,7 @@
         partiesManager,
         billsManager,
         stockLedger,
+        bankingState,
 
         // Direct top-level unwrapped reactive bindings
         stocks: inventory.filteredStocks,
@@ -263,6 +293,8 @@
         handleDownloadPdf,
         handleDownloadWord,
         handleExportExcelBills,
+        openVoucherModal,
+        handleVoucherSaved,
 
         setNotifyAndAudit(n, a) {
           notify = n;
@@ -283,6 +315,7 @@
           :engine-type="webSql.engineType"
           @change-tab="handleTabChange"
           @open-export="showExportModal = true"
+          @open-voucher="openVoucherModal"
         />
 
         <!-- Layout Container: Left Sidebar + Main Content Area -->
@@ -434,6 +467,29 @@
                 :is-native="webSql.isNative"
               />
             </section>
+
+            <!-- 8b. Accounting & Financials Dashboard Tab -->
+            <section v-if="currentTab === 'accounting_dashboard'" class="w-full">
+              <AccountingDashboardComponent
+                @open-voucher="openVoucherModal"
+                @navigate-tab="handleTabChange"
+              />
+            </section>
+
+            <!-- 9. Banking Hub Tab -->
+            <section v-if="currentTab === 'banking'" class="w-full">
+              <BankingComponent
+                :banking-state="bankingState"
+                @open-voucher="openVoucherModal"
+              />
+            </section>
+
+            <!-- 10. Accounting Daybook & Statements Tab -->
+            <section v-if="currentTab === 'statements'" class="w-full">
+              <StatementsComponent
+                @open-voucher="openVoucherModal"
+              />
+            </section>
           </main>
         </div>
 
@@ -454,6 +510,13 @@
           :movements="stockLedger.movements.value"
           :firm="firmManager.firm.value"
           @close="showExportModal = false"
+        />
+
+        <!-- Unified Voucher Creation & Edit Modal -->
+        <VoucherModalComponent
+          v-model="showVoucherModal"
+          :initial-data="voucherModalPreset"
+          @voucher-saved="handleVoucherSaved"
         />
 
         <!-- Fixed Bottom Status Footer (100% Dynamic Real Data) -->
@@ -482,6 +545,34 @@
   if (global.ExportModalComponent) {
     app.component('ExportModalComponent', global.ExportModalComponent);
     app.component('export-modal-component', global.ExportModalComponent);
+  }
+  if (global.BankingComponent) {
+    app.component('BankingComponent', global.BankingComponent);
+    app.component('banking-component', global.BankingComponent);
+  }
+  if (global.StatementsComponent) {
+    app.component('StatementsComponent', global.StatementsComponent);
+    app.component('statements-component', global.StatementsComponent);
+  }
+  if (global.VoucherModalComponent) {
+    app.component('VoucherModalComponent', global.VoucherModalComponent);
+    app.component('voucher-modal-component', global.VoucherModalComponent);
+  }
+  if (global.AccountingDashboardComponent) {
+    app.component('AccountingDashboardComponent', global.AccountingDashboardComponent);
+    app.component('accounting-dashboard-component', global.AccountingDashboardComponent);
+  }
+  if (global.SLGLAuditModalComponent) {
+    app.component('SLGLAuditModalComponent', global.SLGLAuditModalComponent);
+    app.component('sl-gl-audit-modal-component', global.SLGLAuditModalComponent);
+  }
+  if (global.YearEndClosingModalComponent) {
+    app.component('YearEndClosingModalComponent', global.YearEndClosingModalComponent);
+    app.component('year-end-closing-modal-component', global.YearEndClosingModalComponent);
+  }
+  if (global.PeriodLockModalComponent) {
+    app.component('PeriodLockModalComponent', global.PeriodLockModalComponent);
+    app.component('period-lock-modal-component', global.PeriodLockModalComponent);
   }
 
   const mountedInstance = app.mount('#app');

@@ -21,6 +21,7 @@
   <script src="./vendor/jspdf.plugin.autotable.min.js"></script>
   <script src="./vendor/docx.js"></script>
   <script src="./vendor/sql-wasm.js"></script>
+  <script src="./vendor/chart.umd.min.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased m-0 p-0 selection:bg-blue-600 selection:text-white">
   <!-- Vue Application Mount Point -->
@@ -36,63 +37,75 @@
   <script src="./js/utils/taxCalculator.js?v=3.4"></script>
   <script src="./js/utils/numberToWords.js?v=3.4"></script>
 
-  <!-- 2. Services (Database & Multi-format Exporters) -->
-  <script src="./js/service/database/webSqlService.js?v=3.4"></script>
-  <script src="./js/service/export/excelExportService.js?v=3.4"></script>
-  <script src="./js/service/export/pdfExportService.js?v=3.4"></script>
-  <script src="./js/service/export/wordExportService.js?v=3.4"></script>
+  <!-- 2. Services (Database, Double-Entry GL & Multi-format Exporters) -->
+  <script src="./js/service/database/webSqlService.js?v=3.5"></script>
+  <script src="./js/service/accounting/unifiedPostingService.js?v=3.5"></script>
+  <script src="./js/service/accounting/ledgerService.js?v=3.5"></script>
+  <script src="./js/service/export/excelExportService.js?v=3.5"></script>
+  <script src="./js/service/export/pdfExportService.js?v=3.5"></script>
+  <script src="./js/service/export/wordExportService.js?v=3.5"></script>
 
   <!-- 3. Plugins -->
-  <script src="./js/plugins/notificationPlugin.js?v=3.4"></script>
-  <script src="./js/plugins/loggerPlugin.js?v=3.4"></script>
+  <script src="./js/plugins/notificationPlugin.js?v=3.5"></script>
+  <script src="./js/plugins/loggerPlugin.js?v=3.5"></script>
 
   <!-- 4. Composables (Domain Reactive State) -->
-  <script src="./js/composable/core/useWebSql.js?v=3.4"></script>
-  <script src="./js/composable/core/useFirm.js?v=3.4"></script>
-  <script src="./js/composable/core/useKeyboardNavigation.js?v=3.4"></script>
-  <script src="./js/composable/inventory/useInventory.js?v=3.4"></script>
-  <script src="./js/composable/inventory/useStockLedger.js?v=3.4"></script>
-  <script src="./js/composable/party/useParties.js?v=3.4"></script>
-  <script src="./js/composable/invoice/useBills.js?v=3.4"></script>
+  <script src="./js/composable/core/useWebSql.js?v=3.5"></script>
+  <script src="./js/composable/core/useFirm.js?v=3.5"></script>
+  <script src="./js/composable/core/useKeyboardNavigation.js?v=3.5"></script>
+  <script src="./js/composable/inventory/useInventory.js?v=3.5"></script>
+  <script src="./js/composable/inventory/useStockLedger.js?v=3.5"></script>
+  <script src="./js/composable/party/useParties.js?v=3.5"></script>
+  <script src="./js/composable/invoice/useBills.js?v=3.5"></script>
+  <script src="./js/composable/accounting/useBanking.js?v=3.5"></script>
 
   <!-- 5. Components: Grouped by Domain Module -->
   <!-- 5a. Party & Accounts Module -->
-  <script src="./js/components/party/PartyModalComponent.js?v=3.4"></script>
-  <script src="./js/components/party/PartyManagerComponent.js?v=3.4"></script>
+  <script src="./js/components/party/PartyModalComponent.js?v=3.5"></script>
+  <script src="./js/components/party/PartyManagerComponent.js?v=3.5"></script>
 
   <!-- 5b. Inventory & Stocks Module -->
-  <script src="./js/components/inventory/StockModalComponent.js?v=3.4"></script>
-  <script src="./js/components/inventory/StockManagerComponent.js?v=3.4"></script>
-  <script src="./js/components/inventory/StockLedgerComponent.js?v=3.4"></script>
+  <script src="./js/components/inventory/StockModalComponent.js?v=3.5"></script>
+  <script src="./js/components/inventory/StockManagerComponent.js?v=3.5"></script>
+  <script src="./js/components/inventory/StockLedgerComponent.js?v=3.5"></script>
 
   <!-- 5c. Invoice, Billing & Vouchers Module -->
-  <script src="./js/components/invoice/InvoicePrintModal.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoiceChargesModal.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoiceHelpModal.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoiceHistoryModalComponent.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoicePartyDrawerComponent.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoiceQuickPartyModal.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoiceStockSelectorModal.js?v=3.4"></script>
-  <script src="./js/components/invoice/InvoiceWorkspaceComponent.js?v=3.4"></script>
-  <script src="./js/components/invoice/BillManagerComponent.js?v=3.4"></script>
-  <script src="./js/components/invoice/BillModalComponent.js?v=3.4"></script>
+  <script src="./js/components/invoice/InvoicePrintModal.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoiceChargesModal.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoiceHelpModal.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoiceHistoryModalComponent.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoicePartyDrawerComponent.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoiceQuickPartyModal.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoiceStockSelectorModal.js?v=3.5"></script>
+  <script src="./js/components/invoice/InvoiceWorkspaceComponent.js?v=3.5"></script>
+  <script src="./js/components/invoice/BillManagerComponent.js?v=3.5"></script>
+  <script src="./js/components/invoice/BillModalComponent.js?v=3.5"></script>
 
-  <!-- 5d. Dashboard & Analytics Module -->
-  <script src="./js/components/dashboard/StatsCardsComponent.js?v=3.4"></script>
-  <script src="./js/components/dashboard/DashboardStatsComponent.js?v=3.4"></script>
+  <!-- 5d. Banking Hub & Financial Statements Module -->
+  <script src="./js/components/banking/BankingComponent.js?v=3.6"></script>
+  <script src="./js/components/accounting/VoucherModalComponent.js?v=3.6"></script>
+  <script src="./js/components/accounting/SLGLAuditModalComponent.js?v=3.6"></script>
+  <script src="./js/components/accounting/YearEndClosingModalComponent.js?v=3.6"></script>
+  <script src="./js/components/accounting/PeriodLockModalComponent.js?v=3.6"></script>
+  <script src="./js/components/accounting/StatementsComponent.js?v=3.6"></script>
+  <script src="./js/components/accounting/AccountingDashboardComponent.js?v=3.6"></script>
 
-  <!-- 5e. System, Settings & Diagnostics Module -->
-  <script src="./js/components/system/FirmSettingsComponent.js?v=3.4"></script>
-  <script src="./js/components/system/ExportModalComponent.js?v=3.4"></script>
-  <script src="./js/components/system/SqlConsoleComponent.js?v=3.4"></script>
+  <!-- 5e. Dashboard & Analytics Module -->
+  <script src="./js/components/dashboard/StatsCardsComponent.js?v=3.5"></script>
+  <script src="./js/components/dashboard/DashboardStatsComponent.js?v=3.5"></script>
 
-  <!-- 5f. Layout & Shell -->
-  <script src="./js/components/layout/NavbarComponent.js?v=3.4"></script>
-  <script src="./js/components/layout/SidebarComponent.js?v=3.4"></script>
-  <script src="./js/components/layout/FooterComponent.js?v=3.4"></script>
-  <script src="./js/components/layout/ToastNotificationComponent.js?v=3.4"></script>
+  <!-- 5f. System, Settings & Diagnostics Module -->
+  <script src="./js/components/system/FirmSettingsComponent.js?v=3.5"></script>
+  <script src="./js/components/system/ExportModalComponent.js?v=3.5"></script>
+  <script src="./js/components/system/SqlConsoleComponent.js?v=3.5"></script>
+
+  <!-- 5g. Layout & Shell -->
+  <script src="./js/components/layout/NavbarComponent.js?v=3.5"></script>
+  <script src="./js/components/layout/SidebarComponent.js?v=3.5"></script>
+  <script src="./js/components/layout/FooterComponent.js?v=3.5"></script>
+  <script src="./js/components/layout/ToastNotificationComponent.js?v=3.5"></script>
 
   <!-- 6. Application Orchestrator -->
-  <script src="./js/app.js?v=3.4"></script>
+  <script src="./js/app.js?v=3.5"></script>
 </body>
 </html>

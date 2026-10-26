@@ -13,11 +13,14 @@
     data() {
       return {
         navItems: [
-          { id: 'dashboard', label: 'Dashboard', icon: '🏠', tab: 'dashboard' },
+          { id: 'dashboard', label: 'Inventory Dashboard', icon: '📊', tab: 'dashboard' },
+          { id: 'accounting_dashboard', label: 'Ledger & Financials', icon: '📈', tab: 'accounting_dashboard' },
           { id: 'stocks', label: 'Stock & Items', icon: '📦', tab: 'stocks' },
           { id: 'sales_workspace', label: 'Sales Invoice', icon: '✈️', tab: 'sales_workspace' },
           { id: 'purchase_workspace', label: 'Purchase Bills', icon: '📍', tab: 'purchase_workspace' },
           { id: 'bills', label: 'Invoices & Notes', icon: '💵', tab: 'bills' },
+          { id: 'banking', label: 'Banking Hub', icon: '🏦', tab: 'banking' },
+          { id: 'accounting', label: 'Daybook & Statements', icon: '📖', tab: 'statements' },
           { id: 'ledger', label: 'Stock Movement', icon: '📋', tab: 'ledger' },
           { id: 'parties', label: 'Parties Directory', icon: '🏷️', tab: 'parties' },
           { id: 'firm_settings', label: 'Firm Settings', icon: '🏢', tab: 'firm_settings' },

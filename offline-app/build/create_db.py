@@ -208,11 +208,107 @@ CREATE TABLE IF NOT EXISTS firm_settings (
 );
 ''')
 
+# 8. Bank Accounts
+cur.execute('''
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_name TEXT NOT NULL,
+  account_holder_name TEXT,
+  bank_name TEXT NOT NULL,
+  branch_name TEXT,
+  account_number TEXT NOT NULL,
+  ifsc_code TEXT NOT NULL,
+  account_type TEXT DEFAULT 'CURRENT',
+  upi_id TEXT,
+  notes TEXT,
+  opening_balance REAL DEFAULT 0,
+  balance_type TEXT DEFAULT 'DR',
+  current_balance REAL DEFAULT 0,
+  is_default INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'ACTIVE',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+''')
+
+# 9. Chart of Accounts (COA)
+cur.execute('''
+CREATE TABLE IF NOT EXISTS chart_of_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_name TEXT NOT NULL UNIQUE,
+  account_type TEXT NOT NULL,
+  bs_classification TEXT,
+  description TEXT,
+  pan TEXT,
+  gstin TEXT,
+  phone TEXT,
+  is_system INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+''')
+
+# 10. General Ledger (Double-Entry Ledger)
+cur.execute('''
+CREATE TABLE IF NOT EXISTS ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transactionDate TEXT NOT NULL,
+  accountHead TEXT NOT NULL,
+  accountType TEXT NOT NULL,
+  debitAmount REAL DEFAULT 0,
+  creditAmount REAL DEFAULT 0,
+  narration TEXT,
+  voucherGroupId TEXT NOT NULL,
+  voucherNo TEXT NOT NULL,
+  voucherType TEXT NOT NULL,
+  refType TEXT DEFAULT 'VOUCHER',
+  refId INTEGER,
+  partyId INTEGER,
+  bankAccountId INTEGER,
+  stockId INTEGER,
+  stockRegId INTEGER,
+  paymentMode TEXT,
+  createdBy TEXT DEFAULT 'Admin',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+''')
+
+# 11. Voucher Sequences
+cur.execute('''
+CREATE TABLE IF NOT EXISTS voucher_sequences (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voucherType TEXT NOT NULL,
+  financialYear TEXT NOT NULL,
+  currentSequence INTEGER DEFAULT 0,
+  UNIQUE(voucherType, financialYear)
+);
+''')
+
+# 12. Period Locks
+cur.execute('''
+CREATE TABLE IF NOT EXISTS period_locks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lockDate TEXT NOT NULL,
+  reason TEXT,
+  lockedBy TEXT DEFAULT 'Admin',
+  created_at TEXT NOT NULL
+);
+''')
+
 # Indexes
 cur.execute('CREATE INDEX IF NOT EXISTS idx_bill_items_billId ON bill_items(billId);')
 cur.execute('CREATE INDEX IF NOT EXISTS idx_stock_reg_stock_id ON stock_reg(stock_id);')
 cur.execute('CREATE INDEX IF NOT EXISTS idx_bills_partyId ON bills(partyId);')
 cur.execute('CREATE INDEX IF NOT EXISTS idx_bills_bno ON bills(bno);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_voucherGroupId ON ledger(voucherGroupId);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_voucherNo ON ledger(voucherNo);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_transactionDate ON ledger(transactionDate);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_accountHead ON ledger(accountHead);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_partyId ON ledger(partyId);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_ledger_bankAccountId ON ledger(bankAccountId);')
+cur.execute('CREATE INDEX IF NOT EXISTS idx_coa_account_name ON chart_of_accounts(account_name);')
 
 now = datetime.datetime.now().isoformat()
 today = datetime.date.today().isoformat()
@@ -281,10 +377,88 @@ SELECT 'OPENING_BALANCE', 'OB-2026-001', ?, 'INWARD', 'GOODS', item, 'Initial ph
 FROM stocks
 ''', (today, now))
 
+# Seed 2 Bank Accounts
+demo_banks = [
+  (1, 'HDFC Bank - 5678', 'Apex Industrial & Hardware Mart LLP', 'HDFC Bank', 'Pimpri MIDC Branch', '50200012345678', 'HDFC0001234', 'CURRENT', 'apexhardware@hdfcbank', 'Primary operative business current account', 250000.00, 'DR', 250000.00, 1, 'ACTIVE', now, now),
+  (2, 'State Bank of India - 4321', 'Apex Industrial & Hardware Mart LLP', 'State Bank of India', 'Chinchwad Branch', '38900098764321', 'SBIN0004567', 'CURRENT', 'apexhardware@sbi', 'Secondary reserve & tax payment account', 75000.00, 'DR', 75000.00, 0, 'ACTIVE', now, now)
+]
+
+cur.executemany('''
+INSERT INTO bank_accounts (id, account_name, account_holder_name, bank_name, branch_name, account_number, ifsc_code, account_type, upi_id, notes, opening_balance, balance_type, current_balance, is_default, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+''', demo_banks)
+
+# Seed Chart of Accounts (COA)
+default_coa = [
+  ('Cash in Hand', 'CASH', 'BALANCE_SHEET', 'Liquid physical cash kept in store petty cash register', 1, 1),
+  ('HDFC Bank - 5678', 'BANK', 'BALANCE_SHEET', 'Primary HDFC Current Account (Linked to Treasury)', 0, 1),
+  ('State Bank of India - 4321', 'BANK', 'BALANCE_SHEET', 'Secondary SBI Current Account (Linked to Treasury)', 0, 1),
+  ('Sales', 'INCOME', 'PNL', 'Revenue earned from outward sales of goods and supplies', 1, 1),
+  ('Purchases', 'EXPENSE', 'PNL', 'Cost of goods procured from wholesale suppliers', 1, 1),
+  ('Inventory', 'ASSET', 'BALANCE_SHEET', 'Total value of physical stocks on hand', 1, 1),
+  ('COGS', 'EXPENSE', 'PNL', 'Cost of goods sold during sales invoicing', 1, 1),
+  ('Round Off', 'GENERAL', 'PNL', 'Fractional rounding differences on invoices and vouchers', 1, 1),
+  ('Stock Adjustment', 'INCOME', 'PNL', 'Gains or losses arising from physical inventory audits', 1, 1),
+  ('Capital Account', 'CAPITAL', 'BALANCE_SHEET', 'Partner equity investment and retained business reserves', 1, 1),
+  ('Opening Balance', 'CAPITAL', 'BALANCE_SHEET', 'Initial balance migration offset account', 1, 1),
+  ('Difference in Opening Balances', 'CAPITAL', 'BALANCE_SHEET', 'Temporary suspense for unallocated opening entries', 1, 1),
+  ('CGST Input Credit', 'ASSET', 'BALANCE_SHEET', 'Central GST tax credit claimable on inward purchases', 1, 1),
+  ('SGST Input Credit', 'ASSET', 'BALANCE_SHEET', 'State GST tax credit claimable on inward purchases', 1, 1),
+  ('IGST Input Credit', 'ASSET', 'BALANCE_SHEET', 'Integrated GST tax credit claimable on inter-state purchases', 1, 1),
+  ('Cess Input Credit', 'ASSET', 'BALANCE_SHEET', 'GST Compensation Cess claimable on inward purchases', 1, 1),
+  ('CGST Payable', 'LIABILITY', 'BALANCE_SHEET', 'Central GST collected on outward taxable sales', 1, 1),
+  ('SGST Payable', 'LIABILITY', 'BALANCE_SHEET', 'State GST collected on outward taxable sales', 1, 1),
+  ('IGST Payable', 'LIABILITY', 'BALANCE_SHEET', 'Integrated GST collected on inter-state outward taxable sales', 1, 1),
+  ('Cess Payable', 'LIABILITY', 'BALANCE_SHEET', 'GST Cess collected on outward taxable sales', 1, 1),
+  ('TDS Payable u/s 194C', 'DUTIES_AND_TAXES', 'BALANCE_SHEET', 'TDS withheld from contractor and vendor payments', 1, 1),
+  ('Salaries & Wages', 'EXPENSE', 'PNL', 'Remuneration paid to staff and laborers', 1, 1),
+  ('Office Rent', 'EXPENSE', 'PNL', 'Monthly commercial premises rent and lease charges', 0, 1),
+  ('Electricity & Utilities', 'EXPENSE', 'PNL', 'Power, internet, water, and essential facility utilities', 0, 1),
+  ('Freight & Logistics', 'DIRECT_EXPENSE', 'PNL', 'Transportation and courier charges on goods movement', 0, 1),
+]
+
+cur.executemany('''
+INSERT INTO chart_of_accounts (account_name, account_type, bs_classification, description, is_system, is_active, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+''', [(row[0], row[1], row[2], row[3], row[4], row[5], now, now) for row in default_coa])
+
+# Seed Opening Balance Double-Entry Ledger (OB/2026-27/0001)
+# Total Demo Stocks: 569,900.00 | HDFC Bank: 250,000.00 | SBI Bank: 75,000.00 | Cash: 25,000.00 | Capital: 919,900.00
+ob_legs = [
+  (today, 'Inventory', 'ASSET', 569900.00, 0, 'Opening inventory valuation for 8 physical stock items', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, None, None, None, None, 'Admin', now, now),
+  (today, 'HDFC Bank - 5678', 'BANK', 250000.00, 0, 'Opening balance in HDFC Bank current account', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, 1, None, None, 'BANK_TRANSFER', 'Admin', now, now),
+  (today, 'State Bank of India - 4321', 'BANK', 75000.00, 0, 'Opening balance in SBI Bank current account', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, 2, None, None, 'BANK_TRANSFER', 'Admin', now, now),
+  (today, 'Cash in Hand', 'CASH', 25000.00, 0, 'Physical cash in hand opening register', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, None, None, None, 'CASH', 'Admin', now, now),
+  (today, 'Capital Account', 'CAPITAL', 0, 919900.00, 'Initial business equity investment and net opening reserves', 'OB-2026-27-000001', 'OB/2026-27/0001', 'OPENING_BALANCE', 'OPENING_BALANCE', None, None, None, None, None, None, 'Admin', now, now),
+]
+
+cur.executemany('''
+INSERT INTO ledger (transactionDate, accountHead, accountType, debitAmount, creditAmount, narration, voucherGroupId, voucherNo, voucherType, refType, refId, partyId, bankAccountId, stockId, stockRegId, paymentMode, createdBy, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+''', ob_legs)
+
+# Seed Voucher Sequences
+sequences = [
+  ('OPENING_BALANCE', '2026-27', 1),
+  ('PAYMENT', '2026-27', 0),
+  ('RECEIPT', '2026-27', 0),
+  ('CONTRA', '2026-27', 0),
+  ('JOURNAL', '2026-27', 0),
+  ('SALES', '2026-27', 0),
+  ('PURCHASE', '2026-27', 0),
+  ('CREDIT_NOTE', '2026-27', 0),
+  ('DEBIT_NOTE', '2026-27', 0),
+]
+
+cur.executemany('''
+INSERT OR IGNORE INTO voucher_sequences (voucherType, financialYear, currentSequence)
+VALUES (?, ?, ?)
+''', sequences)
+
 # Seed Audit Log
 cur.execute('''
 INSERT INTO audit_log (action, details, timestamp) VALUES (?, ?, ?)
-''', ('DEMO_INITIALIZATION', 'Created physical database.sqlite with Apex Industrial (GST OFF) and 8 demo stock items', now))
+''', ('DEMO_INITIALIZATION', 'Created physical database.sqlite with Apex Industrial (GST OFF), 8 stock items, 2 bank accounts, COA, and balanced opening ledger (Rs 919,900.00)', now))
 
 conn.commit()
 conn.close()

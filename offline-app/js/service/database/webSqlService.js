@@ -557,10 +557,91 @@
           updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS bank_accounts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_name TEXT NOT NULL,
+          account_holder_name TEXT,
+          bank_name TEXT NOT NULL,
+          branch_name TEXT,
+          account_number TEXT NOT NULL,
+          ifsc_code TEXT NOT NULL,
+          account_type TEXT DEFAULT 'CURRENT',
+          upi_id TEXT,
+          notes TEXT,
+          opening_balance REAL DEFAULT 0,
+          balance_type TEXT DEFAULT 'DR',
+          current_balance REAL DEFAULT 0,
+          is_default INTEGER DEFAULT 0,
+          status TEXT DEFAULT 'ACTIVE',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS chart_of_accounts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_name TEXT NOT NULL UNIQUE,
+          account_type TEXT NOT NULL,
+          bs_classification TEXT,
+          description TEXT,
+          pan TEXT,
+          gstin TEXT,
+          phone TEXT,
+          is_system INTEGER DEFAULT 0,
+          is_active INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          transactionDate TEXT NOT NULL,
+          accountHead TEXT NOT NULL,
+          accountType TEXT NOT NULL,
+          debitAmount REAL DEFAULT 0,
+          creditAmount REAL DEFAULT 0,
+          narration TEXT,
+          voucherGroupId TEXT NOT NULL,
+          voucherNo TEXT NOT NULL,
+          voucherType TEXT NOT NULL,
+          refType TEXT DEFAULT 'VOUCHER',
+          refId INTEGER,
+          partyId INTEGER,
+          bankAccountId INTEGER,
+          stockId INTEGER,
+          stockRegId INTEGER,
+          paymentMode TEXT,
+          createdBy TEXT DEFAULT 'Admin',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS voucher_sequences (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          voucherType TEXT NOT NULL,
+          financialYear TEXT NOT NULL,
+          currentSequence INTEGER DEFAULT 0,
+          UNIQUE(voucherType, financialYear)
+        );
+
+        CREATE TABLE IF NOT EXISTS period_locks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lockDate TEXT NOT NULL,
+          reason TEXT,
+          lockedBy TEXT DEFAULT 'Admin',
+          created_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_bill_items_billId ON bill_items(billId);
         CREATE INDEX IF NOT EXISTS idx_stock_reg_stock_id ON stock_reg(stock_id);
         CREATE INDEX IF NOT EXISTS idx_bills_partyId ON bills(partyId);
         CREATE INDEX IF NOT EXISTS idx_bills_bno ON bills(bno);
+        CREATE INDEX IF NOT EXISTS idx_ledger_voucherGroupId ON ledger(voucherGroupId);
+        CREATE INDEX IF NOT EXISTS idx_ledger_voucherNo ON ledger(voucherNo);
+        CREATE INDEX IF NOT EXISTS idx_ledger_transactionDate ON ledger(transactionDate);
+        CREATE INDEX IF NOT EXISTS idx_ledger_accountHead ON ledger(accountHead);
+        CREATE INDEX IF NOT EXISTS idx_ledger_partyId ON ledger(partyId);
+        CREATE INDEX IF NOT EXISTS idx_ledger_bankAccountId ON ledger(bankAccountId);
+        CREATE INDEX IF NOT EXISTS idx_coa_account_name ON chart_of_accounts(account_name);
       `;
 
       this.db.exec(schemaSql);
@@ -579,6 +660,42 @@
         }
       } catch (migErr) {
         console.warn('[SQLite] Column migration notice for stock_reg:', migErr);
+      }
+
+      // Safe initialization of default COA & bank account if database is existing
+      try {
+        const coaCountRes = this.db.exec("SELECT COUNT(*) FROM chart_of_accounts;");
+        const count = (coaCountRes && coaCountRes[0] && coaCountRes[0].values) ? coaCountRes[0].values[0][0] : 0;
+        if (count === 0) {
+          const nowIso = new Date().toISOString();
+          const defaultAccounts = [
+            ['Cash in Hand', 'CASH', 'BALANCE_SHEET', 1],
+            ['Sales', 'INCOME', 'PNL', 1],
+            ['Purchases', 'EXPENSE', 'PNL', 1],
+            ['Inventory', 'ASSET', 'BALANCE_SHEET', 1],
+            ['COGS', 'EXPENSE', 'PNL', 1],
+            ['Round Off', 'GENERAL', 'PNL', 1],
+            ['Stock Adjustment', 'INCOME', 'PNL', 1],
+            ['Capital Account', 'CAPITAL', 'BALANCE_SHEET', 1],
+            ['Opening Balance', 'CAPITAL', 'BALANCE_SHEET', 1],
+            ['Difference in Opening Balances', 'CAPITAL', 'BALANCE_SHEET', 1],
+            ['CGST Input Credit', 'ASSET', 'BALANCE_SHEET', 1],
+            ['SGST Input Credit', 'ASSET', 'BALANCE_SHEET', 1],
+            ['IGST Input Credit', 'ASSET', 'BALANCE_SHEET', 1],
+            ['Cess Input Credit', 'ASSET', 'BALANCE_SHEET', 1],
+            ['CGST Payable', 'LIABILITY', 'BALANCE_SHEET', 1],
+            ['SGST Payable', 'LIABILITY', 'BALANCE_SHEET', 1],
+            ['IGST Payable', 'LIABILITY', 'BALANCE_SHEET', 1],
+            ['Cess Payable', 'LIABILITY', 'BALANCE_SHEET', 1],
+            ['TDS Payable u/s 194C', 'DUTIES_AND_TAXES', 'BALANCE_SHEET', 1],
+            ['Salaries & Wages', 'EXPENSE', 'PNL', 1]
+          ];
+          for (const acc of defaultAccounts) {
+            this.db.run("INSERT OR IGNORE INTO chart_of_accounts (account_name, account_type, bs_classification, is_system, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)", [acc[0], acc[1], acc[2], acc[3], nowIso, nowIso]);
+          }
+        }
+      } catch (coaErr) {
+        console.warn('[SQLite] COA initialization check notice:', coaErr);
       }
     }
   }

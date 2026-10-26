@@ -196,6 +196,239 @@
         if (q <= 0) return 'Out of Stock';
         if (q <= 5) return 'Low Stock';
         return 'In Stock';
+      },
+      formatAxisCurrency(val) {
+        const n = Number(val) || 0;
+        if (Math.abs(n) >= 10000000) return '₹' + (n / 10000000).toFixed(1) + 'Cr';
+        if (Math.abs(n) >= 100000) return '₹' + (n / 100000).toFixed(1) + 'L';
+        if (Math.abs(n) >= 1000) return '₹' + (n / 1000).toFixed(0) + 'k';
+        return '₹' + n;
+      },
+      destroyCharts() {
+        if (this._trendChart) {
+          this._trendChart.destroy();
+          this._trendChart = null;
+        }
+        if (this._leadersChart) {
+          this._leadersChart.destroy();
+          this._leadersChart = null;
+        }
+        if (this._mixChart) {
+          this._mixChart.destroy();
+          this._mixChart = null;
+        }
+      },
+      renderCharts() {
+        if (!global.Chart) return;
+        this.destroyCharts();
+
+        // 1. Trend Chart (Line / Smooth Area matching Nuxt 4 index.vue line 685)
+        const trendEl = document.getElementById('inventoryTrendChart');
+        if (trendEl) {
+          const months = this.monthlyTrendData;
+          this._trendChart = new global.Chart(trendEl, {
+            type: 'line',
+            data: {
+              labels: months.map((m) => m.month),
+              datasets: [
+                {
+                  label: 'Sales',
+                  data: months.map((m) => m.sales),
+                  borderColor: '#f43f5e',
+                  backgroundColor: 'rgba(244, 63, 94, 0.08)',
+                  fill: true,
+                  tension: 0.35,
+                  pointRadius: 3,
+                  pointHoverRadius: 5
+                },
+                {
+                  label: 'Purchases',
+                  data: months.map((m) => m.purchases),
+                  borderColor: '#06b6d4',
+                  backgroundColor: 'rgba(6, 182, 212, 0.08)',
+                  fill: true,
+                  tension: 0.35,
+                  pointRadius: 3,
+                  pointHoverRadius: 5
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: {
+                mode: 'index',
+                intersect: false
+              },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                  titleColor: '#f8fafc',
+                  bodyColor: '#e2e8f0',
+                  padding: 10,
+                  callbacks: {
+                    label: (ctx) => ` ${ctx.dataset.label}: ${this.formatCurrency(ctx.raw)}`
+                  }
+                }
+              },
+              scales: {
+                y: {
+                  ticks: {
+                    callback: (val) => this.formatAxisCurrency(val),
+                    font: { family: 'monospace', size: 9 },
+                    color: 'rgba(156, 163, 175, 0.9)'
+                  },
+                  grid: { color: 'rgba(148,163,184,0.12)' }
+                },
+                x: {
+                  ticks: {
+                    font: { size: 9, weight: 'bold' },
+                    color: 'rgba(156, 163, 175, 0.9)'
+                  },
+                  grid: { display: false }
+                }
+              }
+            }
+          });
+        }
+
+        // 2. Value Leaders Chart (Horizontal bar matching Nuxt 4 index.vue line 756)
+        const leadersEl = document.getElementById('inventoryLeadersChart');
+        if (leadersEl) {
+          const leaders = this.topValueLeaders.length
+            ? this.topValueLeaders
+            : [{ item: 'No stock yet', total: 0 }];
+
+          this._leadersChart = new global.Chart(leadersEl, {
+            type: 'bar',
+            data: {
+              labels: leaders.map((row) => (row.item && row.item.length > 14 ? row.item.substring(0, 14) + '...' : row.item)),
+              datasets: [{
+                label: 'Stock Value',
+                data: leaders.map((row) => Number(row.total) || 0),
+                borderRadius: 8,
+                backgroundColor: ['#3b82f6', '#06b6d4', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b'],
+                borderSkipped: false,
+                maxBarThickness: 20
+              }]
+            },
+            options: {
+              indexAxis: 'y',
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                  titleColor: '#f8fafc',
+                  bodyColor: '#e2e8f0',
+                  padding: 10,
+                  callbacks: {
+                    label: (ctx) => ` Stock Value: ${this.formatCurrency(ctx.raw)}`
+                  }
+                }
+              },
+              scales: {
+                x: {
+                  ticks: {
+                    callback: (val) => this.formatAxisCurrency(val),
+                    font: { family: 'monospace', size: 9 },
+                    color: 'rgba(156, 163, 175, 0.9)'
+                  },
+                  grid: { color: 'rgba(148,163,184,0.12)' }
+                },
+                y: {
+                  ticks: {
+                    font: { size: 9, weight: 'bold' },
+                    color: 'rgba(156, 163, 175, 0.9)'
+                  },
+                  grid: { display: false }
+                }
+              }
+            }
+          });
+        }
+
+        // 3. Movement Mix Chart (Doughnut chart matching Nuxt 4 index.vue line 806)
+        const mixEl = document.getElementById('inventoryMixChart');
+        if (mixEl) {
+          const salesCount = this.bills.filter((b) => b.btype === 'SALES' || b.btype === 'SERVICE').length;
+          const purchaseCount = this.bills.filter((b) => b.btype === 'PURCHASE').length;
+          const returnCount = this.bills.filter((b) => b.btype === 'CREDIT_NOTE' || b.btype === 'DEBIT_NOTE').length;
+          const challanCount = Number(this.billMetrics?.challanCount) || 0;
+          const hasData = (salesCount + purchaseCount + returnCount + challanCount) > 0;
+
+          this._mixChart = new global.Chart(mixEl, {
+            type: 'doughnut',
+            data: {
+              labels: hasData
+                ? ['Sales', 'Purchases', 'Returns', 'Challans']
+                : ['No Activity'],
+              datasets: [{
+                data: hasData
+                  ? [salesCount, purchaseCount, returnCount, challanCount]
+                  : [1],
+                backgroundColor: hasData
+                  ? ['#f43f5e', '#06b6d4', '#f59e0b', '#3b82f6']
+                  : ['#cbd5e1'],
+                borderWidth: 0,
+                hoverOffset: 6
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: '68%',
+              plugins: {
+                legend: {
+                  position: 'bottom',
+                  labels: {
+                    boxWidth: 8,
+                    boxHeight: 8,
+                    padding: 8,
+                    color: 'rgba(100, 116, 139, 0.9)',
+                    font: { size: 9, weight: 'bold' }
+                  }
+                },
+                tooltip: {
+                  backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                  titleColor: '#f8fafc',
+                  bodyColor: '#e2e8f0',
+                  padding: 10
+                }
+              }
+            }
+          });
+        }
+      }
+    },
+    mounted() {
+      this.$nextTick(() => {
+        this.renderCharts();
+      });
+    },
+    beforeUnmount() {
+      this.destroyCharts();
+    },
+    watch: {
+      bills: {
+        deep: true,
+        handler() {
+          this.$nextTick(() => this.renderCharts());
+        }
+      },
+      stocks: {
+        deep: true,
+        handler() {
+          this.$nextTick(() => this.renderCharts());
+        }
+      },
+      movements: {
+        deep: true,
+        handler() {
+          this.$nextTick(() => this.renderCharts());
+        }
       }
     },
     template: `
@@ -384,29 +617,9 @@
                 </div>
               </div>
 
-              <!-- Interactive Visual SVG Trend Chart (Real Aggregated Data) -->
-              <div v-if="hasAnyTrendData" class="h-[180px] w-full flex items-end justify-between gap-3 pt-4 px-2">
-                <div v-for="d in monthlyTrendData" :key="d.month" class="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-                  <div class="w-full flex items-end justify-center gap-1.5 h-32">
-                    <!-- Sales Bar -->
-                    <div
-                      :style="{ height: d.sales > 0 ? Math.max(8, (d.sales / maxTrendVal) * 100) + '%' : '0%' }"
-                      class="w-3.5 bg-gradient-to-t from-rose-500 to-pink-400 rounded-t-sm transition-all hover:opacity-80"
-                      :title="'Sales: ' + formatCurrency(d.sales)"
-                    ></div>
-                    <!-- Purchase Bar -->
-                    <div
-                      :style="{ height: d.purchases > 0 ? Math.max(8, (d.purchases / maxTrendVal) * 100) + '%' : '0%' }"
-                      class="w-3.5 bg-gradient-to-t from-cyan-500 to-sky-400 rounded-t-sm transition-all hover:opacity-80"
-                      :title="'Purchases: ' + formatCurrency(d.purchases)"
-                    ></div>
-                  </div>
-                  <span class="text-[10px] font-bold text-slate-400 uppercase mt-1">{{ d.month }}</span>
-                </div>
-              </div>
-              <div v-else class="h-[160px] flex flex-col items-center justify-center text-center text-xs text-slate-400 italic">
-                <p>No billing data recorded yet for the past 6 months.</p>
-                <p class="text-[10px] text-slate-400 mt-1">Create sales or purchase vouchers to visualize revenue trends.</p>
+              <!-- Interactive Visual Chart.js Canvas (Matching Nuxt 4 index.vue) -->
+              <div class="h-44 w-full relative pt-1">
+                <canvas id="inventoryTrendChart"></canvas>
               </div>
             </div>
 
@@ -422,19 +635,9 @@
                   <span class="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">Ranked</span>
                 </div>
 
-                <div v-if="topValueLeaders.length" class="space-y-2.5">
-                  <div v-for="(item, idx) in topValueLeaders" :key="item.id" class="space-y-1">
-                    <div class="flex items-center justify-between text-xs">
-                      <span class="font-bold text-slate-800 truncate max-w-[140px]">{{ idx + 1 }}. {{ item.item }}</span>
-                      <span class="font-mono font-bold text-slate-900">{{ formatCurrency(item.total) }}</span>
-                    </div>
-                    <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                      <div class="bg-gradient-to-r from-purple-500 to-indigo-600 h-full rounded-full" :style="{ width: item.percent + '%' }"></div>
-                    </div>
-                  </div>
-                </div>
-                <div v-else class="py-8 text-center text-xs text-slate-400 italic">
-                  No stock items yet. Click "+ New Stock" to create items.
+                <!-- Interactive Visual Chart.js Canvas (Matching Nuxt 4 index.vue) -->
+                <div class="h-44 w-full relative pt-1">
+                  <canvas id="inventoryLeadersChart"></canvas>
                 </div>
               </div>
 
@@ -448,38 +651,9 @@
                   <span class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Live Ledger</span>
                 </div>
 
-                <div class="space-y-2 text-xs">
-                  <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <div class="flex items-center space-x-2">
-                      <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-                      <span class="font-bold text-slate-700">Sales Invoices</span>
-                    </div>
-                    <span class="font-mono font-bold text-slate-900">{{ bills.filter(b => b.btype === 'SALES' || b.btype === 'SERVICE').length }}</span>
-                  </div>
-
-                  <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <div class="flex items-center space-x-2">
-                      <span class="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-                      <span class="font-bold text-slate-700">Purchase Bills</span>
-                    </div>
-                    <span class="font-mono font-bold text-slate-900">{{ bills.filter(b => b.btype === 'PURCHASE').length }}</span>
-                  </div>
-
-                  <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <div class="flex items-center space-x-2">
-                      <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                      <span class="font-bold text-slate-700">Returns (CN / DN)</span>
-                    </div>
-                    <span class="font-mono font-bold text-slate-900">{{ bills.filter(b => b.btype === 'CREDIT_NOTE' || b.btype === 'DEBIT_NOTE').length }}</span>
-                  </div>
-
-                  <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <div class="flex items-center space-x-2">
-                      <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
-                      <span class="font-bold text-slate-700">Delivery Challans</span>
-                    </div>
-                    <span class="font-mono font-bold text-slate-900">{{ billMetrics.challanCount || 0 }}</span>
-                  </div>
+                <!-- Interactive Visual Chart.js Canvas (Matching Nuxt 4 index.vue) -->
+                <div class="h-44 w-full relative pt-1">
+                  <canvas id="inventoryMixChart"></canvas>
                 </div>
               </div>
             </div>

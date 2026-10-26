@@ -10,7 +10,7 @@
       activeLocation: { type: Object, default: null },
       engineType: { type: String, default: '' }
     },
-    emits: ['change-tab', 'open-export'],
+    emits: ['change-tab', 'open-export', 'open-voucher'],
     template: `
       <header class="w-full fixed top-0 inset-x-0 bg-gradient-to-r from-teal-500 via-indigo-600 to-teal-500 shadow-md py-2 px-3 sm:px-6 z-40 text-white h-12 flex items-center select-none" style="z-index: 40;">
         <nav class="w-full flex justify-between items-center">
@@ -50,7 +50,42 @@
           </div>
 
           <!-- Real Navigation Actions -->
-          <div class="flex items-center space-x-1.5 sm:space-x-3">
+          <div class="flex items-center space-x-1 sm:space-x-2">
+            <button
+              @click="$emit('open-voucher')"
+              class="bg-emerald-500 hover:bg-emerald-400 text-white px-2.5 py-1 rounded-lg text-xs transition border-0 cursor-pointer flex items-center gap-1 font-bold shadow-xs active:scale-95"
+              title="Create Payment / Receipt / Journal Voucher"
+            >
+              <span>➕ Voucher</span>
+            </button>
+
+            <button
+              @click="$emit('change-tab', 'accounting_dashboard')"
+              :class="currentTab === 'accounting_dashboard' ? 'bg-white/30 text-white font-bold ring-1 ring-white/50' : 'bg-white/10 hover:bg-white/20 text-white'"
+              class="px-2.5 py-1 rounded text-xs transition border-0 cursor-pointer flex items-center gap-1 font-medium hidden md:flex"
+              title="Open Accounting & Financial Dashboard"
+            >
+              <span>📈 Financials</span>
+            </button>
+
+            <button
+              @click="$emit('change-tab', 'banking')"
+              :class="currentTab === 'banking' ? 'bg-white/30 text-white font-bold ring-1 ring-white/50' : 'bg-white/10 hover:bg-white/20 text-white'"
+              class="px-2.5 py-1 rounded text-xs transition border-0 cursor-pointer flex items-center gap-1 font-medium hidden md:flex"
+              title="Open Banking Hub"
+            >
+              <span>🏦 Banking</span>
+            </button>
+
+            <button
+              @click="$emit('change-tab', 'statements')"
+              :class="currentTab === 'statements' ? 'bg-white/30 text-white font-bold ring-1 ring-white/50' : 'bg-white/10 hover:bg-white/20 text-white'"
+              class="px-2.5 py-1 rounded text-xs transition border-0 cursor-pointer flex items-center gap-1 font-medium hidden md:flex"
+              title="Open Daybook & Reports"
+            >
+              <span>📖 Reports</span>
+            </button>
+
             <button
               @click="$emit('change-tab', 'sales_workspace')"
               :class="currentTab === 'sales_workspace' ? 'bg-white/30 text-white font-bold ring-1 ring-white/50' : 'bg-white/10 hover:bg-white/20 text-white'"
