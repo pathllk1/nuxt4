@@ -21,7 +21,9 @@ export interface IWage extends Document {
   bank_account_id: mongoose.Types.ObjectId | null;
   payment_mode: 'CASH' | 'CHEQUE' | 'NEFT' | 'RTGS' | 'IMPS' | 'UPI' | null;
   status: 'DRAFT' | 'POSTED' | 'LOCKED';
+  payment_status?: 'UNPAID' | 'PAID';
   voucher_group_id?: string | null;
+  payment_voucher_group_id?: string | null;
   posted_date?: Date | null;
   posted_by?: mongoose.Types.ObjectId | null;
   created_by: mongoose.Types.ObjectId;
@@ -77,7 +79,18 @@ const wageSchema = new Schema<IWage>(
       default: 'DRAFT',
       index: true,
     },
+    payment_status: {
+      type: String,
+      enum: ['UNPAID', 'PAID'],
+      default: 'UNPAID',
+      index: true,
+    },
     voucher_group_id: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    payment_voucher_group_id: {
       type: String,
       default: null,
       index: true,

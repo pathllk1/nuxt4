@@ -3,6 +3,8 @@ import Ledger from '../../models/Ledger';
 import Party from '../../models/Party';
 import BankAccount from '../../models/BankAccount';
 import ChartOfAccounts from '../../models/ChartOfAccounts';
+import Advance from '../../models/Advance';
+import MasterRoll from '../../models/MasterRoll';
 
 // ─────────────────────────────────────────────────────────────────────────
 // SUB-LEDGER TO GENERAL LEDGER (SL-GL) RECONCILIATION SERVICE
@@ -22,7 +24,7 @@ import ChartOfAccounts from '../../models/ChartOfAccounts';
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface IReconciliationVariance {
-  category: 'AR' | 'AP' | 'BANK' | 'LABOR';
+  category: 'AR' | 'AP' | 'BANK' | 'LABOR' | 'ADVANCE';
   entityName: string;
   entityId: string;
   glBalance: number;
@@ -41,6 +43,7 @@ export interface IReconciliationReport {
   apSummary: { glTotal: number; slTotal: number; variance: number; status: string };
   bankSummary: { glTotal: number; slTotal: number; variance: number; status: string };
   laborSummary: { glTotal: number; slTotal: number; variance: number; status: string };
+  advanceSummary?: { glTotal: number; slTotal: number; variance: number; status: string };
   variances: IReconciliationVariance[];
   untaggedVoucherCount: number;
 }
@@ -66,11 +69,12 @@ export class SLGLReconcilerService {
     const cutoffDate: string = toDate || (new Date().toISOString().split('T')[0] as string);
     const firmIdObj = typeof firmId === 'string' ? new mongoose.Types.ObjectId(firmId) : firmId;
 
-    const [arResult, apResult, bankResult, laborResult, untaggedCount] = await Promise.all([
+    const [arResult, apResult, bankResult, laborResult, advResult, untaggedCount] = await Promise.all([
       this.reconcileAccountsReceivable(firmIdObj, cutoffDate),
       this.reconcileAccountsPayable(firmIdObj, cutoffDate),
       this.reconcileBankAccounts(firmIdObj, cutoffDate),
       this.reconcileLaborLeaders(firmIdObj, cutoffDate),
+      this.reconcileEmployeeAdvances(firmIdObj, cutoffDate),
       this.countUntaggedPartyVouchers(firmIdObj, cutoffDate),
     ]);
 
@@ -79,6 +83,7 @@ export class SLGLReconcilerService {
       ...apResult.variances,
       ...bankResult.variances,
       ...laborResult.variances,
+      ...advResult.variances,
     ];
 
     const hasCritical = allVariances.some(v => v.status === 'CRITICAL');
@@ -92,6 +97,7 @@ export class SLGLReconcilerService {
       apSummary: apResult.summary,
       bankSummary: bankResult.summary,
       laborSummary: laborResult.summary,
+      advanceSummary: advResult.summary,
       variances: allVariances.filter(v => v.status !== 'HEALTHY'),
       untaggedVoucherCount: untaggedCount,
     };
@@ -367,6 +373,118 @@ export class SLGLReconcilerService {
         glTotal: glGrandTotal,
         slTotal: slGrandTotal,
         variance: totalVariance,
+        status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
+      },
+      variances,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // EMPLOYEE ADVANCES — SL-GL RECONCILIATION
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Reconciles Employee Advance Sub-Ledger (Advance collection) against
+   * the General Ledger 'Advance to Employees' (ASSET) control account.
+   */
+  public static async reconcileEmployeeAdvances(
+    firmId: mongoose.Types.ObjectId,
+    toDate: string
+  ) {
+    // 1. General Ledger Balance for 'Advance to Employees' (ASSET)
+    const glDocs = await Ledger.aggregate([
+      {
+        $match: {
+          $or: [{ firmId }, { firm_id: firmId }],
+          accountHead: 'Advance to Employees',
+          transactionDate: { $lte: toDate },
+          isReversed: { $ne: true },
+        },
+      },
+      {
+        $group: {
+          _id: '$masterRollId',
+          totalDebit: { $sum: '$debitAmount' },
+          totalCredit: { $sum: '$creditAmount' },
+        },
+      },
+    ]);
+
+    // 2. Sub-Ledger Balance from Advance collection
+    const slDocs = await Advance.aggregate([
+      {
+        $match: {
+          firm_id: firmId,
+          date: { $lte: toDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$master_roll_id',
+          totalAdvance: {
+            $sum: { $cond: [{ $eq: ['$type', 'ADVANCE'] }, '$amount', 0] },
+          },
+          totalRecovery: {
+            $sum: { $cond: [{ $eq: ['$type', 'REPAYMENT'] }, '$amount', 0] },
+          },
+        },
+      },
+    ]);
+
+    const glMap = new Map<string, number>();
+    let glGrandTotal = 0;
+    for (const g of glDocs) {
+      const net = (g.totalDebit || 0) - (g.totalCredit || 0);
+      const key = g._id ? String(g._id) : 'UNTAGGED';
+      glMap.set(key, net);
+      glGrandTotal += net;
+    }
+
+    const slMap = new Map<string, number>();
+    let slGrandTotal = 0;
+    for (const s of slDocs) {
+      const net = (s.totalAdvance || 0) - (s.totalRecovery || 0);
+      const key = s._id ? String(s._id) : 'UNKNOWN';
+      slMap.set(key, net);
+      slGrandTotal += net;
+    }
+
+    const allKeys = new Set([...glMap.keys(), ...slMap.keys()]);
+    const variances: IReconciliationVariance[] = [];
+
+    for (const empKey of allKeys) {
+      const glBal = glMap.get(empKey) || 0;
+      const slBal = slMap.get(empKey) || 0;
+      const diff = Math.abs(glBal - slBal);
+
+      if (diff >= 0.01) {
+        let empName = empKey;
+        if (mongoose.isValidObjectId(empKey)) {
+          const emp = await MasterRoll.findById(empKey).select('employee_name').lean();
+          if (emp) empName = emp.employee_name;
+        }
+
+        variances.push({
+          category: 'ADVANCE',
+          entityName: empName,
+          entityId: empKey,
+          glBalance: Math.abs(glBal),
+          glBalanceType: glBal >= 0 ? 'DR' : 'CR',
+          slBalance: Math.abs(slBal),
+          slBalanceType: slBal >= 0 ? 'DR' : 'CR',
+          variance: diff,
+          status: diff > 100 ? 'CRITICAL' : 'WARNING',
+        });
+      }
+    }
+
+    const totalVariance = Math.abs(glGrandTotal - slGrandTotal);
+
+    return {
+      summary: {
+        glTotal: Math.round(glGrandTotal * 100) / 100,
+        slTotal: Math.round(slGrandTotal * 100) / 100,
+        variance: Math.round(totalVariance * 100) / 100,
         status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
       },
       variances,

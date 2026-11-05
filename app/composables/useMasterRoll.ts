@@ -84,7 +84,7 @@ export const useMasterRoll = () => {
   const bulkDeleteEmployees = async (ids: string[]) => {
     loading.value = true
     try {
-      return await apiFetch(buildUrl('/master-rolls/bulk'), { method: 'DELETE', body: { ids } })
+      return await apiFetch(buildUrl('/master-rolls/bulk-delete'), { method: 'DELETE', body: { ids } })
     } finally {
       loading.value = false
     }
@@ -93,7 +93,7 @@ export const useMasterRoll = () => {
   const bulkUpdateEmployees = async (updates: { id: string; data: any }[]) => {
     loading.value = true
     try {
-      return await apiFetch(buildUrl('/master-rolls/bulk'), { method: 'PUT', body: { updates } })
+      return await apiFetch(buildUrl('/master-rolls/bulk-update'), { method: 'PUT', body: { updates } })
     } finally {
       loading.value = false
     }
@@ -101,6 +101,57 @@ export const useMasterRoll = () => {
 
   const getActivityLog = async (id: string) => {
     return await apiFetch(buildUrl(`/master-rolls/${id}/activity`))
+  }
+
+  const transferEmployee = async (data: {
+    masterRollId: string;
+    toSite: string;
+    toProject?: string;
+    effectiveDate: string;
+    transferType?: string;
+    transferOrderNo?: string;
+    remarks?: string;
+  }) => {
+    loading.value = true
+    try {
+      return await apiFetch(buildUrl('/master-rolls/transfer'), {
+        method: 'POST',
+        body: data,
+      })
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const getEmployeeTransfers = async (id: string) => {
+    return await apiFetch(buildUrl(`/master-rolls/${id}/transfers`))
+  }
+
+  const fetchAllTransfers = async (params: any = {}) => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, String(value))
+      }
+    })
+    return await apiFetch(buildUrl(`/master-rolls/transfers?${searchParams.toString()}`))
+  }
+
+  const exportTransfersExcel = async (params: any = {}) => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('format', 'xlsx')
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && key !== 'format') {
+        searchParams.append(key, String(value))
+      }
+    })
+    const blob = await apiFetch<Blob>(buildUrl(`/master-rolls/transfers?${searchParams.toString()}`), { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Site_Movements_Register_${new Date().toISOString().split('T')[0]}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const downloadAppointmentLetter = async (id: string, name: string) => {
@@ -111,6 +162,19 @@ export const useMasterRoll = () => {
     a.download = `Appointment_Letter_${name}.docx`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const printEmployeeDossier = async (id: string, name: string) => {
+    const blob = await apiFetch<Blob>(buildUrl(`/master-rolls/${id}/dossier`), { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const win = window.open(url, '_blank')
+    if (!win) {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Employee_Dossier_${name}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
   }
 
   const exportQualityReport = async () => {
@@ -187,8 +251,13 @@ export const useMasterRoll = () => {
     bulkImport,
     bulkDeleteEmployees,
     bulkUpdateEmployees,
+    transferEmployee,
+    getEmployeeTransfers,
+    fetchAllTransfers,
+    exportTransfersExcel,
     getActivityLog,
     downloadAppointmentLetter,
+    printEmployeeDossier,
     exportQualityReport,
     downloadTemplate,
     exportExcel,

@@ -132,8 +132,33 @@ export async function processWageJob(jobId: mongoose.Types.ObjectId) {
 
         const wageDoc = doc[0] as IWage;
 
+        let repaymentDoc: any = null;
         if ((wage.advance_deduction || 0) > 0) {
-          await Advance.create([{
+          const balResult = await Advance.aggregate([
+            {
+              $match: {
+                firm_id: firmId,
+                master_roll_id: masterRollObjectId
+              }
+            },
+            {
+              $group: {
+                _id: '$master_roll_id',
+                balance: {
+                  $sum: {
+                    $cond: [{ $eq: ['$type', 'ADVANCE'] }, '$amount', { $subtract: [0, '$amount'] }]
+                  }
+                }
+              }
+            }
+          ]).session(session);
+
+          const liveBalance = balResult.length > 0 ? (balResult[0].balance || 0) : 0;
+          if (wage.advance_deduction > liveBalance) {
+            throw new Error(`Advance deduction (₹${wage.advance_deduction}) exceeds outstanding balance (₹${liveBalance.toFixed(2)})`);
+          }
+
+          const repDocs = await Advance.create([{
             firm_id: firmId,
             master_roll_id: masterRollObjectId,
             type: 'REPAYMENT',
@@ -145,6 +170,7 @@ export async function processWageJob(jobId: mongoose.Types.ObjectId) {
             created_by: userId,
             updated_by: userId,
           } as any], { session });
+          repaymentDoc = repDocs[0];
         }
 
         // If this throws, the whole transaction (wage + advance) is aborted below —
@@ -155,6 +181,11 @@ export async function processWageJob(jobId: mongoose.Types.ObjectId) {
         wageDoc.posted_date = new Date();
         wageDoc.posted_by = userId;
         await wageDoc.save({ session });
+
+        if (repaymentDoc) {
+          repaymentDoc.voucher_group_id = voucherId;
+          await repaymentDoc.save({ session });
+        }
 
         await session.commitTransaction();
 

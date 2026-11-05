@@ -10,6 +10,7 @@ export interface IAdvance extends Document {
   bank_account_details?: string;
   bank_account_id: mongoose.Types.ObjectId | null;
   wage_id: mongoose.Types.ObjectId | null;
+  cheque_no?: string | null;
   remarks?: string;
   voucher_group_id?: string | null;
   created_by: mongoose.Types.ObjectId;
@@ -63,6 +64,11 @@ const advanceSchema = new Schema<IAdvance>(
       ref: 'Wage',
       index: true,
     },
+    cheque_no: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     remarks: {
       type: String,
     },
@@ -83,6 +89,6 @@ const advanceSchema = new Schema<IAdvance>(
   { timestamps: true }
 );
 
-const Advance = mongoose.model<IAdvance>('Advance', advanceSchema);
+const Advance = (mongoose.models.Advance as mongoose.Model<IAdvance>) || mongoose.model<IAdvance>('Advance', advanceSchema);
 
 export default Advance;

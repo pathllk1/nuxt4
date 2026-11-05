@@ -15,9 +15,19 @@ const props = withDefaults(defineProps<{
 }>(), {})
 
 const emit = defineEmits(['success', 'close'])
-const { createEmployee, updateEmployee, fetchUniqueFields } = useMasterRoll()
+const { createEmployee, updateEmployee, fetchUniqueFields, printEmployeeDossier } = useMasterRoll()
 const { apiFetch } = useAuth()
 const toast = useToast()
+
+const onPrintDossier = async () => {
+  if (!props.employee?._id) return
+  try {
+    await printEmployeeDossier(props.employee._id, form.employee_name || 'Employee')
+    toast.add({ title: 'Dossier Ready', description: `Opening printable profile for ${form.employee_name}`, color: 'success' })
+  } catch (err: any) {
+    toast.add({ title: 'Error', description: err.message || 'Failed to generate dossier', color: 'error' })
+  }
+}
 
 const getTodayDateString = (): string => new Date().toISOString().slice(0, 10)
 
@@ -834,6 +844,16 @@ const onSubmit = async () => {
           icon="i-heroicons-arrow-path" 
           label="Reset Form" 
           @click="resetForm" 
+        />
+        <UButton
+          v-if="employee?._id"
+          type="button"
+          variant="soft"
+          color="neutral"
+          size="sm"
+          icon="i-heroicons-printer"
+          label="Print Dossier"
+          @click="onPrintDossier"
         />
       </div>
 

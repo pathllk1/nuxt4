@@ -20,6 +20,7 @@ export interface ILedger extends Document {
   paymentMode?: string;
   isWageEntry?: boolean;
   masterRollId?: mongoose.Types.ObjectId;
+  isReversed?: boolean;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -116,6 +117,11 @@ const LedgerSchema = new Schema<ILedger>(
       type: Schema.Types.ObjectId,
       ref: 'MasterRoll',
       default: null,
+    },
+    isReversed: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
     createdBy: {
       type: String,

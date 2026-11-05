@@ -155,8 +155,11 @@ export default defineEventHandler(async (event) => {
   for (const wage of wages) {
     const empName = (wage as any).master_roll_id?.employee_name || 'employee';
     const safeName = safeFilenamePart(empName, 'employee');
+    const workerSuffix = (wage as any).master_roll_id?._id
+      ? String((wage as any).master_roll_id._id).slice(-4)
+      : String(wage._id).slice(-4);
     const pdfBuffer = await generateWageSlipPDF(wage, firm);
-    archive.append(pdfBuffer, { name: `WageSlip_${safeName}_${safeMonth}.pdf` });
+    archive.append(pdfBuffer, { name: `WageSlip_${safeName}_${workerSuffix}_${safeMonth}.pdf` });
   }
 
   await archive.finalize();

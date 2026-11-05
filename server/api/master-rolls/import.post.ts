@@ -1,6 +1,7 @@
 import MasterRoll from '../../models/MasterRoll';
 import { requireAuthSession } from '../../utils/auth';
 import { pickMasterRollFields } from '../../utils/master-roll-fields';
+import { validateMasterRollInput } from '../../utils/masterRollAudit';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -19,6 +20,11 @@ export default defineEventHandler(async (event) => {
 
     for (const emp of employees) {
       try {
+        const valRes = validateMasterRollInput(emp);
+        if (!valRes.valid) {
+          throw new Error(valRes.errors.join('; '));
+        }
+
         await MasterRoll.create({
           ...pickMasterRollFields(emp),
           firm_id: user.firm_id,
@@ -28,7 +34,7 @@ export default defineEventHandler(async (event) => {
         imported++;
       } catch (err: any) {
         failed++;
-        errors.push({ employee: emp.employee_name, error: err.message });
+        errors.push({ employee: emp.employee_name || 'Unknown', error: err.message });
       }
     }
 

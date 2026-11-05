@@ -7,6 +7,7 @@ import './BillSequence';
 import './BulkPayment';
 import './ChartOfAccounts';
 import './Contact';
+import './EmployeeSiteTransfer';
 import './Firm';
 import './FirmSettings';
 import './GstinCache';

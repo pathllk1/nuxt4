@@ -74,7 +74,22 @@ onMounted(() => {
               <td class="p-2 text-right font-bold font-mono">₹{{ (h.amount || 0).toLocaleString() }}</td>
               <td class="p-2 text-gray-500 italic max-w-[200px] truncate">{{ h.remarks || '-' }}</td>
               <td class="p-2 text-center">
-                <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeTransaction(h._id)" />
+                <UButton
+                  v-if="h.payment_mode !== 'WAGE_DEDUCTION'"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  icon="i-heroicons-trash"
+                  title="Delete Transaction"
+                  @click="removeTransaction(h._id)"
+                />
+                <span
+                  v-else
+                  class="text-[9px] font-bold text-gray-400 uppercase tracking-wider italic"
+                  title="Auto-deducted via monthly payroll. Edit wage to modify."
+                >
+                  Payroll
+                </span>
               </td>
             </tr>
           </tbody>

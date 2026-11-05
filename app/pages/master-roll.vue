@@ -10,6 +10,8 @@ import ActivityLog from '@/components/master-roll/ActivityLog.vue'
 import ICardFilterModal from '@/components/master-roll/ICardFilterModal.vue'
 import DataQualityAuditModal from '@/components/master-roll/DataQualityAuditModal.vue'
 import WagesSummaryModal from '@/components/master-roll/WagesSummaryModal.vue'
+import EmployeeSiteTransferModal from '@/components/master-roll/EmployeeSiteTransferModal.vue'
+import SiteMovementAuditModal from '@/components/master-roll/SiteMovementAuditModal.vue'
 
 definePageMeta({
   layout: 'default'
@@ -20,6 +22,7 @@ const {
   fetchEmployees, fetchStats,
   exportExcel, exportICards, downloadTemplate,
   exportQualityReport, downloadAppointmentLetter,
+  printEmployeeDossier,
   fetchUniqueFields
 } = useMasterRoll()
 
@@ -270,6 +273,14 @@ const isBulkEditOpen = ref(false)
 const selectedEmployee = ref<any>(null)
 const isWagesSummaryOpen = ref(false)
 const selectedEmployeeForWages = ref<any>(null)
+const isTransferModalOpen = ref(false)
+const selectedEmployeeForTransfer = ref<any>(null)
+const isMovementAuditOpen = ref(false)
+
+const openTransferModal = (emp: any) => {
+  selectedEmployeeForTransfer.value = emp
+  isTransferModalOpen.value = true
+}
 
 const openModal = (emp: any = null) => {
   selectedEmployee.value = emp
@@ -292,6 +303,15 @@ const onDownloadLetter = async (emp: any) => {
     toast.add({ title: 'Success', description: 'Appointment letter downloaded', color: 'success' })
   } catch (err: any) {
     toast.add({ title: 'Error', description: err.message, color: 'error' })
+  }
+}
+
+const onPrintDossier = async (emp: any) => {
+  try {
+    await printEmployeeDossier(emp._id, emp.employee_name)
+    toast.add({ title: 'Dossier Ready', description: `Employee Dossier generated for ${emp.employee_name}`, color: 'success' })
+  } catch (err: any) {
+    toast.add({ title: 'Error', description: err.message || 'Failed to generate dossier', color: 'error' })
   }
 }
 
@@ -469,6 +489,9 @@ const headerActions = [
           <UButton v-if="selectedRows.length > 0" color="primary" variant="soft" size="sm" icon="i-heroicons-arrow-up-tray" :label="`Export Selected (${selectedRows.length})`" @click="onExportSelected" />
         </div>
         <div class="flex items-center justify-between lg:justify-end gap-1.5 overflow-x-auto no-scrollbar py-1 lg:py-0">
+          <UTooltip text="Site Movement Register">
+            <UButton color="neutral" variant="ghost" size="sm" icon="i-heroicons-arrows-right-left" @click="isMovementAuditOpen = true" />
+          </UTooltip>
           <UTooltip text="Quality Audit">
             <UButton color="neutral" variant="ghost" size="sm" icon="i-heroicons-shield-check" @click="isQualityModalOpen = true" />
           </UTooltip>
@@ -681,6 +704,8 @@ const headerActions = [
                 </UTooltip>
                 <UDropdownMenu 
                   :items="[[
+                    { label: 'Transfer Site / Project', icon: 'i-heroicons-arrow-right-circle', onSelect: () => openTransferModal(row.original) },
+                    { label: 'Print Employee Dossier', icon: 'i-heroicons-printer', onSelect: () => onPrintDossier(row.original) },
                     { label: 'View Activity Log', icon: 'i-heroicons-clock', onSelect: () => openActivity(row.original) },
                     { label: 'Download Letter', icon: 'i-heroicons-document-text', onSelect: () => onDownloadLetter(row.original) },
                     { label: 'Download PDF I-Card', icon: 'i-heroicons-identification', onSelect: () => onDownloadICard(row.original, 'pdf') },
@@ -747,6 +772,8 @@ const headerActions = [
               <UButton size="xs" variant="soft" color="neutral" icon="i-heroicons-pencil-square" label="Edit" @click="openModal(emp)" />
               <UDropdownMenu 
                 :items="[[
+                  { label: 'Transfer Site / Project', icon: 'i-heroicons-arrow-right-circle', onSelect: () => openTransferModal(emp) },
+                  { label: 'Print Employee Dossier', icon: 'i-heroicons-printer', onSelect: () => onPrintDossier(emp) },
                   { label: 'View Activity Log', icon: 'i-heroicons-clock', onSelect: () => openActivity(emp) },
                   { label: 'Download Letter', icon: 'i-heroicons-document-text', onSelect: () => onDownloadLetter(emp) },
                   { label: 'Download PDF I-Card', icon: 'i-heroicons-identification', onSelect: () => onDownloadICard(emp, 'pdf') },
@@ -841,6 +868,26 @@ const headerActions = [
     <UModal v-model:open="isWagesSummaryOpen" :title="'Wages Statement: ' + selectedEmployeeForWages?.employee_name" :ui="{ content: 'w-full sm:max-w-4xl' }">
       <template #body>
         <WagesSummaryModal v-if="selectedEmployeeForWages" :employee="selectedEmployeeForWages" @close="isWagesSummaryOpen = false" />
+      </template>
+    </UModal>
+
+    <UModal v-model:open="isTransferModalOpen" :title="'Site & Project Transfer: ' + (selectedEmployeeForTransfer?.employee_name || '')" :ui="{ content: 'w-full sm:max-w-xl' }">
+      <template #body>
+        <EmployeeSiteTransferModal
+          v-if="selectedEmployeeForTransfer"
+          :employee="selectedEmployeeForTransfer"
+          @close="isTransferModalOpen = false"
+          @transferred="() => { fetchData(); fetchOptions(); }"
+        />
+      </template>
+    </UModal>
+
+    <UModal v-model:open="isMovementAuditOpen" title="Site & Project Movement Audit Register" :ui="{ content: 'w-full sm:max-w-6xl' }">
+      <template #body>
+        <SiteMovementAuditModal
+          :unique-options="uniqueOptions"
+          @close="isMovementAuditOpen = false"
+        />
       </template>
     </UModal>
   </div>

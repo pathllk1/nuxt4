@@ -358,7 +358,7 @@ onMounted(async () => {
           <UButton
             size="xs"
             variant="soft"
-            color="rose"
+            color="error"
             icon="i-heroicons-x-mark"
             @click="resetFilters"
             title="Reset all active filters"

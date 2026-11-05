@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Wage from '../../models/Wage';
 import Advance from '../../models/Advance';
+import MasterRoll from '../../models/MasterRoll';
 import { postWageLedger } from '../../utils/wages-ledger-helper';
 import { requireAuthSession } from '../../utils/auth';
 import { requireWageRole } from '../../utils/wage-authz';
@@ -19,13 +20,28 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  // Bug #16: validate wage_days is a positive number for every item up front
-  const invalid = wages.find((w: any) => !w.wage_days || Number(w.wage_days) <= 0);
-  if (invalid) {
+  if (wages.length > 100) {
     throw createError({
       statusCode: 400,
-      message: 'Every wage entry must have wage_days greater than 0'
+      message: 'Batch size limit exceeded. Please process payroll in batches of 100 employees or fewer.'
     });
+  }
+
+  // Bug #16 & Bug #13: validate all items up front before entering transaction
+  for (let idx = 0; idx < wages.length; idx++) {
+    const w = wages[idx];
+    if (!w.master_roll_id || !mongoose.isValidObjectId(w.master_roll_id)) {
+      throw createError({ statusCode: 400, message: `Entry #${idx + 1}: Invalid or missing master_roll_id` });
+    }
+    if (!w.wage_days || Number(w.wage_days) <= 0) {
+      throw createError({ statusCode: 400, message: `Entry #${idx + 1}: wage_days must be greater than 0` });
+    }
+    if (w.gross_salary === undefined || w.gross_salary === null || Number(w.gross_salary) <= 0) {
+      throw createError({ statusCode: 400, message: `Entry #${idx + 1}: gross_salary must be a positive number` });
+    }
+    if (w.paid_date && !w.bank_account_id && w.payment_mode !== 'CASH') {
+      throw createError({ statusCode: 400, message: `Entry #${idx + 1}: Bank account is required for paid wage via non-cash mode` });
+    }
   }
 
   // Process ALL wages inline — Vercel serverless functions terminate execution
@@ -43,9 +59,21 @@ export default defineEventHandler(async (event) => {
          (item.advance_deduction || 0)) +
         (item.other_benefit || 0);
 
+      let site = item.site || null;
+      let project = item.project || null;
+      if (!site || !project) {
+        const emp = await MasterRoll.findById(item.master_roll_id).session(session).select('project site').lean();
+        if (emp) {
+          if (!site) site = emp.site || null;
+          if (!project) project = emp.project || null;
+        }
+      }
+
       const doc = new Wage({
         firm_id: user.firm_id,
         master_roll_id: item.master_roll_id,
+        project,
+        site,
         p_day_wage: item.gross_salary / item.wage_days,
         wage_days: item.wage_days,
         gross_salary: item.gross_salary,
@@ -67,8 +95,38 @@ export default defineEventHandler(async (event) => {
 
       await doc.save({ session });
 
+      let repaymentDoc: any = null;
       if (item.advance_deduction > 0) {
-        await Advance.create([{
+        // Aggregate current live balance within the session transaction
+        const balResult = await Advance.aggregate([
+          {
+            $match: {
+              firm_id: user.firm_id,
+              master_roll_id: new mongoose.Types.ObjectId(item.master_roll_id)
+            }
+          },
+          {
+            $group: {
+              _id: '$master_roll_id',
+              balance: {
+                $sum: {
+                  $cond: [{ $eq: ['$type', 'ADVANCE'] }, '$amount', { $subtract: [0, '$amount'] }]
+                }
+              }
+            }
+          }
+        ]).session(session);
+
+        const liveBalance = balResult.length > 0 ? (balResult[0].balance || 0) : 0;
+
+        if (item.advance_deduction > liveBalance) {
+          throw createError({
+            statusCode: 400,
+            message: `Advance deduction (₹${item.advance_deduction}) exceeds outstanding balance (₹${liveBalance.toFixed(2)}) for employee ID ${item.master_roll_id}`
+          });
+        }
+
+        const repDocs = await Advance.create([{
           firm_id: user.firm_id,
           master_roll_id: item.master_roll_id,
           type: 'REPAYMENT',
@@ -80,11 +138,17 @@ export default defineEventHandler(async (event) => {
           created_by: user._id,
           updated_by: user._id
         }], { session });
+        repaymentDoc = repDocs[0];
       }
 
       const voucherId = await postWageLedger(doc as any, session);
       doc.voucher_group_id = voucherId;
       await doc.save({ session });
+
+      if (repaymentDoc) {
+        repaymentDoc.voucher_group_id = voucherId;
+        await repaymentDoc.save({ session });
+      }
 
       results.push(doc);
     }

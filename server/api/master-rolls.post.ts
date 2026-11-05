@@ -2,6 +2,7 @@ import { defineEventHandler, createError, readBody } from 'h3';
 import MasterRoll from '../models/MasterRoll';
 import { requireAuthSession } from '../utils/auth';
 import { pickMasterRollFields } from '../utils/master-roll-fields';
+import { validateMasterRollInput } from '../utils/masterRollAudit';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -26,6 +27,14 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 400,
         statusMessage: `Missing required fields: ${missing.join(', ')}`
+      });
+    }
+
+    const valResult = validateMasterRollInput(body);
+    if (!valResult.valid) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Validation failed: ${valResult.errors.join('; ')}`
       });
     }
 

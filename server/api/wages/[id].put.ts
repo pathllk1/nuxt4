@@ -9,6 +9,8 @@ import { requireWageRole } from '../../utils/wage-authz';
 // Anything not in this list (firm_id, created_by, status, voucher_group_id,
 // posted_by, posted_date, etc.) can never be overwritten by the client.
 const EDITABLE_FIELDS = [
+  'project',
+  'site',
   'gross_salary',
   'wage_days',
   'epf_deduction',

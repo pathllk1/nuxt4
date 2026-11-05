@@ -1,6 +1,7 @@
 import { defineEventHandler, createError } from 'h3';
 import MasterRoll from '../../models/MasterRoll';
 import Wage from '../../models/Wage';
+import EmployeeSiteTransfer from '../../models/EmployeeSiteTransfer';
 import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -8,11 +9,13 @@ export default defineEventHandler(async (event) => {
     // Fix #7: Use requireAuthSession instead of raw x-firm-id header
     const user = await requireAuthSession(event);
 
-    const [mrProjects, wageProjects, mrSites, wageSites, categories, banks] = await Promise.all([
+    const [mrProjects, wageProjects, trProjects, mrSites, wageSites, trSites, categories, banks] = await Promise.all([
       MasterRoll.distinct('project', { firm_id: user.firm_id, project: { $nin: [null, ''] } }),
       Wage.distinct('project', { firm_id: user.firm_id, project: { $nin: [null, ''] } }),
+      EmployeeSiteTransfer.distinct('to_project', { firm_id: user.firm_id, to_project: { $nin: [null, ''] } }),
       MasterRoll.distinct('site', { firm_id: user.firm_id, site: { $nin: [null, ''] } }),
       Wage.distinct('site', { firm_id: user.firm_id, site: { $nin: [null, ''] } }),
+      EmployeeSiteTransfer.distinct('to_site', { firm_id: user.firm_id, to_site: { $nin: [null, ''] } }),
       MasterRoll.distinct('category', { firm_id: user.firm_id, category: { $nin: [null, ''] } }),
       MasterRoll.distinct('bank', { firm_id: user.firm_id, bank: { $nin: [null, ''] } })
     ]);
@@ -31,8 +34,8 @@ export default defineEventHandler(async (event) => {
     return {
       success: true,
       data: {
-        projects: sanitizeList([...mrProjects, ...wageProjects]),
-        sites: sanitizeList([...mrSites, ...wageSites]),
+        projects: sanitizeList([...mrProjects, ...wageProjects, ...trProjects]),
+        sites: sanitizeList([...mrSites, ...wageSites, ...trSites]),
         categories: sanitizeList(categories),
         banks: sanitizeList(banks)
       }

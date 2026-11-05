@@ -103,6 +103,9 @@ export class UnifiedPostingService {
     }
 
     // ── Step 5: Construct Ledger Documents ──
+    const isWage = Boolean(payload.tags?.isWageEntry || payload.refType === 'WAGE' || payload.refType === 'WAGE_PAYOUT');
+    const masterRollId = payload.tags?.masterRollId ? this.toObjectIdSafe(payload.tags.masterRollId) : null;
+
     const ledgerDocs = resolvedLegs.map((leg) => ({
       firmId: firmIdObj,
       transactionDate: payload.transactionDate,
@@ -121,6 +124,8 @@ export class UnifiedPostingService {
       stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
       stockRegId: leg.stockRegId ? this.toObjectIdSafe(leg.stockRegId) : null,
       paymentMode: leg.paymentMode || null,
+      isWageEntry: isWage,
+      masterRollId,
       createdBy: payload.createdBy,
     }));
 
@@ -198,7 +203,7 @@ export class UnifiedPostingService {
 
     // Post the reversal through the standard pipeline (which will
     // enforce period lock, parity check, and assign new voucher numbers)
-    return this.postVoucher(
+    const reversalResult = await this.postVoucher(
       {
         firmId: firmIdObj,
         voucherType: originalType,
@@ -211,6 +216,15 @@ export class UnifiedPostingService {
       },
       session
     );
+
+    // Flag original entries as reversed
+    await Ledger.updateMany(
+      { firmId: firmIdObj, voucherGroupId: originalVoucherGroupId },
+      { $set: { isReversed: true } },
+      session ? { session } : {}
+    );
+
+    return reversalResult;
   }
 
   /**
@@ -295,6 +309,11 @@ export class UnifiedPostingService {
     );
 
     // 8. Re-insert new legs preserving original metadata
+    const isWage = Boolean(payload.tags?.isWageEntry || payload.refType === 'WAGE' || payload.refType === 'WAGE_PAYOUT' || firstEntry.isWageEntry);
+    const masterRollId = payload.tags?.masterRollId
+      ? this.toObjectIdSafe(payload.tags.masterRollId)
+      : (firstEntry.masterRollId ? this.toObjectIdSafe(firstEntry.masterRollId) : null);
+
     const ledgerDocs = resolvedLegs.map((leg) => ({
       firmId: firmIdObj,
       transactionDate: payload.transactionDate,
@@ -313,6 +332,8 @@ export class UnifiedPostingService {
       stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
       stockRegId: leg.stockRegId ? this.toObjectIdSafe(leg.stockRegId) : null,
       paymentMode: leg.paymentMode || null,
+      isWageEntry: isWage,
+      masterRollId,
       createdBy: firstEntry.createdBy || payload.createdBy,
       createdAt: firstEntry.createdAt,
       updatedAt: new Date()

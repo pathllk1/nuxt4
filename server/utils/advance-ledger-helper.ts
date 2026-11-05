@@ -70,6 +70,7 @@ export async function postAdvanceLedger(advance: IAdvance, session: mongoose.Cli
       firmId,
       voucherType: isAdvance ? 'PAYMENT' : 'RECEIPT',
       transactionDate,
+      referenceNo: advance.cheque_no || undefined,
       narration: isAdvance
         ? `Advance given${advance.remarks ? ` - ${advance.remarks}` : ''}`
         : `Advance repayment${advance.remarks ? ` - ${advance.remarks}` : ''}`,

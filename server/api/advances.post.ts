@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   try {
     session.startTransaction();
 
-    const { masterRollId, amount, date, paymentMode, remarks, bankAccountId, type } = body;
+    const { masterRollId, amount, date, paymentMode, remarks, bankAccountId, type, chequeNo } = body;
     const finalType = type || 'ADVANCE';
 
     if (!masterRollId || !amount || !date) {
@@ -48,6 +48,7 @@ export default defineEventHandler(async (event) => {
       date,
       payment_mode: paymentMode || 'CASH',
       bank_account_id: bankAccountId,
+      cheque_no: chequeNo ? String(chequeNo).trim() : null,
       remarks,
       created_by: user._id,
       updated_by: user._id

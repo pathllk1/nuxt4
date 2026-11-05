@@ -504,3 +504,55 @@ export function runMasterRollAudit(employees: any[]): FullAuditReport {
     }
   };
 }
+
+export function validateMasterRollInput(emp: any): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (emp.aadhar) {
+    const res = validateAadhaar(emp.aadhar);
+    if (!res.valid) errors.push(`Aadhaar: ${res.issue}`);
+  }
+  if (emp.phone_no) {
+    const res = validatePhone(emp.phone_no);
+    if (!res.valid) errors.push(`Phone: ${res.issue}`);
+  }
+  if (emp.ifsc) {
+    const res = validateIFSC(emp.ifsc);
+    if (!res.valid) errors.push(`IFSC: ${res.issue}`);
+  }
+  if (emp.account_no) {
+    const res = validateBankAccount(emp.account_no);
+    if (!res.valid) errors.push(`Account No: ${res.issue}`);
+  }
+  if (emp.pan) {
+    const res = validatePAN(emp.pan);
+    if (!res.valid) errors.push(`PAN: ${res.issue}`);
+  }
+  if (emp.uan) {
+    const res = validateUAN(emp.uan);
+    if (!res.valid) errors.push(`UAN: ${res.issue}`);
+  }
+  if (emp.esic_no) {
+    const res = validateESIC(emp.esic_no);
+    if (!res.valid) errors.push(`ESIC: ${res.issue}`);
+  }
+  if (emp.date_of_birth) {
+    const dob = new Date(emp.date_of_birth);
+    if (!isNaN(dob.getTime())) {
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+        age--;
+      }
+      if (age < 18) {
+        errors.push(`Age: Underage labor statutory violation (Calculated age: ${age} years, minimum 18 required)`);
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
