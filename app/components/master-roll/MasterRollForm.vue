@@ -248,7 +248,6 @@ const onUanInput = (e: any) => {
 }
 
 // IFSC Auto-Lookup
-
 watch(() => form.ifsc, async (newVal) => {
   if (!newVal) {
     ifscLookupState.value = { status: 'idle' }
@@ -370,25 +369,24 @@ const onSubmit = async () => {
 </script>
 
 <template>
-  <form @submit.prevent="onSubmit" class="space-y-6 p-2 md:p-4 text-slate-800 dark:text-slate-200">
-    <!-- Section 1: Personal & Identity -->
-    <div class="bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 md:p-6 shadow-xs">
-      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-5">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm">
+  <form @submit.prevent="onSubmit" class="space-y-3 p-1 sm:p-2 text-slate-800 dark:text-slate-200">
+    <!-- Section 1: Personal & Identity Details (Blue Theme) -->
+    <div class="bg-gradient-to-r from-blue-50/40 via-white to-indigo-50/30 dark:from-blue-950/20 dark:via-slate-900 dark:to-indigo-950/20 rounded-xl border border-blue-200/80 dark:border-blue-900/60 border-l-4 border-l-blue-500 p-3 sm:p-4 shadow-xs">
+      <div class="flex items-center justify-between border-b border-blue-100 dark:border-blue-900/40 pb-2 mb-2.5">
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 rounded-md bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
             1
           </div>
-          <div>
-            <h3 class="text-base font-bold text-slate-900 dark:text-white leading-tight">Personal & Identity Details</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Basic identification, Aadhar, PAN, and contact information</p>
-          </div>
+          <h3 class="text-sm font-extrabold text-blue-950 dark:text-blue-100 leading-tight">
+            Personal & Identity Details
+          </h3>
         </div>
-        <span class="text-[11px] font-semibold text-rose-500 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded border border-rose-200/60 dark:border-rose-900/40">
+        <span class="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded border border-rose-200/60 dark:border-rose-900/50">
           * Required fields
         </span>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <UFormField label="Employee Name" required :error="errors.employee_name">
           <UInput 
             v-model="form.employee_name" 
@@ -419,12 +417,19 @@ const onSubmit = async () => {
           />
         </UFormField>
 
-        <UFormField 
-          label="Aadhar Number" 
-          required 
-          :error="errors.aadhar" 
-          :help="form.aadhar ? `${form.aadhar.length}/12 digits` : '12-digit UIDAI number'"
-        >
+        <UFormField label="Phone Number" required :error="errors.phone_no">
+          <UInput 
+            v-model="form.phone_no" 
+            placeholder="10-digit number" 
+            required 
+            class="w-full font-mono tracking-wide" 
+            maxlength="10"
+            icon="i-heroicons-phone"
+            @input="onPhoneInput"
+          />
+        </UFormField>
+
+        <UFormField label="Aadhar Number" required :error="errors.aadhar">
           <UInput 
             v-model="form.aadhar" 
             placeholder="12-digit number" 
@@ -436,11 +441,7 @@ const onSubmit = async () => {
           />
         </UFormField>
 
-        <UFormField 
-          label="PAN Number" 
-          :error="errors.pan" 
-          :help="form.pan ? `${form.pan.length}/10 chars` : '10-character alphanumeric (e.g. ABCDE1234F)'"
-        >
+        <UFormField label="PAN Number" :error="errors.pan">
           <UInput 
             v-model="form.pan" 
             placeholder="ABCDE1234F" 
@@ -451,53 +452,37 @@ const onSubmit = async () => {
           />
         </UFormField>
 
-        <UFormField 
-          label="Phone Number" 
-          required 
-          :error="errors.phone_no" 
-          :help="form.phone_no ? `${form.phone_no.length}/10 digits` : '10-digit mobile number'"
-        >
-          <UInput 
-            v-model="form.phone_no" 
-            placeholder="10-digit number" 
-            required 
-            class="w-full font-mono tracking-wide" 
-            maxlength="10"
-            icon="i-heroicons-phone"
-            @input="onPhoneInput"
-          />
-        </UFormField>
-      </div>
-
-      <div class="mt-4">
-        <UFormField label="Permanent Address" required :error="errors.address">
-          <UTextarea 
-            v-model="form.address" 
-            placeholder="Village/Street, Post Office, Police Station, District, State, PIN code..." 
-            required 
-            class="w-full" 
-            :rows="2" 
-          />
-        </UFormField>
+        <div class="sm:col-span-2 lg:col-span-1 xl:col-span-2">
+          <UFormField label="Permanent Address" required :error="errors.address">
+            <UInput 
+              v-model="form.address" 
+              placeholder="Village/Street, Post Office, District, State, PIN code..." 
+              required 
+              class="w-full" 
+              icon="i-heroicons-home"
+            />
+          </UFormField>
+        </div>
       </div>
     </div>
 
-    <!-- Section 2: Work, Role & Deployment -->
-    <div class="bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 md:p-6 shadow-xs">
-      <div class="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-3 mb-5">
-        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm">
-          2
-        </div>
-        <div>
-          <h3 class="text-base font-bold text-slate-900 dark:text-white leading-tight">Employment & Site Deployment</h3>
-          <p class="text-xs text-slate-500 dark:text-slate-400">Project, site location, skill category, wages, and tenure</p>
+    <!-- Section 2: Employment & Site Deployment (Emerald Theme) -->
+    <div class="bg-gradient-to-r from-emerald-50/40 via-white to-teal-50/30 dark:from-emerald-950/20 dark:via-slate-900 dark:to-teal-950/20 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 border-l-4 border-l-emerald-500 p-3 sm:p-4 shadow-xs">
+      <div class="flex items-center justify-between border-b border-emerald-100 dark:border-emerald-900/40 pb-2 mb-2.5">
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 rounded-md bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+            2
+          </div>
+          <h3 class="text-sm font-extrabold text-emerald-950 dark:text-emerald-100 leading-tight">
+            Employment & Site Deployment
+          </h3>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-        <!-- Category with Quick Chips & Datalist -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <!-- Skill Category -->
         <UFormField label="Skill Category / Designation" :error="errors.category">
-          <div class="space-y-1.5">
+          <div class="space-y-1">
             <UInput 
               v-model="form.category" 
               list="employee-category-list" 
@@ -508,17 +493,17 @@ const onSubmit = async () => {
             <datalist id="employee-category-list">
               <option v-for="cat in allCategories" :key="cat" :value="cat" />
             </datalist>
-            <!-- Quick Chips for Standard 4 Categories -->
-            <div class="flex flex-wrap gap-1">
+            <!-- Quick Chips for Standard Categories -->
+            <div class="flex items-center gap-1 flex-wrap">
               <button 
                 v-for="qc in quickCategories" 
                 :key="qc" 
                 type="button" 
                 @click="form.category = qc"
-                class="text-[10px] font-semibold px-2 py-0.5 rounded transition-colors border"
+                class="text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors border"
                 :class="form.category === qc 
-                  ? 'bg-primary text-white border-primary shadow-xs' 
-                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' 
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
               >
                 {{ qc }}
               </button>
@@ -534,7 +519,7 @@ const onSubmit = async () => {
             step="0.01" 
             min="0"
             placeholder="0.00" 
-            class="w-full" 
+            class="w-full font-mono font-bold" 
             icon="i-heroicons-banknotes" 
           />
         </UFormField>
@@ -548,91 +533,15 @@ const onSubmit = async () => {
               class="w-full" 
             />
             <span 
-              class="text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider shrink-0"
+              class="text-[10px] px-2 py-1 rounded font-black uppercase tracking-wider shrink-0"
               :class="{
-                'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300': form.status === 'Active',
-                'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300': form.status === 'Inactive',
-                'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300': form.status === 'Left'
+                'bg-emerald-500 text-white shadow-2xs': form.status === 'Active',
+                'bg-amber-500 text-white shadow-2xs': form.status === 'Inactive',
+                'bg-rose-500 text-white shadow-2xs': form.status === 'Left'
               }"
             >
               {{ form.status }}
             </span>
-          </div>
-        </UFormField>
-
-        <!-- Project with Database Autocomplete -->
-        <UFormField 
-          label="Project" 
-          :error="errors.project" 
-          :help="uniqueProjects.length > 0 ? `${uniqueProjects.length} existing project(s) available` : 'Select or type a new project'"
-        >
-          <div class="space-y-1.5">
-            <UInput 
-              v-model="form.project" 
-              list="employee-project-list" 
-              placeholder="Select or enter project..." 
-              class="w-full" 
-              icon="i-heroicons-building-office-2" 
-            />
-            <datalist id="employee-project-list">
-              <option v-for="proj in uniqueProjects" :key="proj" :value="proj" />
-            </datalist>
-            <!-- Quick Chips for Top 5 Projects -->
-            <div v-if="uniqueProjects.length > 0" class="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-              <button 
-                v-for="proj in uniqueProjects.slice(0, 5)" 
-                :key="proj" 
-                type="button" 
-                @click="form.project = proj"
-                class="text-[10px] font-medium px-2 py-0.5 rounded transition-colors border"
-                :class="form.project === proj 
-                  ? 'bg-primary text-white border-primary shadow-xs' 
-                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'"
-              >
-                {{ proj }}
-              </button>
-              <span v-if="uniqueProjects.length > 5" class="text-[10px] text-slate-400 self-center">
-                +{{ uniqueProjects.length - 5 }} more in list
-              </span>
-            </div>
-          </div>
-        </UFormField>
-
-        <!-- Site Location with Database Autocomplete -->
-        <UFormField 
-          label="Site / Location" 
-          :error="errors.site" 
-          :help="uniqueSites.length > 0 ? `${uniqueSites.length} existing site(s) available` : 'Select or type a new site'"
-        >
-          <div class="space-y-1.5">
-            <UInput 
-              v-model="form.site" 
-              list="employee-site-list" 
-              placeholder="Select or enter site location..." 
-              class="w-full" 
-              icon="i-heroicons-map-pin" 
-            />
-            <datalist id="employee-site-list">
-              <option v-for="st in uniqueSites" :key="st" :value="st" />
-            </datalist>
-            <!-- Quick Chips for Top 5 Sites -->
-            <div v-if="uniqueSites.length > 0" class="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-              <button 
-                v-for="st in uniqueSites.slice(0, 5)" 
-                :key="st" 
-                type="button" 
-                @click="form.site = st"
-                class="text-[10px] font-medium px-2 py-0.5 rounded transition-colors border"
-                :class="form.site === st 
-                  ? 'bg-primary text-white border-primary shadow-xs' 
-                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'"
-              >
-                {{ st }}
-              </button>
-              <span v-if="uniqueSites.length > 5" class="text-[10px] text-slate-400 self-center">
-                +{{ uniqueSites.length - 5 }} more in list
-              </span>
-            </div>
           </div>
         </UFormField>
 
@@ -647,6 +556,72 @@ const onSubmit = async () => {
           />
         </UFormField>
 
+        <!-- Project -->
+        <UFormField label="Project" :error="errors.project">
+          <div class="space-y-1">
+            <UInput 
+              v-model="form.project" 
+              list="employee-project-list" 
+              placeholder="Select or enter project..." 
+              class="w-full" 
+              icon="i-heroicons-building-office-2" 
+            />
+            <datalist id="employee-project-list">
+              <option v-for="proj in uniqueProjects" :key="proj" :value="proj" />
+            </datalist>
+            <div v-if="uniqueProjects.length > 0" class="flex items-center gap-1 flex-wrap">
+              <button 
+                v-for="proj in uniqueProjects.slice(0, 3)" 
+                :key="proj" 
+                type="button" 
+                @click="form.project = proj"
+                class="text-[9px] font-medium px-1.5 py-0.5 rounded transition-colors border truncate max-w-[120px]"
+                :class="form.project === proj 
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' 
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+              >
+                {{ proj }}
+              </button>
+              <span v-if="uniqueProjects.length > 3" class="text-[9px] text-slate-400">
+                +{{ uniqueProjects.length - 3 }} more
+              </span>
+            </div>
+          </div>
+        </UFormField>
+
+        <!-- Site Location -->
+        <UFormField label="Site / Location" :error="errors.site">
+          <div class="space-y-1">
+            <UInput 
+              v-model="form.site" 
+              list="employee-site-list" 
+              placeholder="Select or enter site..." 
+              class="w-full" 
+              icon="i-heroicons-map-pin" 
+            />
+            <datalist id="employee-site-list">
+              <option v-for="st in uniqueSites" :key="st" :value="st" />
+            </datalist>
+            <div v-if="uniqueSites.length > 0" class="flex items-center gap-1 flex-wrap">
+              <button 
+                v-for="st in uniqueSites.slice(0, 3)" 
+                :key="st" 
+                type="button" 
+                @click="form.site = st"
+                class="text-[9px] font-medium px-1.5 py-0.5 rounded transition-colors border truncate max-w-[120px]"
+                :class="form.site === st 
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' 
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'"
+              >
+                {{ st }}
+              </button>
+              <span v-if="uniqueSites.length > 3" class="text-[9px] text-slate-400">
+                +{{ uniqueSites.length - 3 }} more
+              </span>
+            </div>
+          </div>
+        </UFormField>
+
         <!-- Card Valid Until -->
         <UFormField label="I-Card Valid Until" :error="errors.card_valid_until">
           <UInput 
@@ -658,35 +633,36 @@ const onSubmit = async () => {
         </UFormField>
 
         <!-- Notice Period -->
-        <UFormField label="Resignation Notice Period (Days)" :error="errors.resignation_notice_period">
+        <UFormField label="Notice Period (Days)" :error="errors.resignation_notice_period">
           <UInput 
             v-model.number="form.resignation_notice_period" 
             type="number" 
             min="0"
             placeholder="30" 
-            class="w-full" 
+            class="w-full font-mono" 
             icon="i-heroicons-clock" 
           />
         </UFormField>
       </div>
     </div>
 
-    <!-- Section 3: Banking & Statutory Compliance -->
-    <div class="bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 md:p-6 shadow-xs">
-      <div class="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-3 mb-5">
-        <div class="w-8 h-8 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm">
-          3
-        </div>
-        <div>
-          <h3 class="text-base font-bold text-slate-900 dark:text-white leading-tight">Bank Details & Statutory Accounts</h3>
-          <p class="text-xs text-slate-500 dark:text-slate-400">Direct salary disbursement, PF UAN, ESIC, and Welfare number</p>
+    <!-- Section 3: Bank Details & Statutory Accounts (Violet Theme) -->
+    <div class="bg-gradient-to-r from-violet-50/40 via-white to-purple-50/30 dark:from-violet-950/20 dark:via-slate-900 dark:to-purple-950/20 rounded-xl border border-violet-200/80 dark:border-violet-900/60 border-l-4 border-l-violet-500 p-3 sm:p-4 shadow-xs">
+      <div class="flex items-center justify-between border-b border-violet-100 dark:border-violet-900/40 pb-2 mb-2.5">
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 rounded-md bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+            3
+          </div>
+          <h3 class="text-sm font-extrabold text-violet-950 dark:text-violet-100 leading-tight">
+            Bank Details & Statutory Accounts
+          </h3>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <!-- IFSC Code with Live Verification -->
-        <UFormField label="IFSC Code" :error="errors.ifsc" help="11 characters (auto-looks up bank & branch)">
-          <div class="space-y-1.5">
+        <UFormField label="IFSC Code" :error="errors.ifsc">
+          <div class="space-y-1">
             <UInput 
               v-model="form.ifsc" 
               placeholder="e.g. SBIN0001234" 
@@ -696,26 +672,25 @@ const onSubmit = async () => {
               maxlength="11"
               @input="onIfscInput"
             />
-            <!-- Verification Feedback Badge -->
             <div 
               v-if="ifscLookupState.status === 'success'" 
-              class="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-200 dark:border-emerald-800"
+              class="flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 font-bold truncate"
             >
-              <UIcon name="i-heroicons-check-circle" class="w-4 h-4 shrink-0 text-emerald-600" />
-              <span class="font-medium truncate">{{ ifscLookupState.message }}</span>
+              <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+              <span class="truncate">{{ ifscLookupState.message }}</span>
             </div>
             <div 
               v-else-if="ifscLookupState.status === 'error'" 
-              class="flex items-center gap-1.5 text-xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded border border-rose-200 dark:border-rose-800"
+              class="flex items-center gap-1 text-[10px] text-rose-600 font-semibold"
             >
-              <UIcon name="i-heroicons-exclamation-circle" class="w-4 h-4 shrink-0 text-rose-600" />
-              <span class="font-medium">{{ ifscLookupState.message }}</span>
+              <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 shrink-0 text-rose-500" />
+              <span>{{ ifscLookupState.message }}</span>
             </div>
           </div>
         </UFormField>
 
-        <!-- Bank Name with Autocomplete -->
-        <UFormField label="Bank Name" :error="errors.bank" help="Select or auto-filled via IFSC">
+        <!-- Bank Name -->
+        <UFormField label="Bank Name" :error="errors.bank">
           <UInput 
             v-model="form.bank" 
             list="employee-bank-list" 
@@ -749,7 +724,7 @@ const onSubmit = async () => {
         </UFormField>
 
         <!-- UAN Number -->
-        <UFormField label="UAN (Provident Fund)" :error="errors.uan" :help="form.uan ? `${form.uan.length}/12 digits` : '12-digit PF Universal Account No'">
+        <UFormField label="UAN (Provident Fund)" :error="errors.uan">
           <UInput 
             v-model="form.uan" 
             placeholder="e.g. 100123456789" 
@@ -771,49 +746,53 @@ const onSubmit = async () => {
         </UFormField>
 
         <!-- Shramik Kalyan No -->
-        <UFormField label="Shramik Kalyan / Welfare No" :error="errors.s_kalyan_no">
-          <UInput 
-            v-model="form.s_kalyan_no" 
-            placeholder="Welfare Card Number" 
-            class="w-full" 
-            icon="i-heroicons-ticket" 
-          />
-        </UFormField>
+        <div class="sm:col-span-2 lg:col-span-1 xl:col-span-2">
+          <UFormField label="Shramik Kalyan / Welfare No" :error="errors.s_kalyan_no">
+            <UInput 
+              v-model="form.s_kalyan_no" 
+              placeholder="Welfare Card Number" 
+              class="w-full" 
+              icon="i-heroicons-ticket" 
+            />
+          </UFormField>
+        </div>
       </div>
     </div>
 
-    <!-- Section 4: Exit & Separation Details (Shows always, highlighted if status is Left) -->
+    <!-- Section 4: Exit & Separation (Amber/Rose Theme) -->
     <div 
-      class="rounded-xl border p-4 md:p-6 shadow-xs transition-colors"
+      class="rounded-xl border border-l-4 p-3 sm:p-4 shadow-xs transition-colors"
       :class="form.status === 'Left' || form.date_of_exit 
-        ? 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50' 
-        : 'bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800'"
+        ? 'bg-gradient-to-r from-rose-50/50 via-white to-rose-50/30 dark:from-rose-950/30 dark:via-slate-900 dark:to-rose-950/20 border-rose-300 dark:border-rose-900 border-l-rose-500' 
+        : 'bg-gradient-to-r from-amber-50/30 via-white to-orange-50/20 dark:from-amber-950/20 dark:via-slate-900 dark:to-orange-950/20 border-amber-200/80 dark:border-amber-900/60 border-l-amber-500'"
     >
-      <div class="flex items-center justify-between border-b pb-3 mb-5" :class="form.status === 'Left' || form.date_of_exit ? 'border-rose-100 dark:border-rose-900/40' : 'border-slate-100 dark:border-slate-800'">
-        <div class="flex items-center gap-2.5">
+      <div class="flex items-center justify-between border-b pb-2 mb-2.5" :class="form.status === 'Left' || form.date_of_exit ? 'border-rose-100 dark:border-rose-900/40' : 'border-amber-100 dark:border-amber-900/40'">
+        <div class="flex items-center gap-2">
           <div 
-            class="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm"
+            class="w-6 h-6 rounded-md flex items-center justify-center font-black text-xs shadow-xs text-white"
             :class="form.status === 'Left' || form.date_of_exit 
-              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' 
-              : 'bg-slate-500/10 text-slate-600 dark:text-slate-400'"
+              ? 'bg-gradient-to-br from-rose-500 to-rose-600' 
+              : 'bg-gradient-to-br from-amber-500 to-orange-600'"
           >
             4
           </div>
-          <div>
-            <h3 class="text-base font-bold text-slate-900 dark:text-white leading-tight">Exit & Separation (Optional)</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Fill only when employee resigns, leaves, or is relieved</p>
-          </div>
+          <h3 
+            class="text-sm font-extrabold leading-tight"
+            :class="form.status === 'Left' || form.date_of_exit ? 'text-rose-950 dark:text-rose-100' : 'text-amber-950 dark:text-amber-100'"
+          >
+            Exit & Separation Details (Optional)
+          </h3>
         </div>
         <span 
           v-if="form.status === 'Left'"
-          class="text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/40 px-2.5 py-0.5 rounded-full"
+          class="text-[10px] font-black text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/50 px-2 py-0.5 rounded-full"
         >
           Employee Marked as Left
         </span>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-        <UFormField label="Date of Exit" :error="errors.date_of_exit" help="Setting an exit date will set status to 'Left'">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <UFormField label="Date of Exit" :error="errors.date_of_exit">
           <UInput 
             v-model="form.date_of_exit" 
             type="date" 
@@ -822,19 +801,21 @@ const onSubmit = async () => {
           />
         </UFormField>
 
-        <UFormField label="Reason for Leaving / Remarks" :error="errors.doe_rem">
-          <UInput 
-            v-model="form.doe_rem" 
-            placeholder="e.g. Resigned, Project completed, Relocated" 
-            class="w-full" 
-            icon="i-heroicons-chat-bubble-bottom-center-text" 
-          />
-        </UFormField>
+        <div class="sm:col-span-1 lg:col-span-3">
+          <UFormField label="Reason for Leaving / Remarks" :error="errors.doe_rem">
+            <UInput 
+              v-model="form.doe_rem" 
+              placeholder="e.g. Resigned, Project completed, Relocated" 
+              class="w-full" 
+              icon="i-heroicons-chat-bubble-bottom-center-text" 
+            />
+          </UFormField>
+        </div>
       </div>
     </div>
 
     <!-- Sticky Bottom Form Actions -->
-    <div class="sticky bottom-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 pb-2 border-t border-slate-200 dark:border-slate-800 -mx-2 px-4 md:-mx-4 md:px-6">
+    <div class="sticky bottom-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2.5 pb-1 border-t border-slate-200 dark:border-slate-800 -mx-1 px-3 sm:-mx-2 sm:px-4">
       <div class="flex items-center gap-2 w-full sm:w-auto">
         <UButton 
           type="button" 
@@ -857,24 +838,24 @@ const onSubmit = async () => {
         />
       </div>
 
-      <div class="flex items-center gap-3 w-full sm:w-auto justify-end">
+      <div class="flex items-center gap-2.5 w-full sm:w-auto justify-end">
         <UButton 
           type="button" 
           variant="outline" 
           color="neutral" 
-          size="md" 
+          size="sm" 
           label="Cancel" 
           @click="emit('close')" 
-          class="w-1/2 sm:w-auto px-5" 
+          class="w-1/2 sm:w-auto px-4" 
         />
         <UButton 
           type="submit" 
           :loading="loading" 
-          size="md" 
+          size="sm" 
           color="primary" 
           :icon="employee ? 'i-heroicons-check' : 'i-heroicons-user-plus'"
           :label="employee ? 'Update Employee File' : 'Save New Employee'" 
-          class="w-1/2 sm:w-auto px-6 font-semibold shadow-sm" 
+          class="w-1/2 sm:w-auto px-5 font-bold shadow-xs" 
         />
       </div>
     </div>

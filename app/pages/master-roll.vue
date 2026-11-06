@@ -841,7 +841,7 @@ const headerActions = [
     <UModal v-model:open="isOpen" :title="selectedEmployee ? 'Employee File: ' + selectedEmployee.employee_name : 'New Employee Onboarding'" 
             :ui="{ content: 'w-full sm:max-w-7xl h-full sm:h-auto' }">
       <template #body>
-        <div class="max-h-full sm:max-h-[85vh] overflow-y-auto custom-scrollbar px-2 py-4">
+        <div class="max-h-full sm:max-h-[88vh] overflow-y-auto custom-scrollbar px-2 py-1">
           <MasterRollForm 
             :employee="selectedEmployee" 
             :unique-options="uniqueOptions"
@@ -892,11 +892,17 @@ const headerActions = [
       </template>
     </UModal>
 
-    <UModal v-model:open="isTransferModalOpen" :title="'Site & Project Transfer: ' + (selectedEmployeeForTransfer?.employee_name || '')" :ui="{ content: 'w-full sm:max-w-xl' }">
+    <UModal 
+      v-model:open="isTransferModalOpen" 
+      :title="'Site & Project Transfer: ' + (selectedEmployeeForTransfer?.employee_name || '')" 
+      :ui="{ content: 'w-full sm:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[94vh] flex flex-col' }"
+    >
       <template #body>
         <EmployeeSiteTransferModal
           v-if="selectedEmployeeForTransfer"
           :employee="selectedEmployeeForTransfer"
+          :unique-projects="uniqueOptions.projects"
+          :unique-sites="uniqueOptions.sites"
           @close="isTransferModalOpen = false"
           @transferred="() => { fetchData(); fetchOptions(); }"
         />
@@ -912,7 +918,11 @@ const headerActions = [
       </template>
     </UModal>
 
-    <UModal v-model:open="isRehireModalOpen" :title="'Re-Hire & Employment Tenures: ' + (selectedEmployeeForRehire?.employee_name || '')" :ui="{ content: 'w-full sm:max-w-2xl' }">
+    <UModal 
+      v-model:open="isRehireModalOpen" 
+      :title="'Re-Hire & Employment Tenures: ' + (selectedEmployeeForRehire?.employee_name || '')" 
+      :ui="{ content: 'w-full sm:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[94vh] flex flex-col' }"
+    >
       <template #body>
         <EmployeeRehireModal
           v-if="selectedEmployeeForRehire"
@@ -920,6 +930,7 @@ const headerActions = [
           :unique-projects="uniqueOptions.projects"
           :unique-sites="uniqueOptions.sites"
           :unique-categories="uniqueOptions.categories"
+          :unique-banks="uniqueOptions.banks"
           @close="isRehireModalOpen = false"
           @success="() => { fetchData(); fetchOptions(); }"
         />
