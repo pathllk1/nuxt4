@@ -368,6 +368,171 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // =========================================================================
+  // SHEET 2: NEW JOININGS MASTER ROLL (Statutory KYC & EPFO/ESIC Registration)
+  // =========================================================================
+  const newJoinerIdSet = new Set<string>();
+
+  // 1. Identify from wages records for this month
+  wages.forEach((w: any) => {
+    const mr = w.master_roll_id;
+    const dojYmd = toYmd(mr?.date_of_joining);
+    const doeYmd = toYmd(mr?.date_of_exit);
+    const isExit = Boolean(
+      (doeYmd && (doeYmd.startsWith(month) || doeYmd.startsWith(prevMonth) || doeYmd <= `${month}-31`)) ||
+      mr?.status === 'Left' ||
+      mr?.status === 'Exited'
+    );
+    if (!isExit && dojYmd && dojYmd.startsWith(month) && mr?._id) {
+      newJoinerIdSet.add(mr._id.toString());
+    }
+  });
+
+  // 2. Query direct MasterRoll records that joined in this month
+  const directNewJoiners = await MasterRoll.find({
+    firm_id: user.firm_id,
+    $or: [
+      { date_of_joining: { $regex: new RegExp(`^${month}`) } },
+      { date_of_joining: { $regex: new RegExp(`^[0-9]{2}-${String(monthPart).padStart(2, '0')}-${yearPart}`) } }
+    ]
+  }).lean();
+
+  directNewJoiners.forEach((emp: any) => {
+    const doeYmd = toYmd(emp.date_of_exit);
+    const isExit = Boolean(
+      (doeYmd && (doeYmd.startsWith(month) || doeYmd.startsWith(prevMonth) || doeYmd <= `${month}-31`)) ||
+      emp.status === 'Left' ||
+      emp.status === 'Exited'
+    );
+    if (!isExit && emp._id) {
+      newJoinerIdSet.add(emp._id.toString());
+    }
+  });
+
+  const newJoiningEmployees = await MasterRoll.find({
+    _id: { $in: Array.from(newJoinerIdSet) }
+  }).sort({ employee_name: 1 }).lean();
+
+  const worksheet2 = workbook.addWorksheet('New Joinings', {
+    views: [{ showGridLines: true }],
+    properties: { tabColor: { argb: 'FF16A34A' } }
+  });
+
+  worksheet2.columns = [
+    { header: 'S.No', key: 'sno', width: 7 },
+    { header: 'Employee Name', key: 'name', width: 25 },
+    { header: 'Father / Husband Name', key: 'father_husband_name', width: 24 },
+    { header: 'DOB', key: 'dob', width: 14 },
+    { header: 'Date of Joining', key: 'doj', width: 16 },
+    { header: 'Category', key: 'category', width: 15 },
+    { header: 'Daily Wage', key: 'wage_rate', width: 14 },
+    { header: 'Project', key: 'project', width: 20 },
+    { header: 'Site', key: 'site', width: 20 },
+    { header: 'Aadhar Number', key: 'aadhar', width: 18 },
+    { header: 'Phone Number', key: 'phone', width: 16 },
+    { header: 'PAN Number', key: 'pan', width: 16 },
+    { header: 'UAN', key: 'uan', width: 18 },
+    { header: 'ESIC IP No', key: 'esic_no', width: 18 },
+    { header: 'Bank Name', key: 'bank', width: 20 },
+    { header: 'Account Number', key: 'acc', width: 22 },
+    { header: 'IFSC Code', key: 'ifsc', width: 16 },
+    { header: 'Branch', key: 'branch', width: 18 },
+    { header: 'Present Address', key: 'address', width: 35 },
+    { header: 'Status', key: 'status', width: 12 },
+  ];
+
+  const colCount2 = worksheet2.columns.length;
+
+  // Header Styling for Sheet 2 (Deep Emerald / Forest Green)
+  const headerRow2 = worksheet2.getRow(1);
+  headerRow2.height = 28;
+  for (let c = 1; c <= colCount2; c++) {
+    const cell = headerRow2.getCell(c);
+    cell.font = { name: 'Calibri', bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF166534' } // Forest Green
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = borderStyle;
+  }
+
+  const centerCols2 = new Set([1, 4, 5, 6, 10, 11, 12, 13, 14, 17, 20]); // sno, dob, doj, category, aadhar, phone, pan, uan, esic, ifsc, status
+
+  if (newJoiningEmployees.length === 0) {
+    const emptyRow = worksheet2.addRow({
+      sno: '-',
+      name: 'No new joining employees recorded for this salary month.',
+    });
+    emptyRow.height = 24;
+    for (let c = 1; c <= colCount2; c++) {
+      const cell = emptyRow.getCell(c);
+      cell.border = borderStyle;
+      cell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF64748B' } };
+      cell.alignment = { vertical: 'middle', horizontal: c === 2 ? 'left' : 'center' };
+    }
+  } else {
+    newJoiningEmployees.forEach((emp: any, index: number) => {
+      const row = worksheet2.addRow({
+        sno: index + 1,
+        name: emp.employee_name || 'N/A',
+        father_husband_name: emp.father_husband_name || '',
+        dob: formatDateDisplay(emp.date_of_birth),
+        doj: formatDateDisplay(emp.date_of_joining),
+        category: emp.category || 'UNSKILLED',
+        wage_rate: typeof emp.p_day_wage === 'number' ? emp.p_day_wage : 0,
+        project: emp.project || '',
+        site: emp.site || '',
+        aadhar: emp.aadhar ? String(emp.aadhar) : '',
+        phone: emp.phone_no ? String(emp.phone_no) : '',
+        pan: emp.pan ? String(emp.pan) : '',
+        uan: emp.uan ? String(emp.uan) : '',
+        esic_no: emp.esic_no ? String(emp.esic_no) : '',
+        bank: emp.bank || '',
+        acc: emp.account_no ? String(emp.account_no) : '',
+        ifsc: emp.ifsc ? String(emp.ifsc) : '',
+        branch: emp.branch || '',
+        address: emp.address || '',
+        status: emp.status || 'Active',
+      });
+
+      row.height = 21;
+
+      // Soft light green zebra tint
+      const rowBgColor = (index % 2 === 1) ? 'FFF0FDF4' : 'FFFFFFFF';
+
+      for (let c = 1; c <= colCount2; c++) {
+        const cell = row.getCell(c);
+        cell.border = borderStyle;
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: rowBgColor }
+        };
+        cell.font = {
+          name: 'Calibri',
+          size: 10,
+          color: { argb: 'FF14532D' }
+        };
+
+        if (centerCols2.has(c)) {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        } else if (c === 7) {
+          cell.alignment = { vertical: 'middle', horizontal: 'right' };
+          cell.numFmt = '#,##0.00';
+        } else {
+          cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        }
+
+        // Text formatting for ID and account columns
+        if (c === 10 || c === 11 || c === 12 || c === 13 || c === 14 || c === 16 || c === 17) {
+          cell.numFmt = '@';
+        }
+      }
+    });
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   setResponseHeaders(event, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
