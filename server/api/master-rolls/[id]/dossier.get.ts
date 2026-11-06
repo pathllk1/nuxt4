@@ -2,7 +2,7 @@ import { defineEventHandler, getRouterParam, createError, setResponseHeader } fr
 import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
-import MasterRoll from '../../../models/MasterRoll';
+import MasterRoll, { getEmployeeTenures } from '../../../models/MasterRoll';
 import Firm from '../../../models/Firm';
 import EmployeeSiteTransfer from '../../../models/EmployeeSiteTransfer';
 import { requireAuthSession } from '../../../utils/auth';
@@ -315,6 +315,14 @@ export default defineEventHandler(async (event) => {
 
       // 6. SECTION 4: SITE DEPLOYMENT & HISTORICAL INTER-SITE MOVEMENTS
       curY = drawSectionHeader('4. Site Deployment & Movement History', curY);
+      const allTenures = getEmployeeTenures(employee);
+      if (allTenures.length > 1) {
+        allTenures.slice(0, -1).forEach((t: any) => {
+          const tPeriod = `${formatDate(t.date_of_joining)} to ${formatDate(t.date_of_exit)}`;
+          const tDeploy = `${t.project || 'General'} / ${t.site || 'Base'} • ${t.category} (₹${t.p_day_wage}/day)`;
+          curY = drawKeyValueRow(curY, `Tenure #${t.tenure_no} (Past):`, tPeriod, "Assignment:", tDeploy, '#F8FAFC');
+        });
+      }
       if (recentTransfers && recentTransfers.length > 0) {
         recentTransfers.forEach((tr: any, idx: number) => {
           const moveRoute = `${tr.from_site || 'Initial'} -> ${tr.to_site} (${tr.transfer_type || 'Permanent'})`;

@@ -31,6 +31,7 @@ export const MASTER_ROLL_FIELDS = [
   'resignation_notice_period',
   'card_valid_until',
   'status',
+  'tenures',
 ] as const;
 
 export type MasterRollField = (typeof MASTER_ROLL_FIELDS)[number];

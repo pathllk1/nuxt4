@@ -154,14 +154,25 @@ export const useMasterRoll = () => {
     URL.revokeObjectURL(url)
   }
 
-  const downloadAppointmentLetter = async (id: string, name: string) => {
-    const blob = await apiFetch<Blob>(buildUrl(`/master-rolls/${id}/appointment-letter`), { responseType: 'blob' })
+  const downloadAppointmentLetter = async (id: string, name: string, tenureNo?: number) => {
+    const query = tenureNo ? `?tenure=${tenureNo}` : ''
+    const blob = await apiFetch<Blob>(buildUrl(`/master-rolls/${id}/appointment-letter${query}`), { responseType: 'blob' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `Appointment_Letter_${name}.docx`
+    const suffix = tenureNo ? `_Tenure${tenureNo}` : ''
+    a.download = `Appointment_Letter_${name}${suffix}.docx`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const rehireEmployee = async (id: string, payload: any) => {
+    loading.value = true
+    try {
+      return await apiFetch(buildUrl(`/master-rolls/${id}/rehire`), { method: 'POST', body: payload })
+    } finally {
+      loading.value = false
+    }
   }
 
   const printEmployeeDossier = async (id: string, name: string) => {
@@ -247,6 +258,7 @@ export const useMasterRoll = () => {
     fetchUniqueFields,
     createEmployee,
     updateEmployee,
+    rehireEmployee,
     deleteEmployee,
     bulkImport,
     bulkDeleteEmployees,

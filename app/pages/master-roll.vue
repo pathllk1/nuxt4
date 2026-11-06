@@ -12,6 +12,7 @@ import DataQualityAuditModal from '@/components/master-roll/DataQualityAuditModa
 import WagesSummaryModal from '@/components/master-roll/WagesSummaryModal.vue'
 import EmployeeSiteTransferModal from '@/components/master-roll/EmployeeSiteTransferModal.vue'
 import SiteMovementAuditModal from '@/components/master-roll/SiteMovementAuditModal.vue'
+import EmployeeRehireModal from '@/components/master-roll/EmployeeRehireModal.vue'
 
 definePageMeta({
   layout: 'default'
@@ -276,6 +277,13 @@ const selectedEmployeeForWages = ref<any>(null)
 const isTransferModalOpen = ref(false)
 const selectedEmployeeForTransfer = ref<any>(null)
 const isMovementAuditOpen = ref(false)
+const isRehireModalOpen = ref(false)
+const selectedEmployeeForRehire = ref<any>(null)
+
+const openRehireModal = (emp: any) => {
+  selectedEmployeeForRehire.value = emp
+  isRehireModalOpen.value = true
+}
 
 const openTransferModal = (emp: any) => {
   selectedEmployeeForTransfer.value = emp
@@ -298,6 +306,17 @@ const openActivity = (emp: any) => {
 }
 
 const onDownloadLetter = async (emp: any) => {
+  if (emp.tenures && Array.isArray(emp.tenures) && emp.tenures.length > 1) {
+    selectedEmployeeForRehire.value = emp
+    isRehireModalOpen.value = true
+    toast.add({
+      title: 'Multiple Tenures on Record',
+      description: `This employee has ${emp.tenures.length} tenures. You can download each tenure's appointment letter individually.`,
+      color: 'info'
+    })
+    return
+  }
+
   try {
     await downloadAppointmentLetter(emp._id, emp.employee_name)
     toast.add({ title: 'Success', description: 'Appointment letter downloaded', color: 'success' })
@@ -704,6 +723,7 @@ const headerActions = [
                 </UTooltip>
                 <UDropdownMenu 
                   :items="[[
+                    { label: 'Re-hire / New Tenure', icon: 'i-heroicons-user-plus', onSelect: () => openRehireModal(row.original) },
                     { label: 'Transfer Site / Project', icon: 'i-heroicons-arrow-right-circle', onSelect: () => openTransferModal(row.original) },
                     { label: 'Print Employee Dossier', icon: 'i-heroicons-printer', onSelect: () => onPrintDossier(row.original) },
                     { label: 'View Activity Log', icon: 'i-heroicons-clock', onSelect: () => openActivity(row.original) },
@@ -772,6 +792,7 @@ const headerActions = [
               <UButton size="xs" variant="soft" color="neutral" icon="i-heroicons-pencil-square" label="Edit" @click="openModal(emp)" />
               <UDropdownMenu 
                 :items="[[
+                  { label: 'Re-hire / New Tenure', icon: 'i-heroicons-user-plus', onSelect: () => openRehireModal(emp) },
                   { label: 'Transfer Site / Project', icon: 'i-heroicons-arrow-right-circle', onSelect: () => openTransferModal(emp) },
                   { label: 'Print Employee Dossier', icon: 'i-heroicons-printer', onSelect: () => onPrintDossier(emp) },
                   { label: 'View Activity Log', icon: 'i-heroicons-clock', onSelect: () => openActivity(emp) },
@@ -887,6 +908,20 @@ const headerActions = [
         <SiteMovementAuditModal
           :unique-options="uniqueOptions"
           @close="isMovementAuditOpen = false"
+        />
+      </template>
+    </UModal>
+
+    <UModal v-model:open="isRehireModalOpen" :title="'Re-Hire & Employment Tenures: ' + (selectedEmployeeForRehire?.employee_name || '')" :ui="{ content: 'w-full sm:max-w-2xl' }">
+      <template #body>
+        <EmployeeRehireModal
+          v-if="selectedEmployeeForRehire"
+          :employee="selectedEmployeeForRehire"
+          :unique-projects="uniqueOptions.projects"
+          :unique-sites="uniqueOptions.sites"
+          :unique-categories="uniqueOptions.categories"
+          @close="isRehireModalOpen = false"
+          @success="() => { fetchData(); fetchOptions(); }"
         />
       </template>
     </UModal>

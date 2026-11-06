@@ -1,7 +1,7 @@
 import * as docx from 'docx';
-import { defineEventHandler, getRouterParam, createError, setResponseHeader } from 'h3';
+import { defineEventHandler, getRouterParam, getQuery, createError, setResponseHeader } from 'h3';
 import mongoose from 'mongoose';
-import MasterRoll from '../../../models/MasterRoll';
+import MasterRoll, { getEmployeeTenures } from '../../../models/MasterRoll';
 import { requireAuthSession } from '../../../utils/auth';
 
 function normalizeDesignation(raw: string | null | undefined): string {
@@ -106,10 +106,28 @@ export default defineEventHandler(async (event) => {
       }
     };
 
-    const designation = normalizeDesignation(employee.category);
-    const doj = fmt(employee.date_of_joining);
-    const today = fmt(new Date());
-    const refNo = `APPT/${new Date().getFullYear()}/${String(employee._id).slice(-6).toUpperCase()}`;
+    const query = getQuery(event);
+    const tenureParam = query.tenure ? Number(query.tenure) : null;
+
+    const tenures = getEmployeeTenures(employee);
+    let targetTenure = tenures[tenures.length - 1]; // default to latest
+    if (tenureParam && !isNaN(tenureParam)) {
+      const found = tenures.find(t => t.tenure_no === tenureParam);
+      if (found) targetTenure = found;
+    } else {
+      const active = tenures.find(t => t.status === 'Active');
+      if (active) targetTenure = active;
+    }
+
+    if (!targetTenure) {
+      throw createError({ statusCode: 404, statusMessage: 'Tenure details not found' });
+    }
+
+    const designation = normalizeDesignation(targetTenure.category);
+    const doj = fmt(targetTenure.date_of_joining);
+    const appointmentDate = fmt(targetTenure.appointment_date || targetTenure.date_of_joining || new Date());
+    const yearStr = targetTenure.date_of_joining ? String(targetTenure.date_of_joining).slice(0, 4) : new Date().getFullYear().toString();
+    const refNo = targetTenure.appointment_ref_no || `APPT/${yearStr}/${String(employee._id).slice(-6).toUpperCase()}-T${targetTenure.tenure_no}`;
 
     // Helper for creating table cells with no borders
     const noBorderCell = (children: any[], opts: any = {}) =>
@@ -152,7 +170,7 @@ export default defineEventHandler(async (event) => {
                     ]),
                     noBorderCell([
                       new docx.Paragraph({
-                        children: [new docx.TextRun({ text: `Date: ${today}`, font: FONT, size: SZ })],
+                        children: [new docx.TextRun({ text: `Date: ${appointmentDate}`, font: FONT, size: SZ })],
                         alignment: docx.AlignmentType.RIGHT,
                       }),
                     ]),
@@ -238,7 +256,7 @@ export default defineEventHandler(async (event) => {
                     ]),
                     noBorderCell([
                       new docx.Paragraph({
-                        children: [new docx.TextRun({ text: `${employee.project || '—'} / ${employee.site || '—'}`, font: FONT, size: SZ_SM })],
+                        children: [new docx.TextRun({ text: `${targetTenure.project || employee.project || '—'} / ${targetTenure.site || employee.site || '—'}`, font: FONT, size: SZ_SM })],
                       }),
                     ]),
                   ],
@@ -252,7 +270,7 @@ export default defineEventHandler(async (event) => {
                       new docx.Paragraph({
                         children: [
                           new docx.TextRun({
-                            text: `₹ ${employee.p_day_wage != null ? employee.p_day_wage : '—'} per day (Consolidated)`,
+                            text: `₹ ${targetTenure.p_day_wage != null ? targetTenure.p_day_wage : (employee.p_day_wage != null ? employee.p_day_wage : '—')} per day (Consolidated)`,
                             font: FONT,
                             size: SZ_SM,
                           }),
@@ -316,13 +334,13 @@ export default defineEventHandler(async (event) => {
                       new docx.Paragraph({ children: [new docx.TextRun({ text: 'Bank Name:', bold: true, font: FONT, size: SZ_SM })] }),
                     ]),
                     noBorderCell([
-                      new docx.Paragraph({ children: [new docx.TextRun({ text: employee.bank || '—', font: FONT, size: SZ_SM })] }),
+                      new docx.Paragraph({ children: [new docx.TextRun({ text: targetTenure.bank || employee.bank || '—', font: FONT, size: SZ_SM })] }),
                     ]),
                     noBorderCell([
                       new docx.Paragraph({ children: [new docx.TextRun({ text: 'Account No:', bold: true, font: FONT, size: SZ_SM })] }),
                     ]),
                     noBorderCell([
-                      new docx.Paragraph({ children: [new docx.TextRun({ text: employee.account_no || '—', font: FONT, size: SZ_SM })] }),
+                      new docx.Paragraph({ children: [new docx.TextRun({ text: targetTenure.account_no || employee.account_no || '—', font: FONT, size: SZ_SM })] }),
                     ]),
                   ],
                 }),
@@ -332,7 +350,7 @@ export default defineEventHandler(async (event) => {
                       new docx.Paragraph({ children: [new docx.TextRun({ text: 'IFSC Code:', bold: true, font: FONT, size: SZ_SM })] }),
                     ]),
                     noBorderCell([
-                      new docx.Paragraph({ children: [new docx.TextRun({ text: employee.ifsc || '—', font: FONT, size: SZ_SM })] }),
+                      new docx.Paragraph({ children: [new docx.TextRun({ text: targetTenure.ifsc || employee.ifsc || '—', font: FONT, size: SZ_SM })] }),
                     ]),
                     noBorderCell([new docx.Paragraph({ children: [new docx.TextRun({ text: '', font: FONT, size: SZ_SM })] })]),
                     noBorderCell([new docx.Paragraph({ children: [new docx.TextRun({ text: '', font: FONT, size: SZ_SM })] })]),
@@ -452,10 +470,11 @@ export default defineEventHandler(async (event) => {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     );
     const safeName = (employee.employee_name || 'Employee').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_');
+    const tenureSuffix = `_Tenure${targetTenure.tenure_no}`;
     setResponseHeader(
       event,
       'Content-Disposition',
-      `attachment; filename="Appointment_Letter_${safeName}.docx"`
+      `attachment; filename="Appointment_Letter_${safeName}${tenureSuffix}.docx"`
     );
 
     return buffer;
