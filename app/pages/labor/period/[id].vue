@@ -450,7 +450,7 @@
                   ⚡ Allocated from Ledger
                 </span>
                 <span v-if="adv.tds_mode && adv.tds_mode !== 'NONE'" class="text-[8px] font-extrabold bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 px-1.5 py-0.5 rounded">
-                  {{ adv.tds_mode === 'GROSS_UP' ? '⚡ TDS Gross-Up' : '⚡ TDS Deducted' }} (₹{{ formatINR(adv.tds_amount) }})
+                  {{ adv.tds_mode === 'GROSS_UP' ? '⚡ TDS Gross-Up (Firm Bears)' : '⚡ TDS Deducted' }} (₹{{ formatINR(adv.tds_amount) }})
                 </span>
               </div>
               <div class="text-[9px] text-amber-600 dark:text-amber-400">
@@ -591,7 +591,7 @@
                         Leader gets net payout.
                       </p>
                       <div class="mt-1 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
-                        Net: ₹{{ formatINR(advanceTdsData.standardOption.netAmount) }}
+                        Net: ₹{{ formatINR(advanceTdsData.standardOption.netPayout) }}
                       </div>
                     </label>
                   </div>
@@ -599,21 +599,21 @@
                   <!-- Breakdown Summary Box -->
                   <div class="p-2 bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-900/60 text-[11px] font-mono space-y-1">
                     <div class="flex justify-between text-gray-500 dark:text-gray-400">
-                      <span>Gross Contract Debit:</span>
+                      <span>{{ advanceTdsMode === 'GROSS_UP' ? 'Total Firm Contract Cost:' : 'Gross Contract Value:' }}</span>
                       <span class="font-bold text-gray-900 dark:text-white">
                         ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.grossAmount : advanceTdsData.standardOption.grossAmount) }}
                       </span>
                     </div>
                     <div class="flex justify-between text-rose-600 dark:text-rose-400 font-bold">
-                      <span>TDS Liability (Sec 194C):</span>
+                      <span>{{ advanceTdsMode === 'GROSS_UP' ? 'TDS Borne by Firm (Sec 195A):' : 'TDS Deducted (Sec 194C):' }}</span>
                       <span>
                         ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.tdsAmount : advanceTdsData.standardOption.tdsAmount) }}
                       </span>
                     </div>
                     <div class="flex justify-between text-emerald-600 dark:text-emerald-400 font-black border-t border-gray-100 dark:border-gray-700 pt-1">
-                      <span>Actual Cash Payout:</span>
+                      <span>Actual Net Payout to Leader:</span>
                       <span>
-                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.netAmount : advanceTdsData.standardOption.netAmount) }}
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption.netPayout : advanceTdsData.standardOption.netPayout) }}
                       </span>
                     </div>
                   </div>
@@ -1154,7 +1154,7 @@ const submitAdvance = async () => {
       payload.tds_rate = advanceTdsData.value.applicableRate;
       payload.tds_amount = opt.tdsAmount;
       payload.gross_amount = opt.grossAmount;
-      payload.amount = opt.netAmount;
+      payload.amount = opt.netPayout;
     }
 
     await payAdvance(payload);

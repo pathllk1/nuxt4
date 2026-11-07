@@ -38,6 +38,9 @@ export default defineEventHandler(async (event) => {
 
     const numTdsAmount = Number(tds_amount) || 0;
     const numGrossAmount = Number(gross_amount) || numAmount;
+    // When TDS is GROSS_UP (on firm's head), the leader's wage bill is deducted only by net payout.
+    // When TDS is DEDUCT (borne by leader), the leader's wage bill is deducted by gross amount.
+    const periodDeductionAmount = tds_mode === 'DEDUCT' ? numGrossAmount : numAmount;
 
     // 1. Post to MongoDB Ledger
     const voucherGroupId = await laborLedgerHelper.postLaborAdvance({
@@ -74,7 +77,7 @@ export default defineEventHandler(async (event) => {
         tds_mode, tds_rate, tds_amount, gross_amount
       )
       VALUES (
-        ${period.firm_id}, ${period_id}, ${numAmount}, ${payment_date},
+        ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date},
         ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
         ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
       )

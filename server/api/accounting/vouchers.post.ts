@@ -65,16 +65,39 @@ export default defineEventHandler(async (event) => {
         let sql = getSql();
         if (!sql) sql = await connectPostgres();
         if (sql) {
+          const tdsPayableEntry = entries.find((e: any) => (e.accountHead || '').toLowerCase().includes('tds payable'));
+          const tdsBorneEntry = entries.find((e: any) => (e.accountHead || '').toLowerCase().includes('tds borne by company'));
+          let tdsMode: string | null = null;
+          let tdsAmount: number | null = null;
+
+          if (tdsPayableEntry) {
+            tdsAmount = Math.abs(Number(tdsPayableEntry.amount || tdsPayableEntry.creditAmount) || 0);
+            if (tdsBorneEntry || (body.narration || '').includes('Grossed-up')) {
+              tdsMode = 'GROSS_UP';
+            } else {
+              tdsMode = 'DEDUCT';
+            }
+          }
+
           for (const entry of entries) {
             const periodId = entry.laborPeriodId || body.laborPeriodId;
+            const head = (entry.accountHead || '').toLowerCase();
+            // Ignore tax / deduction lines
+            if (head.includes('tds payable') || head.includes('tds borne by company')) continue;
+
             if (periodId && (entry.amount > 0 || entry.debitAmount > 0)) {
-              const amount = entry.amount || entry.debitAmount;
+              const baseAmount = Number(entry.amount || entry.debitAmount) || 0;
+              // For GROSS_UP (TDS on firm's head), the leader's wage bill is deducted ONLY by net payout
+              const periodAdvanceAmount = baseAmount;
+              const currentGrossAmount = tdsMode === 'GROSS_UP' ? (baseAmount + (tdsAmount || 0)) : (tdsMode === 'DEDUCT' ? baseAmount : null);
               const paidFromBankId = resolvedBankAccountId ? String(resolvedBankAccountId) : null;
               await sql`
                 INSERT INTO labor_advances (
-                  firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id
+                  firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
+                  tds_mode, tds_amount, gross_amount
                 ) VALUES (
-                  ${String(user.firm_id)}, ${periodId}, ${amount}, ${transactionDate}, ${paidFromBankId}, ${postResult.voucherGroupId}
+                  ${String(user.firm_id)}, ${periodId}, ${periodAdvanceAmount}, ${transactionDate}, ${paidFromBankId}, ${postResult.voucherGroupId},
+                  ${tdsMode}, ${tdsAmount}, ${currentGrossAmount}
                 )
               `;
             }

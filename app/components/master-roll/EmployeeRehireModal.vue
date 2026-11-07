@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { useToast } from '#imports';
 import { useMasterRoll } from '@/composables/useMasterRoll';
+import { useAuth } from '@/composables/useAuth';
 
 const props = defineProps<{
   employee: any;
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 }>();
 
 const { rehireEmployee, downloadAppointmentLetter } = useMasterRoll();
+const { apiFetch } = useAuth();
 const toast = useToast();
 
 const loading = ref(false);
@@ -50,13 +52,14 @@ const onIfscChange = async (val: string) => {
   if (code.length === 11) {
     ifscLookupState.value = { status: 'loading' };
     try {
-      const data: any = await $fetch(`/api/master-rolls/lookup/ifsc/${code}`);
-      if (data && data.BANK) {
-        form.value.bank = data.BANK;
-        form.value.branch = data.BRANCH || '';
+      const res: any = await apiFetch(`/api/master-rolls/lookup/ifsc/${code}`);
+      const bankData = res?.data || res;
+      if (bankData && bankData.BANK) {
+        form.value.bank = bankData.BANK;
+        form.value.branch = bankData.BRANCH || '';
         ifscLookupState.value = {
           status: 'success',
-          message: `${data.BANK} • ${data.BRANCH || ''}`
+          message: `${bankData.BANK}${bankData.BRANCH ? ' • ' + bankData.BRANCH : ''}`
         };
       } else {
         ifscLookupState.value = { status: 'error', message: 'Bank details not found for this IFSC' };

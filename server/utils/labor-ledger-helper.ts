@@ -70,15 +70,52 @@ export const laborLedgerHelper = {
 
       let legs: IVoucherLeg[] = [];
 
-      if ((tds_mode === 'GROSS_UP' || tds_mode === 'DEDUCT') && tds_amount > 0) {
+      if (tds_mode === 'GROSS_UP' && tds_amount > 0) {
         legs = [
-          // Debit: Labor Leader Account (Gross contract value)
+          // 1. Debit: Labor Leader Account (Net advance against wages - leader's bill is deducted only by net)
+          {
+            accountHead: leader_name,
+            accountType: 'LABOR_LEADER',
+            debitAmount: amount,
+            creditAmount: 0,
+            narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+          },
+          // 2. Debit: TDS Borne by Company (Tax expense on firm's head u/s 195A)
+          {
+            accountHead: 'TDS Borne by Company',
+            accountType: 'EXPENSE',
+            debitAmount: tds_amount,
+            creditAmount: 0,
+            narration: `TDS u/s 194C borne by firm u/s 195A on advance to ${leader_name} (${tds_rate}%)`,
+          },
+          // 3. Credit: TDS Payable Liability
+          {
+            accountHead: 'TDS Payable u/s 194C',
+            accountType: 'DUTIES_AND_TAXES',
+            debitAmount: 0,
+            creditAmount: tds_amount,
+            narration: `TDS 194C on Advance to ${leader_name} (${tds_rate}%)`,
+          },
+          // 4. Credit: Cash / Bank Account (Net cash paid out)
+          {
+            accountHead: paymentPostAccountHead,
+            accountType: paymentPostAccountType,
+            debitAmount: 0,
+            creditAmount: amount,
+            bankAccountId: bankIdObj,
+            paymentMode: payment_mode,
+            narration: `Labor Advance net payout to ${leader_name} (${payment_mode})`,
+          },
+        ];
+      } else if (tds_mode === 'DEDUCT' && tds_amount > 0) {
+        legs = [
+          // Debit: Labor Leader Account (Gross contract value - leader bears TDS)
           {
             accountHead: leader_name,
             accountType: 'LABOR_LEADER',
             debitAmount: gross_amount,
             creditAmount: 0,
-            narration: `Labor Advance to ${leader_name} (${tds_mode === 'GROSS_UP' ? 'Gross-Up' : 'TDS Deducted'} u/s 194C @ ${tds_rate}%)`,
+            narration: `Labor Advance to ${leader_name} (TDS Deducted u/s 194C @ ${tds_rate}%)`,
           },
           // Credit: TDS Payable Liability
           {

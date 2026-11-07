@@ -848,32 +848,79 @@ function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number) {
     gross = tdsResult.value.grossUpOption.grossAmount;
     tdsAmt = tdsResult.value.grossUpOption.tdsAmount;
     modeName = `Grossed-up TDS u/s 195A @ ${tdsResult.value.applicableRate}%`;
+
+    // Leader / Contractor payment MUST BE NET.
+    // TDS is on firm's head, so leader account is debited baseline (net payout),
+    // and TDS is debited to 'TDS Borne by Company' (EXPENSE).
+    entry.amount = baseline;
+    entry.isDeduction = false;
+
+    // 1. Find or create 'TDS Borne by Company' expense debit line
+    const existingExpenseLine = form.entries.find(e => 
+      (e.accountHead || '').toLowerCase().includes('tds borne by company')
+    );
+    if (existingExpenseLine) {
+      existingExpenseLine.amount = tdsAmt;
+      existingExpenseLine.isDeduction = false;
+      existingExpenseLine.accountHead = 'TDS Borne by Company';
+    } else {
+      form.entries.push({
+        accountHead: 'TDS Borne by Company',
+        amount: tdsAmt,
+        isDeduction: false,
+        laborPeriodId: ''
+      });
+    }
+
+    // 2. Find or create 'TDS Payable u/s 194C' credit deduction line
+    const existingTdsLine = form.entries.find(e => 
+      (e.accountHead || '').toLowerCase().includes('tds payable')
+    );
+    if (existingTdsLine) {
+      existingTdsLine.amount = -tdsAmt;
+      existingTdsLine.isDeduction = true;
+      existingTdsLine.accountHead = 'TDS Payable u/s 194C';
+    } else {
+      form.entries.push({
+        accountHead: 'TDS Payable u/s 194C',
+        amount: -tdsAmt,
+        isDeduction: true,
+        laborPeriodId: ''
+      });
+    }
   } else {
+    // STANDARD / DEDUCT: Payee bears TDS
     gross = tdsResult.value.standardOption.grossAmount;
     tdsAmt = tdsResult.value.standardOption.tdsAmount;
     modeName = `TDS Deducted u/s 194C @ ${tdsResult.value.applicableRate}%`;
-  }
 
-  // 1. Update party entry amount to Gross
-  entry.amount = gross;
-  entry.isDeduction = false;
+    entry.amount = gross;
+    entry.isDeduction = false;
 
-  // 2. Find or create TDS deduction line
-  const existingTdsLine = form.entries.find(e => 
-    (e.accountHead || '').toLowerCase().includes('tds payable')
-  );
+    // Remove any 'TDS Borne by Company' expense line
+    const expIdx = form.entries.findIndex(e => 
+      (e.accountHead || '').toLowerCase().includes('tds borne by company')
+    );
+    if (expIdx >= 0) {
+      form.entries.splice(expIdx, 1);
+    }
 
-  if (existingTdsLine) {
-    existingTdsLine.amount = -tdsAmt;
-    existingTdsLine.isDeduction = true;
-    existingTdsLine.accountHead = 'TDS Payable u/s 194C';
-  } else {
-    form.entries.push({
-      accountHead: 'TDS Payable u/s 194C',
-      amount: -tdsAmt,
-      isDeduction: true,
-      laborPeriodId: ''
-    });
+    // Find or create TDS deduction line
+    const existingTdsLine = form.entries.find(e => 
+      (e.accountHead || '').toLowerCase().includes('tds payable')
+    );
+    if (existingTdsLine) {
+      existingTdsLine.amount = -tdsAmt;
+      existingTdsLine.isDeduction = true;
+      existingTdsLine.accountHead = 'TDS Payable u/s 194C';
+    } else {
+      form.entries.push({
+        accountHead: 'TDS Payable u/s 194C',
+        amount: -tdsAmt,
+        isDeduction: true,
+        laborPeriodId: ''
+      });
+    }
   }
 
   // 3. Append mode to narration if not already present
@@ -896,6 +943,13 @@ function clearTdsForLine(index: number) {
   );
   if (existingTdsIndex >= 0) {
     form.entries.splice(existingTdsIndex, 1);
+  }
+  // Remove TDS Borne by Company line if present
+  const existingBorneIndex = form.entries.findIndex(e => 
+    (e.accountHead || '').toLowerCase().includes('tds borne by company')
+  );
+  if (existingBorneIndex >= 0) {
+    form.entries.splice(existingBorneIndex, 1);
   }
   delete originalAmounts[index];
   closeTdsAssistant();
