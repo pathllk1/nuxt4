@@ -38,6 +38,7 @@ export interface IReconciliationVariance {
 export interface IReconciliationReport {
   firmId: string;
   timestamp: string;
+  toDate?: string;
   overallStatus: 'HEALTHY' | 'WARNING' | 'CRITICAL';
   arSummary: { glTotal: number; slTotal: number; variance: number; status: string };
   apSummary: { glTotal: number; slTotal: number; variance: number; status: string };
@@ -92,6 +93,7 @@ export class SLGLReconcilerService {
     return {
       firmId: String(firmId),
       timestamp: new Date().toISOString(),
+      toDate: cutoffDate,
       overallStatus: hasCritical ? 'CRITICAL' : hasWarning ? 'WARNING' : 'HEALTHY',
       arSummary: arResult.summary,
       apSummary: apResult.summary,
@@ -391,19 +393,44 @@ export class SLGLReconcilerService {
     firmId: mongoose.Types.ObjectId,
     toDate: string
   ) {
+    const firmIdStr = String(firmId);
+
     // 1. General Ledger Balance for 'Advance to Employees' (ASSET)
     const glDocs = await Ledger.aggregate([
       {
         $match: {
-          $or: [{ firmId }, { firm_id: firmId }],
+          $or: [
+            { firmId: firmId },
+            { firm_id: firmId },
+            { firmId: firmIdStr },
+            { firm_id: firmIdStr },
+          ],
           accountHead: 'Advance to Employees',
           transactionDate: { $lte: toDate },
           isReversed: { $ne: true },
         },
       },
       {
+        $project: {
+          empId: {
+            $toString: {
+              $ifNull: [
+                '$masterRollId',
+                { $ifNull: ['$master_roll_id', '$tags.masterRollId'] }
+              ]
+            }
+          },
+          debitAmount: {
+            $convert: { input: '$debitAmount', to: 'double', onError: 0, onNull: 0 }
+          },
+          creditAmount: {
+            $convert: { input: '$creditAmount', to: 'double', onError: 0, onNull: 0 }
+          }
+        }
+      },
+      {
         $group: {
-          _id: '$masterRollId',
+          _id: '$empId',
           totalDebit: { $sum: '$debitAmount' },
           totalCredit: { $sum: '$creditAmount' },
         },
@@ -414,13 +441,31 @@ export class SLGLReconcilerService {
     const slDocs = await Advance.aggregate([
       {
         $match: {
-          firm_id: firmId,
+          $or: [
+            { firm_id: firmId },
+            { firmId: firmId },
+            { firm_id: firmIdStr },
+            { firmId: firmIdStr },
+          ],
           date: { $lte: toDate },
         },
       },
       {
+        $project: {
+          empId: {
+            $toString: {
+              $ifNull: ['$master_roll_id', '$masterRollId']
+            }
+          },
+          type: { $toUpper: '$type' },
+          amount: {
+            $convert: { input: '$amount', to: 'double', onError: 0, onNull: 0 }
+          }
+        }
+      },
+      {
         $group: {
-          _id: '$master_roll_id',
+          _id: '$empId',
           totalAdvance: {
             $sum: { $cond: [{ $eq: ['$type', 'ADVANCE'] }, '$amount', 0] },
           },
@@ -435,8 +480,8 @@ export class SLGLReconcilerService {
     let glGrandTotal = 0;
     for (const g of glDocs) {
       const net = (g.totalDebit || 0) - (g.totalCredit || 0);
-      const key = g._id ? String(g._id) : 'UNTAGGED';
-      glMap.set(key, net);
+      const key = (g._id && g._id !== 'null' && g._id !== '') ? String(g._id) : 'UNTAGGED';
+      glMap.set(key, (glMap.get(key) || 0) + net);
       glGrandTotal += net;
     }
 
@@ -444,8 +489,8 @@ export class SLGLReconcilerService {
     let slGrandTotal = 0;
     for (const s of slDocs) {
       const net = (s.totalAdvance || 0) - (s.totalRecovery || 0);
-      const key = s._id ? String(s._id) : 'UNKNOWN';
-      slMap.set(key, net);
+      const key = (s._id && s._id !== 'null' && s._id !== '') ? String(s._id) : 'UNKNOWN';
+      slMap.set(key, (slMap.get(key) || 0) + net);
       slGrandTotal += net;
     }
 

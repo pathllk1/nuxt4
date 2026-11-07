@@ -672,6 +672,19 @@ const deleteMember = async (userId: string) => {
               <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-400 group-hover:text-emerald-600" />
             </NuxtLink>
 
+            <NuxtLink to="/accounting/tds-manager" class="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800 hover:bg-amber-50/30 dark:hover:bg-amber-950/20 transition group">
+              <div class="flex items-center gap-2.5">
+                <div class="p-1.5 rounded-md bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400">
+                  <UIcon name="i-heroicons-building-library" class="w-4 h-4" />
+                </div>
+                <div>
+                  <p class="text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-amber-600">TDS Return Manager</p>
+                  <p class="text-[10px] text-slate-400">Sec 194C & Form 26Q Filing</p>
+                </div>
+              </div>
+              <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-400 group-hover:text-amber-600" />
+            </NuxtLink>
+
             <NuxtLink to="/subcontractor" class="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800 hover:bg-amber-50/30 dark:hover:bg-amber-950/20 transition group">
               <div class="flex items-center gap-2.5">
                 <div class="p-1.5 rounded-md bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400">

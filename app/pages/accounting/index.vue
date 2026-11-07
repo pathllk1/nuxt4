@@ -59,6 +59,15 @@
           @click="$router.push('/accounting/work-tracker')"
         />
         <UButton
+          color="neutral"
+          variant="outline"
+          size="sm"
+          icon="i-heroicons-building-library"
+          label="TDS Manager"
+          class="font-semibold text-xs h-8"
+          @click="$router.push('/accounting/tds-manager')"
+        />
+        <UButton
           color="primary"
           icon="i-heroicons-plus"
           size="sm"

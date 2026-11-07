@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useApi } from '@/utils/api';
+
+const api = useApi();
+const reconcilingId = ref<string | null>(null);
+const reconcileSuccessMsg = ref<string | null>(null);
+const expandedEntityId = ref<string | null>(null);
+const detailData = ref<any>(null);
+const detailLoading = ref(false);
 
 const props = defineProps<{
   modelValue: boolean;
@@ -11,6 +19,75 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
   (e: 'refresh'): void;
 }>();
+
+const toggleDetail = async (entityId: string) => {
+  if (expandedEntityId.value === entityId) {
+    expandedEntityId.value = null;
+    detailData.value = null;
+    return;
+  }
+  expandedEntityId.value = entityId;
+  detailLoading.value = true;
+  detailData.value = null;
+  try {
+    const toDateParam = props.report?.toDate ? `&toDate=${props.report.toDate}` : '';
+    const res = await api.get(`/accounting/audit/sl-gl-detail?id=${entityId}${toDateParam}`);
+    if (res.success && res.data) {
+      detailData.value = res.data;
+    }
+  } catch (err) {
+    console.error('Failed to fetch detail:', err);
+  } finally {
+    detailLoading.value = false;
+  }
+};
+
+watch(() => [props.modelValue, props.report?.variances], ([open, vars]) => {
+  if (open && vars && (vars as any[]).length === 1 && !expandedEntityId.value) {
+    toggleDetail((vars as any[])[0].entityId);
+  }
+}, { immediate: true });
+
+const reconcileVariance = async (v: any) => {
+  reconcilingId.value = v.entityId;
+  reconcileSuccessMsg.value = null;
+  try {
+    const res = await api.post('/accounting/audit/fix-advance-variance', {
+      entityId: v.entityId,
+      toDate: props.report?.toDate || (props.report as any)?.cutoffDate,
+      action: 'RECONCILE'
+    });
+    if (res.success) {
+      const detailsMsg = res.resolutionLog?.length ? ` (${res.resolutionLog.join('; ')})` : '';
+      reconcileSuccessMsg.value = res.message + detailsMsg;
+      if (props.report?.variances) {
+        const idx = props.report.variances.findIndex((x: any) => x.entityId === v.entityId);
+        if (idx !== -1) {
+          props.report.variances.splice(idx, 1);
+          if (props.report.variances.length === 0) {
+            props.report.overallStatus = 'HEALTHY';
+          }
+        }
+      }
+      emit('refresh');
+      if (expandedEntityId.value === v.entityId) {
+        // Re-fetch detail inspection
+        try {
+          const toDateParam = props.report?.toDate ? `&toDate=${props.report.toDate}` : '';
+          const detailRes = await api.get(`/accounting/audit/sl-gl-detail?id=${v.entityId}${toDateParam}`);
+          if (detailRes.success && detailRes.data) {
+            detailData.value = detailRes.data;
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (err: any) {
+    console.error('Reconciliation error:', err);
+    alert('Reconciliation failed: ' + (err.message || 'Server error'));
+  } finally {
+    reconcilingId.value = null;
+  }
+};
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -220,11 +297,23 @@ const formatINR = (n: number) => {
               </div>
             </div>
 
+            <!-- Reconcile Success Banner -->
+            <div v-if="reconcileSuccessMsg" class="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+              <div class="flex items-center gap-2">
+                <UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-emerald-600 shrink-0" />
+                <span>{{ reconcileSuccessMsg }}</span>
+              </div>
+              <button type="button" @click="reconcileSuccessMsg = null" class="text-emerald-700 hover:text-emerald-900 font-bold ml-2">✕</button>
+            </div>
+
             <!-- Detailed Variances Table (if any) -->
             <div v-if="report?.variances && report.variances.length > 0" class="space-y-3">
-              <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                Specific Discrepancies ({{ report.variances.length }})
-              </h4>
+              <div class="flex items-center justify-between">
+                <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Specific Discrepancies ({{ report.variances.length }})
+                </h4>
+                <span class="text-[10px] text-slate-400 font-medium">Click Strict Reconcile to eliminate drift without fallbacks</span>
+              </div>
               <div class="border rounded-2xl overflow-hidden dark:border-zinc-800">
                 <table class="w-full text-left text-xs">
                   <thead class="bg-slate-50 dark:bg-zinc-800/50 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b dark:border-zinc-800">
@@ -235,24 +324,132 @@ const formatINR = (n: number) => {
                       <th class="p-2.5 text-right">SL Balance</th>
                       <th class="p-2.5 text-right">Variance</th>
                       <th class="p-2.5 text-center">Status</th>
+                      <th class="p-2.5 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y dark:divide-zinc-800">
-                    <tr v-for="v in report.variances" :key="v.entityId" class="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
-                      <td class="p-2.5 font-bold text-slate-600 dark:text-zinc-400">{{ v.category }}</td>
-                      <td class="p-2.5">
-                        <div class="font-bold text-slate-900 dark:text-white">{{ v.entityName }}</div>
-                        <div class="text-[10px] font-mono text-slate-400">{{ v.entityId }}</div>
-                      </td>
-                      <td class="p-2.5 text-right font-mono font-bold">{{ formatINR(v.glBalance) }} ({{ v.glBalanceType }})</td>
-                      <td class="p-2.5 text-right font-mono font-bold">{{ formatINR(v.slBalance) }} ({{ v.slBalanceType }})</td>
-                      <td class="p-2.5 text-right font-mono font-black text-rose-600 dark:text-rose-400">{{ formatINR(v.variance) }}</td>
-                      <td class="p-2.5 text-center">
-                        <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300">
-                          {{ v.status }}
-                        </span>
-                      </td>
-                    </tr>
+                    <template v-for="v in report.variances" :key="v.entityId">
+                      <tr class="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
+                        <td class="p-2.5 font-bold text-slate-600 dark:text-zinc-400">{{ v.category }}</td>
+                        <td class="p-2.5">
+                          <div class="font-bold text-slate-900 dark:text-white">{{ v.entityName }}</div>
+                          <div class="text-[10px] font-mono text-slate-400">{{ v.entityId }}</div>
+                        </td>
+                        <td class="p-2.5 text-right font-mono font-bold">{{ formatINR(v.glBalance) }} ({{ v.glBalanceType }})</td>
+                        <td class="p-2.5 text-right font-mono font-bold">{{ formatINR(v.slBalance) }} ({{ v.slBalanceType }})</td>
+                        <td class="p-2.5 text-right font-mono font-black text-rose-600 dark:text-rose-400">{{ formatINR(v.variance) }}</td>
+                        <td class="p-2.5 text-center">
+                          <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300">
+                            {{ v.status }}
+                          </span>
+                        </td>
+                        <td class="p-2.5 text-center whitespace-nowrap">
+                          <div class="flex items-center justify-center gap-1.5">
+                            <UButton
+                              size="xs"
+                              color="neutral"
+                              variant="ghost"
+                              :icon="expandedEntityId === v.entityId ? 'i-heroicons-chevron-up' : 'i-heroicons-magnifying-glass'"
+                              :label="expandedEntityId === v.entityId ? 'Hide' : 'Inspect'"
+                              @click="toggleDetail(v.entityId)"
+                            />
+                            <UButton
+                              size="xs"
+                              color="primary"
+                              variant="solid"
+                              icon="i-heroicons-arrow-path-rounded-square"
+                              label="Strict Reconcile"
+                              :loading="reconcilingId === v.entityId"
+                              @click="reconcileVariance(v)"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                      <!-- Expandable Inspection Drill-Down -->
+                      <tr v-if="expandedEntityId === v.entityId" class="bg-slate-50/80 dark:bg-zinc-950/40">
+                        <td colspan="7" class="p-4 border-t border-b dark:border-zinc-800">
+                          <div v-if="detailLoading" class="py-4 text-center text-xs text-slate-400">
+                            <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin inline-block mr-1" />
+                            Loading ledger & sub-ledger records...
+                          </div>
+                          <div v-else-if="detailData" class="space-y-4">
+                            <div class="flex items-center justify-between border-b dark:border-zinc-800 pb-2">
+                              <span class="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                                Detailed Inspection: {{ detailData.employee?.employee_name || v.entityName }}
+                              </span>
+                              <div class="flex items-center gap-3 text-xs font-mono">
+                                <span>GL Net: <strong>{{ formatINR(detailData.glSummary?.netBalance) }}</strong> ({{ detailData.glSummary?.entryCount }} entries)</span>
+                                <span>SL Net: <strong>{{ formatINR(detailData.slSummary?.netBalance) }}</strong> ({{ detailData.slSummary?.entryCount }} entries)</span>
+                                <span class="text-rose-600 font-bold">Variance: {{ formatINR(detailData.variance) }}</span>
+                              </div>
+                            </div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              <!-- Left: GL Entries -->
+                              <div class="space-y-2">
+                                <h5 class="text-[11px] font-black uppercase text-slate-500">General Ledger (Advance to Employees)</h5>
+                                <div class="border rounded-xl overflow-hidden dark:border-zinc-800 bg-white dark:bg-zinc-900 max-h-48 overflow-y-auto">
+                                  <table class="w-full text-[11px]">
+                                    <thead class="bg-slate-100 dark:bg-zinc-800 text-[10px] text-slate-500 font-bold">
+                                      <tr>
+                                        <th class="p-1.5">Date</th>
+                                        <th class="p-1.5">Voucher</th>
+                                        <th class="p-1.5 text-right">Debit</th>
+                                        <th class="p-1.5 text-right">Credit</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody class="divide-y dark:divide-zinc-800">
+                                      <tr v-for="gl in detailData.ledgerEntries" :key="gl._id">
+                                        <td class="p-1.5 font-mono">{{ gl.transactionDate }}</td>
+                                        <td class="p-1.5">
+                                          <div class="font-bold truncate max-w-[120px]">{{ gl.voucherNo || gl.voucherGroupId }}</div>
+                                          <div class="text-[9px] text-slate-400 truncate max-w-[120px]">{{ gl.narration }}</div>
+                                        </td>
+                                        <td class="p-1.5 text-right font-mono">{{ gl.debitAmount ? formatINR(gl.debitAmount) : '-' }}</td>
+                                        <td class="p-1.5 text-right font-mono">{{ gl.creditAmount ? formatINR(gl.creditAmount) : '-' }}</td>
+                                      </tr>
+                                      <tr v-if="!detailData.ledgerEntries?.length">
+                                        <td colspan="4" class="p-2 text-center text-slate-400">No GL records found</td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                              <!-- Right: SL Entries -->
+                              <div class="space-y-2">
+                                <h5 class="text-[11px] font-black uppercase text-slate-500">Sub-Ledger (Advance Collection)</h5>
+                                <div class="border rounded-xl overflow-hidden dark:border-zinc-800 bg-white dark:bg-zinc-900 max-h-48 overflow-y-auto">
+                                  <table class="w-full text-[11px]">
+                                    <thead class="bg-slate-100 dark:bg-zinc-800 text-[10px] text-slate-500 font-bold">
+                                      <tr>
+                                        <th class="p-1.5">Date</th>
+                                        <th class="p-1.5">Type</th>
+                                        <th class="p-1.5">Remarks</th>
+                                        <th class="p-1.5 text-right">Amount</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody class="divide-y dark:divide-zinc-800">
+                                      <tr v-for="sl in detailData.advanceEntries" :key="sl._id">
+                                        <td class="p-1.5 font-mono">{{ sl.date }}</td>
+                                        <td class="p-1.5">
+                                          <span class="px-1.5 py-0.5 rounded text-[9px] font-bold" :class="sl.type === 'ADVANCE' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'">
+                                            {{ sl.type }}
+                                          </span>
+                                        </td>
+                                        <td class="p-1.5 text-[9px] text-slate-400 truncate max-w-[140px]">{{ sl.remarks || sl.voucher_group_id || '-' }}</td>
+                                        <td class="p-1.5 text-right font-mono font-bold">{{ formatINR(sl.amount) }}</td>
+                                      </tr>
+                                      <tr v-if="!detailData.advanceEntries?.length">
+                                        <td colspan="4" class="p-2 text-center text-slate-400">No sub-ledger records found</td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
                   </tbody>
                 </table>
               </div>
