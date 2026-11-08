@@ -4,17 +4,20 @@ import Ledger from '../../../models/Ledger';
 import { enforcePeriodLock } from '../../../utils/accounting/period-lock.service';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
+import { connectDB } from '../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   try {
-    const session = await requireAuthSession(event);
-    const firmIdStr = String(session.firm_id);
+    const sessionUser = await requireAuthSession(event);
+    const firmIdStr = String(sessionUser.firm_id);
     const firmIdObj = new mongoose.Types.ObjectId(firmIdStr);
 
     const voucherGroupId = event.context.params?.voucherGroupId;
     if (!voucherGroupId || !voucherGroupId.trim()) {
       throw createError({ statusCode: 400, statusMessage: 'Voucher Group ID is required' });
     }
+
+    await connectDB();
 
     // 1. Locate existing entries for this voucher
     const entries = await Ledger.find({
@@ -60,24 +63,50 @@ export default defineEventHandler(async (event) => {
       if (pgErr.statusCode) throw pgErr;
     }
 
-    // 5. Delete voucher legs atomically
-    const mongoSession = await mongoose.startSession();
-    mongoSession.startTransaction();
-    try {
-      await Ledger.deleteMany(
+    // 5. Neutralize voucher legs (Statutory Audit Immutability: Flag as reversed)
+    const executeDelete = async (mongoSession?: mongoose.ClientSession) => {
+      await Ledger.updateMany(
         {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          voucherGroupId: voucherGroupId.trim()
+          voucherGroupId: voucherGroupId.trim(),
+          isReversed: { $ne: true }
         },
-        { session: mongoSession }
+        {
+          $set: {
+            isReversed: true,
+            reversedAt: new Date(),
+            reversedBy: sessionUser.username || sessionUser.email || 'system'
+          }
+        },
+        mongoSession ? { session: mongoSession } : {}
       );
+    };
 
+    let mongoSession: mongoose.ClientSession | null = null;
+    try {
+      mongoSession = await mongoose.connection.startSession();
+      mongoSession.startTransaction();
+      await executeDelete(mongoSession);
       await mongoSession.commitTransaction();
-    } catch (dbErr) {
-      await mongoSession.abortTransaction();
-      throw dbErr;
+    } catch (err: any) {
+      if (mongoSession) {
+        try { await mongoSession.abortTransaction(); } catch (_) {}
+      }
+
+      if (
+        err.message?.includes('ClientSession must be from the same MongoClient') ||
+        err.message?.includes('replica set') ||
+        err.message?.includes('Transaction numbers')
+      ) {
+        console.warn('[Vouchers Delete] Retrying voucher cancel without transaction session:', err.message);
+        await executeDelete(undefined);
+      } else {
+        throw err;
+      }
     } finally {
-      mongoSession.endSession();
+      if (mongoSession) {
+        try { mongoSession.endSession(); } catch (_) {}
+      }
     }
 
     // 6. Clean up any linked labor advances in PostgreSQL
@@ -96,7 +125,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      message: `Voucher ${voucherGroupId} (${entries[0]?.voucherNo || voucherGroupId}) was deleted successfully.`,
+      message: `Voucher ${voucherGroupId} (${entries[0]?.voucherNo || voucherGroupId}) was cancelled successfully in compliance with audit trail standards.`,
       deletedCount: entries.length
     };
   } catch (err: any) {

@@ -2,24 +2,28 @@ import mongoose from 'mongoose';
 import Bill from '../../../../models/Bill';
 import Ledger from '../../../../models/Ledger';
 import { requireAuthSession } from '../../../../utils/auth';
+import { connectDB } from '../../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const id = getRouterParam(event, 'id');
-  const body = await readBody(event) || {};
+  const body = (await readBody(event)) || {};
 
   if (!id || !mongoose.Types.ObjectId.isValid(id)) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid bill ID' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  await connectDB();
 
-  try {
-    const bill = await Bill.findOne({
+  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+
+  const executeCancel = async (session?: mongoose.ClientSession) => {
+    const billQuery = Bill.findOne({
       _id: id,
-      firmId: new mongoose.Types.ObjectId(user.firm_id as string)
-    }).session(session);
+      firmId: firmIdObj
+    });
+    if (session) billQuery.session(session);
+    const bill = await billQuery;
 
     if (!bill) {
       throw createError({ statusCode: 404, statusMessage: 'Bill not found' });
@@ -34,15 +38,20 @@ export default defineEventHandler(async (event) => {
     bill.cancelledAt = new Date();
     bill.cancelledBy = new mongoose.Types.ObjectId(user._id as string);
 
-    await bill.save({ session });
+    if (session) {
+      await bill.save({ session });
+    } else {
+      await bill.save();
+    }
 
     // 1. Post reversal ledger entries (immutable audit trail — never delete financial records)
-    const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
-    const originalEntries = await Ledger.find({
+    const ledgerFindQuery = Ledger.find({
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
       refType: 'BILL',
       refId: bill._id
-    }).session(session).lean();
+    });
+    if (session) ledgerFindQuery.session(session);
+    const originalEntries = await ledgerFindQuery.lean();
 
     if (originalEntries.length > 0) {
       const reversalVoucherGroupId = `CANCEL-${bill.voucherId || bill._id}`;
@@ -61,24 +70,27 @@ export default defineEventHandler(async (event) => {
       const { UnifiedPostingService } = await import('../../../../utils/accounting/unified-posting.service');
       const { mapLegacyVoucherType } = await import('../../../../utils/accounting/posting-adapter');
 
-      await UnifiedPostingService.postVoucher({
-        firmId: firmIdObj,
-        voucherType: mapLegacyVoucherType(bill.btype || 'JOURNAL'),
-        transactionDate: (new Date().toISOString().split('T')[0] as string),
-        narration: `CANCELLATION REVERSAL: [Original Bill: ${bill.bno}] - ${body.reason || 'User cancellation'}`,
-        legs: reversalLegs,
-        createdBy: user.username || user.email || 'system',
-        refType: 'BILL_CANCELLATION',
-        refId: bill._id,
-        externalVoucherGroupId: reversalVoucherGroupId,
-        externalVoucherNo: `CANCEL/${bill.bno}`,
-      }, session);
+      await UnifiedPostingService.postVoucher(
+        {
+          firmId: firmIdObj,
+          voucherType: mapLegacyVoucherType(bill.btype || 'JOURNAL'),
+          transactionDate: new Date().toISOString().split('T')[0] as string,
+          narration: `CANCELLATION REVERSAL: [Original Bill: ${bill.bno}] - ${body.reason || 'User cancellation'}`,
+          legs: reversalLegs,
+          createdBy: user.username || user.email || 'system',
+          refType: 'BILL_CANCELLATION',
+          refId: bill._id,
+          externalVoucherGroupId: reversalVoucherGroupId,
+          externalVoucherNo: `CANCEL/${bill.bno}`,
+        },
+        session
+      );
 
       // Mark original ledger entries as reversed
       await Ledger.updateMany(
         { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }], refType: 'BILL', refId: bill._id },
         { $set: { isReversed: true, reversedBy: reversalVoucherGroupId } },
-        { session }
+        session ? { session } : {}
       );
     }
 
@@ -89,7 +101,6 @@ export default defineEventHandler(async (event) => {
         if (!item.item || !item.qty || item.qty <= 0) continue;
         try {
           if (bill.btype === 'SALES') {
-            // Cancel Sales -> return goods back to inventory (inward)
             await StockService.updateStockInward({
               firmId: firmIdObj,
               itemData: {
@@ -113,7 +124,6 @@ export default defineEventHandler(async (event) => {
               session
             });
           } else if (bill.btype === 'PURCHASE') {
-            // Cancel Purchase -> remove goods back out of inventory (outward)
             await StockService.updateStockOutward({
               firmId: firmIdObj,
               itemData: {
@@ -143,17 +153,45 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    await session.commitTransaction();
-    session.endSession();
+    return bill;
+  };
 
-    return {
-      success: true,
-      message: `Bill ${bill.bno} cancelled successfully`,
-      data: bill
-    };
+  let session: mongoose.ClientSession | null = null;
+  let cancelledBill: any;
+
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    cancelledBill = await executeCancel(session);
+    await session.commitTransaction();
   } catch (err: any) {
-    await session.abortTransaction();
-    session.endSession();
-    throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('[Bill Cancel] Retrying cancellation without transaction session:', err.message);
+      try {
+        cancelledBill = await executeCancel(undefined);
+      } catch (retryErr: any) {
+        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
+      }
+    } else {
+      throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
+    }
+  } finally {
+    if (session) {
+      try { session.endSession(); } catch (_) {}
+    }
   }
+
+  return {
+    success: true,
+    message: `Bill ${cancelledBill.bno} cancelled successfully`,
+    data: cancelledBill
+  };
 });

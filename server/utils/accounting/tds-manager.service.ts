@@ -118,7 +118,7 @@ export class TdsManagerService {
     }
 
     const [startYearStr] = fy.split('-');
-    const startYear = parseInt(startYearStr, 10) || currentYear;
+    const startYear = parseInt(startYearStr || '2026', 10);
     const endYear = startYear + 1;
 
     const qtr = (params.quarter || 'ALL').toUpperCase();
@@ -170,8 +170,9 @@ export class TdsManagerService {
     if (combined.includes('194I') || combined.includes('RENT')) return '194I';
     if (combined.includes('194H') || combined.includes('COMMISSION') || combined.includes('BROKERAGE')) return '194H';
     if (combined.includes('194Q')) return '194Q';
+    if (combined.includes('194A') || combined.includes('INTEREST')) return '194A';
     if (combined.includes('192') || combined.includes('SALARY')) return '192';
-    return '194C'; // Default statutory contractor section
+    return 'UNCLASSIFIED';
   }
 
   /**
@@ -184,14 +185,18 @@ export class TdsManagerService {
 
     // 1. Fetch only genuine TDS liability credit entries in date range
     const candidateTdsEntries = await Ledger.find({
-      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      $and: [
+        { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
+        {
+          $or: [
+            { accountType: 'DUTIES_AND_TAXES' },
+            { accountHead: { $regex: /\btds\b|\btax deducted\b|\bwithholding\b/i } }
+          ]
+        }
+      ],
       transactionDate: { $gte: startDate, $lte: endDate },
       creditAmount: { $gt: 0 },
       isReversed: { $ne: true },
-      $or: [
-        { accountType: 'DUTIES_AND_TAXES' },
-        { accountHead: { $regex: /\btds\b|\btax deducted\b|\bwithholding\b/i } }
-      ],
       accountHead: { $not: /borne by company/i }
     }).lean();
 
@@ -291,6 +296,7 @@ export class TdsManagerService {
       if (totalTdsAmt <= 0) continue;
 
       const primaryTdsLeg = tdsLegs[0];
+      if (!primaryTdsLeg) continue;
 
       // Check if Gross-Up applies (company bears the TDS u/s 195A)
       const isGrossUp = (primaryTdsLeg as any)?.statutory?.isGrossUp !== undefined
@@ -379,7 +385,7 @@ export class TdsManagerService {
       if (!payeePan && payeeName) {
         const matchedUser = userList.find(u => 
           u.name.trim().toLowerCase() === payeeName.toLowerCase() ||
-          u.username?.toLowerCase() === payeeName.toLowerCase()
+          (u as any).username?.toLowerCase() === payeeName.toLowerCase()
         );
         if (matchedUser) {
           const firmAssignment = matchedUser.firms?.find(f => f.firm.toString() === firmIdObj.toString());
@@ -491,9 +497,10 @@ export class TdsManagerService {
       if (!sectionBreakdown[item.section]) {
         sectionBreakdown[item.section] = { count: 0, gross: 0, tds: 0 };
       }
-      sectionBreakdown[item.section].count++;
-      sectionBreakdown[item.section].gross += item.grossAmount;
-      sectionBreakdown[item.section].tds += item.tdsAmount;
+      const secStats = sectionBreakdown[item.section]!;
+      secStats.count++;
+      secStats.gross += item.grossAmount;
+      secStats.tds += item.tdsAmount;
 
       // Quarter breakdown
       const month = new Date(item.transactionDate).getMonth() + 1;
@@ -503,9 +510,10 @@ export class TdsManagerService {
       else if (month >= 10 && month <= 12) qKey = 'Q3';
       else qKey = 'Q4';
 
-      quarterBreakdown[qKey].count++;
-      quarterBreakdown[qKey].gross += item.grossAmount;
-      quarterBreakdown[qKey].tds += item.tdsAmount;
+      const qtrStats = quarterBreakdown[qKey]!;
+      qtrStats.count++;
+      qtrStats.gross += item.grossAmount;
+      qtrStats.tds += item.tdsAmount;
     }
 
     const totalRecords = filteredItems.length;

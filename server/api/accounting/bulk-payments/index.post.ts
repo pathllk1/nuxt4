@@ -4,11 +4,12 @@ import BankAccount from '../../../models/BankAccount';
 import Party from '../../../models/Party';
 import { UnifiedPostingService } from '../../../utils/accounting/unified-posting.service';
 import { requireAuthSession } from '../../../utils/auth';
+import { connectDB } from '../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
-  const body = await readBody(event) || {};
+  const body = (await readBody(event)) || {};
 
   const { bankAccountId, paymentDate, chequeNo, defaultPaysys, narration, items } = body;
 
@@ -19,6 +20,8 @@ export default defineEventHandler(async (event) => {
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw createError({ statusCode: 400, statusMessage: 'At least one beneficiary payout row is required' });
   }
+
+  await connectDB();
 
   const bankAccount = await BankAccount.findOne({
     _id: new mongoose.Types.ObjectId(String(bankAccountId)),
@@ -32,12 +35,11 @@ export default defineEventHandler(async (event) => {
   const effectiveDate = paymentDate || new Date().toISOString().split('T')[0];
   const year = new Date(effectiveDate).getFullYear();
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
+  const executeBulkPayment = async (session?: mongoose.ClientSession) => {
     // Generate unique batch number
-    const count = await BulkPayment.countDocuments({ firmId: firmIdObj }).session(session);
+    const countQuery = BulkPayment.countDocuments({ firmId: firmIdObj });
+    if (session) countQuery.session(session);
+    const count = await countQuery;
     const batchNo = `BPAY/${year}/${(count + 1).toString().padStart(4, '0')}`;
 
     let totalAmount = 0;
@@ -58,13 +60,17 @@ export default defineEventHandler(async (event) => {
         : null;
 
       if (partyIdObj) {
-        const partyExists = await Party.exists({ _id: partyIdObj, firmId: firmIdObj }).session(session);
+        const partyExistsQuery = Party.exists({ _id: partyIdObj, firmId: firmIdObj });
+        if (session) partyExistsQuery.session(session);
+        const partyExists = await partyExistsQuery;
         if (!partyExists) {
           const targetName = rawItem.accountHead || rawItem.beneficiaryName;
-          const matchedParty = await Party.findOne({
+          const matchPartyQuery = Party.findOne({
             firmId: firmIdObj,
             name: { $regex: `^${String(targetName).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
-          }).session(session).lean();
+          });
+          if (session) matchPartyQuery.session(session);
+          const matchedParty = await matchPartyQuery.lean();
           partyIdObj = matchedParty ? (matchedParty._id as mongoose.Types.ObjectId) : null;
         }
       }
@@ -72,34 +78,37 @@ export default defineEventHandler(async (event) => {
       // Double-entry via UnifiedPostingService:
       // Leg 1: Debit Party/Expense Account
       // Leg 2: Credit Firm Bank Account
-      const postResult = await UnifiedPostingService.postVoucher({
-        firmId: firmIdObj,
-        voucherType: 'PAYMENT',
-        transactionDate: effectiveDate,
-        narration: fullLineNarration,
-        legs: [
-          {
-            accountHead: rawItem.accountHead || rawItem.beneficiaryName,
-            accountType: rawItem.accountType || 'EXPENSE',
-            debitAmount: amount,
-            creditAmount: 0,
-            partyId: partyIdObj,
-            narration: fullLineNarration,
-          },
-          {
-            accountHead: bankAccount.account_name,
-            accountType: 'BANK',
-            debitAmount: 0,
-            creditAmount: amount,
-            bankAccountId: bankAccount._id as mongoose.Types.ObjectId,
-            paymentMode: rawItem.paysysId || 'NEFT',
-            narration: fullLineNarration,
-          }
-        ],
-        createdBy: user.username || user.email || 'system',
-        refType: 'PAYMENT',
-        tags: { batchNo, beneficiaryName: rawItem.beneficiaryName },
-      }, session);
+      const postResult = await UnifiedPostingService.postVoucher(
+        {
+          firmId: firmIdObj,
+          voucherType: 'PAYMENT',
+          transactionDate: effectiveDate,
+          narration: fullLineNarration,
+          legs: [
+            {
+              accountHead: rawItem.accountHead || rawItem.beneficiaryName,
+              accountType: rawItem.accountType || 'EXPENSE',
+              debitAmount: amount,
+              creditAmount: 0,
+              partyId: partyIdObj,
+              narration: fullLineNarration,
+            },
+            {
+              accountHead: bankAccount.account_name,
+              accountType: 'BANK',
+              debitAmount: 0,
+              creditAmount: amount,
+              bankAccountId: bankAccount._id as mongoose.Types.ObjectId,
+              paymentMode: rawItem.paysysId || 'NEFT',
+              narration: fullLineNarration,
+            }
+          ],
+          createdBy: user.username || user.email || 'system',
+          refType: 'PAYMENT',
+          tags: { batchNo, beneficiaryName: rawItem.beneficiaryName },
+        },
+        session
+      );
 
       processedItems.push({
         accountHead: rawItem.accountHead || rawItem.beneficiaryName,
@@ -136,19 +145,52 @@ export default defineEventHandler(async (event) => {
       createdBy: user.username || user.email || 'system'
     });
 
-    await bulkPaymentDoc.save({ session });
-    await session.commitTransaction();
+    if (session) {
+      await bulkPaymentDoc.save({ session });
+    } else {
+      await bulkPaymentDoc.save();
+    }
 
-    return {
-      success: true,
-      message: `Bulk payment batch ${batchNo} with ${processedItems.length} vouchers posted successfully`,
-      data: bulkPaymentDoc
-    };
+    return { bulkPaymentDoc, batchNo, processedItemsCount: processedItems.length };
+  };
+
+  let session: mongoose.ClientSession | null = null;
+  let result: any;
+
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    result = await executeBulkPayment(session);
+    await session.commitTransaction();
   } catch (err: any) {
-    await session.abortTransaction();
-    console.error('Error posting bulk payment batch:', err);
-    throw createError({ statusCode: 500, statusMessage: err.message || 'Failed to post bulk payment' });
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('[Bulk Payments Post] Retrying without transaction session:', err.message);
+      try {
+        result = await executeBulkPayment(undefined);
+      } catch (retryErr: any) {
+        throw createError({ statusCode: 500, statusMessage: retryErr.message || 'Failed to post bulk payment' });
+      }
+    } else {
+      console.error('Error posting bulk payment batch:', err);
+      throw createError({ statusCode: 500, statusMessage: err.message || 'Failed to post bulk payment' });
+    }
   } finally {
-    session.endSession();
+    if (session) {
+      try { session.endSession(); } catch (_) {}
+    }
   }
+
+  return {
+    success: true,
+    message: `Bulk payment batch ${result.batchNo} with ${result.processedItemsCount} vouchers posted successfully`,
+    data: result.bulkPaymentDoc
+  };
 });

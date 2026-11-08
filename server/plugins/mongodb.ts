@@ -1,10 +1,21 @@
 import mongoose from 'mongoose';
 import '../models/register';
 
-let isConnecting = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
-const BASE_RECONNECT_DELAY_MS = 1000;
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<boolean> | null;
+  listenersAttached: boolean;
+}
+
+const g = globalThis as unknown as { __mongooseCache?: MongooseCache };
+if (!g.__mongooseCache) {
+  g.__mongooseCache = {
+    conn: null,
+    promise: null,
+    listenersAttached: false,
+  };
+}
+const cache = g.__mongooseCache;
 
 const getConnectionOptions = (): mongoose.ConnectOptions => {
   const isServerless = !!process.env.VERCEL;
@@ -22,11 +33,12 @@ const getConnectionOptions = (): mongoose.ConnectOptions => {
 
 export const connectDB = async (): Promise<boolean> => {
   if (mongoose.connection.readyState === 1) {
+    cache.conn = mongoose;
     return true;
   }
 
-  if (isConnecting || mongoose.connection.readyState === 2) {
-    return waitForConnection(10000);
+  if (cache.promise) {
+    return cache.promise;
   }
 
   const connString = process.env.MONGODB_URI;
@@ -35,19 +47,22 @@ export const connectDB = async (): Promise<boolean> => {
     return false;
   }
 
-  isConnecting = true;
+  cache.promise = (async () => {
+    try {
+      await mongoose.connect(connString, getConnectionOptions());
+      console.log(`MongoDB Connected: ${mongoose.connection.host}`);
+      cache.conn = mongoose;
+      return true;
+    } catch (error) {
+      console.error('MongoDB connection error:', (error as Error).message);
+      cache.conn = null;
+      return false;
+    } finally {
+      cache.promise = null;
+    }
+  })();
 
-  try {
-    await mongoose.connect(connString, getConnectionOptions());
-    console.log(`MongoDB Connected: ${mongoose.connection.host}`);
-    reconnectAttempts = 0;
-    isConnecting = false;
-    return true;
-  } catch (error) {
-    console.error('MongoDB connection error:', (error as Error).message);
-    isConnecting = false;
-    return false;
-  }
+  return cache.promise;
 };
 
 export const waitForConnection = (timeoutMs: number = 10000): Promise<boolean> => {
@@ -79,46 +94,27 @@ export const waitForConnection = (timeoutMs: number = 10000): Promise<boolean> =
   });
 };
 
-const attemptReconnect = async (): Promise<void> => {
-  if (isConnecting || mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
-    return;
+export default defineNitroPlugin(async () => {
+  // Connection Event Monitors — attach only once globally across HMR reloads
+  if (!cache.listenersAttached) {
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err.message || err);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.warn('MongoDB disconnected. Native driver connection pool will automatically reconnect.');
+    });
+
+    mongoose.connection.on('connected', () => {
+      console.log('MongoDB connected.');
+    });
+
+    mongoose.connection.on('reconnected', () => {
+      console.log('MongoDB reconnected.');
+    });
+
+    cache.listenersAttached = true;
   }
-
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.error(`MongoDB: Gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts`);
-    return;
-  }
-
-  reconnectAttempts++;
-  const delay = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts - 1), 30000);
-  console.log(`MongoDB: Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
-
-  await new Promise(res => setTimeout(res, delay));
-  await connectDB();
-};
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Connection Event Monitors
-  mongoose.connection.on('error', (err) => {
-    console.error('MongoDB connection error:', err.message || err);
-  });
-
-  mongoose.connection.on('disconnected', () => {
-    console.warn('MongoDB disconnected.');
-    if (!process.env.VERCEL) {
-      attemptReconnect();
-    }
-  });
-
-  mongoose.connection.on('connected', () => {
-    console.log('MongoDB connected.');
-    reconnectAttempts = 0;
-  });
-
-  mongoose.connection.on('reconnected', () => {
-    console.log('MongoDB reconnected.');
-    reconnectAttempts = 0;
-  });
 
   // Connect on startup
   console.log('Initializing MongoDB connection via Nitro plugin...');

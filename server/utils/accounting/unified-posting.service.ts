@@ -17,6 +17,9 @@ import {
   PNL_ACCOUNT_TYPES,
   BALANCE_SHEET_ACCOUNT_TYPES,
   classifyAccountType,
+  toPaise,
+  fromPaise,
+  ACCOUNT_CODE_MAP,
 } from '../../types/accounting';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -109,9 +112,11 @@ export class UnifiedPostingService {
 
     const ledgerDocs = resolvedLegs.map((leg) => ({
       firmId: firmIdObj,
+      firm_id: firmIdObj, // Canonical dual-identity mirror
       transactionDate: payload.transactionDate,
       accountHead: leg.accountHead,
       accountType: leg.accountType,
+      accountCode: (leg as any).accountCode || ACCOUNT_CODE_MAP[leg.accountType || ''] || null,
       debitAmount: leg.debitAmount || 0,
       creditAmount: leg.creditAmount || 0,
       narration: leg.narration || payload.narration,
@@ -127,6 +132,7 @@ export class UnifiedPostingService {
       paymentMode: leg.paymentMode || null,
       isWageEntry: isWage,
       masterRollId,
+      replacesVoucherGroupId: payload.tags?.replacesVoucherGroupId || null,
       statutory: leg.statutory || null,
       createdBy: payload.createdBy,
     }));
@@ -171,7 +177,10 @@ export class UnifiedPostingService {
 
     // Fetch the original voucher entries
     const originalEntries = await Ledger.find(
-      { firmId: firmIdObj, voucherGroupId: originalVoucherGroupId },
+      {
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        voucherGroupId: originalVoucherGroupId
+      },
       null,
       session ? { session } : {}
     ).lean();
@@ -179,6 +188,13 @@ export class UnifiedPostingService {
     if (!originalEntries || originalEntries.length === 0) {
       throw new Error(
         `Cannot reverse: No ledger entries found for voucherGroupId "${originalVoucherGroupId}"`
+      );
+    }
+
+    // Invariant: Guard against double-reversal cascades
+    if (originalEntries.some((e) => e.isReversed)) {
+      throw new Error(
+        `[Idempotency Guard] Voucher "${originalVoucherGroupId}" is already marked as reversed. Duplicate reversal rejected.`
       );
     }
 
@@ -219,10 +235,19 @@ export class UnifiedPostingService {
       session
     );
 
-    // Flag original entries as reversed
+    // Flag original entries as reversed with audit metadata
     await Ledger.updateMany(
-      { firmId: firmIdObj, voucherGroupId: originalVoucherGroupId },
-      { $set: { isReversed: true } },
+      {
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        voucherGroupId: originalVoucherGroupId
+      },
+      {
+        $set: {
+          isReversed: true,
+          reversedAt: new Date(),
+          reversedBy: createdBy,
+        }
+      },
       session ? { session } : {}
     );
 
@@ -246,7 +271,7 @@ export class UnifiedPostingService {
     firmId: mongoose.Types.ObjectId | string;
     voucherGroupId: string;
     payload: IVoucherPayload;
-    session: mongoose.ClientSession;
+    session?: mongoose.ClientSession;
   }): Promise<IPostingResult> {
     const { voucherGroupId, payload, session } = params;
     const firmIdObj = this.toObjectId(params.firmId, 'firmId');
@@ -258,7 +283,7 @@ export class UnifiedPostingService {
         voucherGroupId: voucherGroupId.trim()
       },
       null,
-      { session }
+      session ? { session } : {}
     ).lean();
 
     if (!existingEntries || existingEntries.length === 0) {
@@ -301,13 +326,22 @@ export class UnifiedPostingService {
       payload.narration
     );
 
-    // 7. Delete old legs atomically
-    await Ledger.deleteMany(
+    // 7. Neutralize old legs (Statutory Audit Immutability: Never delete General Ledger records)
+    await Ledger.updateMany(
       {
         $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-        voucherGroupId: voucherGroupId.trim()
+        voucherGroupId: voucherGroupId.trim(),
+        isReversed: { $ne: true }
       },
-      { session }
+      {
+        $set: {
+          isReversed: true,
+          reversedAt: new Date(),
+          reversedBy: payload.createdBy || 'system',
+          replacesVoucherGroupId: voucherGroupId.trim()
+        }
+      },
+      session ? { session } : {}
     );
 
     // 8. Re-insert new legs preserving original metadata
@@ -318,9 +352,11 @@ export class UnifiedPostingService {
 
     const ledgerDocs = resolvedLegs.map((leg) => ({
       firmId: firmIdObj,
+      firm_id: firmIdObj,
       transactionDate: payload.transactionDate,
       accountHead: leg.accountHead,
       accountType: leg.accountType,
+      accountCode: (leg as any).accountCode || ACCOUNT_CODE_MAP[leg.accountType || ''] || null,
       debitAmount: leg.debitAmount || 0,
       creditAmount: leg.creditAmount || 0,
       narration: leg.narration || payload.narration,
@@ -336,13 +372,14 @@ export class UnifiedPostingService {
       paymentMode: leg.paymentMode || null,
       isWageEntry: isWage,
       masterRollId,
+      replacesVoucherGroupId: voucherGroupId.trim(),
       statutory: leg.statutory || null,
       createdBy: firstEntry.createdBy || payload.createdBy,
       createdAt: firstEntry.createdAt,
       updatedAt: new Date()
     }));
 
-    await (Ledger as any).insertMany(ledgerDocs, { session });
+    await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
 
     return {
       success: true,
@@ -391,7 +428,7 @@ export class UnifiedPostingService {
       const fallbackType = (leg.accountType || 'GENERAL').toUpperCase();
 
       // Resolve from ChartOfAccounts — auto-create if not found
-      const { accountHead, accountType } = await this.resolveAccountInCOA(
+      const { accountHead, accountType, accountCode } = await this.resolveAccountInCOA(
         firmId,
         rawHead,
         fallbackType,
@@ -470,11 +507,12 @@ export class UnifiedPostingService {
         ...leg,
         accountHead,
         accountType,
+        accountCode,
         partyId,
         bankAccountId,
         debitAmount: dr,
         creditAmount: cr,
-      });
+      } as any);
     }
 
     if (resolved.length === 0) {
@@ -493,7 +531,7 @@ export class UnifiedPostingService {
     accountHead: string,
     fallbackType: string,
     session?: mongoose.ClientSession
-  ): Promise<{ accountHead: string; accountType: string }> {
+  ): Promise<{ accountHead: string; accountType: string; accountCode?: string | null }> {
     // Try to find existing COA entry (case-insensitive, firm-scoped)
     const escapedHead = accountHead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const existing = await ChartOfAccounts.findOne(
@@ -502,7 +540,7 @@ export class UnifiedPostingService {
         account_name: { $regex: `^${escapedHead}$`, $options: 'i' },
         is_active: true,
       },
-      'account_name account_type',
+      'account_name account_type account_code',
       { session }
     ).lean();
 
@@ -510,6 +548,7 @@ export class UnifiedPostingService {
       return {
         accountHead: existing.account_name,
         accountType: existing.account_type,
+        accountCode: existing.account_code || ACCOUNT_CODE_MAP[existing.account_type] || null,
       };
     }
 
@@ -524,6 +563,7 @@ export class UnifiedPostingService {
 
     // Auto-create the COA entry if it doesn't exist
     const bsClass = classifyAccountType(normalizedType);
+    const accountCode = ACCOUNT_CODE_MAP[normalizedType] || null;
     try {
       const created = await (ChartOfAccounts as any).create(
         [
@@ -532,6 +572,7 @@ export class UnifiedPostingService {
             firmId: firmId,
             account_name: accountHead,
             account_type: normalizedType,
+            account_code: accountCode,
             bs_classification: bsClass,
             is_system: false,
             is_active: true,
@@ -543,6 +584,7 @@ export class UnifiedPostingService {
       return {
         accountHead: created[0].account_name,
         accountType: created[0].account_type,
+        accountCode: created[0].account_code || accountCode,
       };
     } catch (createErr: any) {
       // Handle race condition: another process may have created it concurrently
@@ -552,7 +594,7 @@ export class UnifiedPostingService {
             $or: [{ firm_id: firmId }, { firmId: firmId }],
             account_name: { $regex: `^${escapedHead}$`, $options: 'i' },
           },
-          'account_name account_type',
+          'account_name account_type account_code',
           { session }
         ).lean();
 
@@ -560,6 +602,7 @@ export class UnifiedPostingService {
           return {
             accountHead: retry.account_name,
             accountType: retry.account_type,
+            accountCode: retry.account_code || ACCOUNT_CODE_MAP[retry.account_type] || null,
           };
         }
       }
@@ -585,31 +628,32 @@ export class UnifiedPostingService {
     voucherType: string,
     narration: string
   ): { totalDebit: number; totalCredit: number } {
-    const totalDebit = legs.reduce((sum, leg) => sum + (Number(leg.debitAmount) || 0), 0);
-    const totalCredit = legs.reduce((sum, leg) => sum + (Number(leg.creditAmount) || 0), 0);
+    const totalDebitPaise = legs.reduce((sum, leg) => sum + toPaise(leg.debitAmount), 0);
+    const totalCreditPaise = legs.reduce((sum, leg) => sum + toPaise(leg.creditAmount), 0);
 
-    const diff = Math.abs(totalDebit - totalCredit);
+    const diffPaise = Math.abs(totalDebitPaise - totalCreditPaise);
 
-    if (diff > DOUBLE_ENTRY_TOLERANCE) {
+    if (diffPaise > 0) {
       // Build detailed error message for debugging
       const legDetails = legs
         .map(
           (leg, i) =>
-            `  Leg ${i + 1}: ${leg.accountHead} | DR: ${(leg.debitAmount || 0).toFixed(2)} | CR: ${(leg.creditAmount || 0).toFixed(2)}`
+            `  Leg ${i + 1}: ${leg.accountHead} | DR: ₹${(leg.debitAmount || 0).toFixed(2)} (${toPaise(leg.debitAmount)} paise) | CR: ₹${(leg.creditAmount || 0).toFixed(2)} (${toPaise(leg.creditAmount)} paise)`
         )
         .join('\n');
 
       throw new Error(
         `Double-entry parity violation in ${voucherType} voucher.\n` +
-        `Total Debit: ₹${totalDebit.toFixed(2)}\n` +
-        `Total Credit: ₹${totalCredit.toFixed(2)}\n` +
-        `Difference: ₹${diff.toFixed(2)} (tolerance: ₹${DOUBLE_ENTRY_TOLERANCE})\n` +
+        `Total Debit: ₹${fromPaise(totalDebitPaise).toFixed(2)} (${totalDebitPaise} paise)\n` +
+        `Total Credit: ₹${fromPaise(totalCreditPaise).toFixed(2)} (${totalCreditPaise} paise)\n` +
+        `Discrepancy: ₹${fromPaise(diffPaise).toFixed(2)} (${diffPaise} paise)\n` +
+        `Zero Tolerance: Debits must equal Credits to the exact integer paise (±₹0.00).\n` +
         `Narration: "${narration}"\n` +
         `Legs:\n${legDetails}`
       );
     }
 
-    return { totalDebit, totalCredit };
+    return { totalDebit: fromPaise(totalDebitPaise), totalCredit: fromPaise(totalCreditPaise) };
   }
 
   // ═══════════════════════════════════════════════════════════════════════

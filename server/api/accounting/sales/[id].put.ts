@@ -208,18 +208,39 @@ export default defineEventHandler(async (event) => {
 
     if (session) {
       await existingBill.save({ session });
-      await Ledger.deleteMany({
-        firmId: firmIdObj,
-        voucherGroupId: existingBill.voucherId,
-        voucherType: 'SALES'
-      }, { session });
+      await Ledger.updateMany(
+        {
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+          voucherGroupId: existingBill.voucherId,
+          isReversed: { $ne: true }
+        },
+        {
+          $set: {
+            isReversed: true,
+            reversedAt: new Date(),
+            reversedBy: username,
+            replacesVoucherGroupId: String(existingBill.voucherId)
+          }
+        },
+        { session }
+      );
     } else {
       await existingBill.save();
-      await Ledger.deleteMany({
-        firmId: firmIdObj,
-        voucherGroupId: existingBill.voucherId,
-        voucherType: 'SALES'
-      });
+      await Ledger.updateMany(
+        {
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+          voucherGroupId: existingBill.voucherId,
+          isReversed: { $ne: true }
+        },
+        {
+          $set: {
+            isReversed: true,
+            reversedAt: new Date(),
+            reversedBy: username,
+            replacesVoucherGroupId: String(existingBill.voucherId)
+          }
+        }
+      );
     }
 
     await LedgerService.postSalesLedger({

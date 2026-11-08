@@ -5,6 +5,7 @@ import { UnifiedPostingService } from '../../../utils/accounting/unified-posting
 import { convertVoucherInputToLegs, mapLegacyVoucherType } from '../../../utils/accounting/posting-adapter';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
+import { connectDB } from '../../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -19,6 +20,8 @@ export default defineEventHandler(async (event) => {
   if (!entries || !Array.isArray(entries) || entries.length === 0) {
     throw createError({ statusCode: 400, statusMessage: 'Voucher must contain at least one entry' });
   }
+
+  await connectDB();
 
   const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
   const transactionDate = vdate || new Date().toISOString().split('T')[0];
@@ -43,19 +46,19 @@ export default defineEventHandler(async (event) => {
     console.warn('PostgreSQL labor settlement guard warning:', pgErr);
   }
 
-  // 2. Start Mongo transaction
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
+  const executeUpdate = async (session?: mongoose.ClientSession) => {
     let resolvedMainAccountName = mainAccount;
     let resolvedBankAccountId: mongoose.Types.ObjectId | null = null;
 
     if (mainAccount && mongoose.Types.ObjectId.isValid(mainAccount)) {
-      const bankAccount = await BankAccount.findOne({
-        _id: mainAccount,
-        $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }]
-      }).session(session).lean();
+      const bankAccount = await BankAccount.findOne(
+        {
+          _id: mainAccount,
+          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }]
+        },
+        null,
+        session ? { session } : {}
+      ).lean();
 
       if (bankAccount) {
         resolvedMainAccountName = bankAccount.account_name;
@@ -73,7 +76,7 @@ export default defineEventHandler(async (event) => {
 
     const mappedType = mapLegacyVoucherType(vtype);
 
-    const updateResult = await UnifiedPostingService.updateVoucher({
+    return await UnifiedPostingService.updateVoucher({
       firmId: firmIdObj,
       voucherGroupId: voucherGroupId.trim(),
       payload: {
@@ -87,81 +90,112 @@ export default defineEventHandler(async (event) => {
       },
       session
     });
+  };
 
+  let session: mongoose.ClientSession | null = null;
+  let updateResult: any;
+
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    updateResult = await executeUpdate(session);
     await session.commitTransaction();
-    session.endSession();
+  } catch (err: any) {
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+    }
 
-    // 3. Cross-module sync: Update labor_advances in PostgreSQL
-    try {
-      let sql = getSql();
-      if (!sql) sql = await connectPostgres();
-      if (sql) {
-        // Delete previous advances linked to this voucher
-        await sql`
-          DELETE FROM labor_advances
-          WHERE ledger_voucher_group_id = ${voucherGroupId} AND firm_id = ${String(user.firm_id)}
-        `;
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('[Vouchers Put] Retrying voucher update without transaction session:', err.message);
+      try {
+        updateResult = await executeUpdate(undefined);
+      } catch (retryErr: any) {
+        console.error('[Vouchers Put] Standalone retry error:', retryErr);
+        throw createError({
+          statusCode: retryErr.statusCode || 500,
+          statusMessage: retryErr.message
+        });
+      }
+    } else {
+      console.error('[Vouchers Put] Error:', err);
+      throw createError({
+        statusCode: err.statusCode || 500,
+        statusMessage: err.statusMessage || err.message || 'Failed to update voucher'
+      });
+    }
+  } finally {
+    if (session) {
+      try { session.endSession(); } catch (_) {}
+    }
+  }
 
-        // If Payment voucher links to labor periods, re-insert
-        if (vtype === 'PAYMENT') {
-          const tdsPayableEntry = entries.find((e: any) => (e.accountHead || '').toLowerCase().includes('tds payable'));
-          const tdsBorneEntry = entries.find((e: any) => (e.accountHead || '').toLowerCase().includes('tds borne by company'));
-          let tdsMode: string | null = null;
-          let tdsAmount: number | null = null;
+  // 3. Cross-module sync: Update labor_advances in PostgreSQL
+  try {
+    let sql = getSql();
+    if (!sql) sql = await connectPostgres();
+    if (sql) {
+      // Delete previous advances linked to this voucher
+      await sql`
+        DELETE FROM labor_advances
+        WHERE ledger_voucher_group_id = ${voucherGroupId} AND firm_id = ${String(user.firm_id)}
+      `;
 
-          if (tdsPayableEntry) {
-            tdsAmount = Math.abs(Number(tdsPayableEntry.amount || tdsPayableEntry.creditAmount) || 0);
-            if (tdsBorneEntry || (body.narration || '').includes('Grossed-up')) {
-              tdsMode = 'GROSS_UP';
-            } else {
-              tdsMode = 'DEDUCT';
-            }
+      // If Payment voucher links to labor periods, re-insert
+      if (vtype === 'PAYMENT') {
+        const tdsPayableEntry = entries.find((e: any) => (e.accountHead || '').toLowerCase().includes('tds payable'));
+        const tdsBorneEntry = entries.find((e: any) => (e.accountHead || '').toLowerCase().includes('tds borne by company'));
+        let tdsMode: string | null = null;
+        let tdsAmount: number | null = null;
+
+        if (tdsPayableEntry) {
+          tdsAmount = Math.abs(Number(tdsPayableEntry.amount || tdsPayableEntry.creditAmount) || 0);
+          if (tdsBorneEntry || (body.narration || '').includes('Grossed-up')) {
+            tdsMode = 'GROSS_UP';
+          } else {
+            tdsMode = 'DEDUCT';
           }
+        }
 
-          for (const entry of entries) {
-            const periodId = entry.laborPeriodId || body.laborPeriodId;
-            const head = (entry.accountHead || '').toLowerCase();
-            // Ignore tax / deduction lines
-            if (head.includes('tds payable') || head.includes('tds borne by company')) continue;
+        for (const entry of entries) {
+          const periodId = entry.laborPeriodId || body.laborPeriodId;
+          const head = (entry.accountHead || '').toLowerCase();
+          // Ignore tax / deduction lines
+          if (head.includes('tds payable') || head.includes('tds borne by company')) continue;
 
-            if (periodId && (entry.amount > 0 || entry.debitAmount > 0)) {
-              const baseAmount = Number(entry.amount || entry.debitAmount) || 0;
-              // For GROSS_UP (TDS on firm's head), the leader's wage bill is deducted ONLY by net payout
-              const periodAdvanceAmount = baseAmount;
-              const currentGrossAmount = tdsMode === 'GROSS_UP' ? (baseAmount + (tdsAmount || 0)) : (tdsMode === 'DEDUCT' ? baseAmount : null);
-              const paidFromBankId = resolvedBankAccountId ? String(resolvedBankAccountId) : null;
-              await sql`
-                INSERT INTO labor_advances (
-                  firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
-                  tds_mode, tds_amount, gross_amount
-                ) VALUES (
-                  ${String(user.firm_id)}, ${periodId}, ${periodAdvanceAmount}, ${transactionDate}, ${paidFromBankId}, ${updateResult.voucherGroupId},
-                  ${tdsMode}, ${tdsAmount}, ${currentGrossAmount}
-                )
-              `;
-            }
+          if (periodId && (entry.amount > 0 || entry.debitAmount > 0)) {
+            const baseAmount = Number(entry.amount || entry.debitAmount) || 0;
+            // For GROSS_UP (TDS on firm's head), the leader's wage bill is deducted ONLY by net payout
+            const periodAdvanceAmount = baseAmount;
+            const currentGrossAmount = tdsMode === 'GROSS_UP' ? (baseAmount + (tdsAmount || 0)) : (tdsMode === 'DEDUCT' ? baseAmount : null);
+            const paidFromBankId = updateResult.bankAccountId ? String(updateResult.bankAccountId) : null;
+            await sql`
+              INSERT INTO labor_advances (
+                firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
+                tds_mode, tds_amount, gross_amount
+              ) VALUES (
+                ${String(user.firm_id)}, ${periodId}, ${periodAdvanceAmount}, ${transactionDate}, ${paidFromBankId}, ${updateResult.voucherGroupId},
+                ${tdsMode}, ${tdsAmount}, ${currentGrossAmount}
+              )
+            `;
           }
         }
       }
-    } catch (laborSyncErr) {
-      console.warn('Cross-module labor advance sync notice during voucher update:', laborSyncErr);
     }
-
-    return {
-      success: true,
-      message: `${vtype} voucher (${updateResult.voucherNo}) updated successfully`,
-      data: {
-        voucherGroupId: updateResult.voucherGroupId,
-        voucherNo: updateResult.voucherNo,
-        status: 'UPDATED'
-      }
-    };
-  } catch (err: any) {
-    await session.abortTransaction();
-    session.endSession();
-    throw createError({
-      statusCode: err.statusCode || 500,
-      statusMessage: err.statusMessage || err.message || 'Failed to update voucher'
-    });
+  } catch (laborSyncErr) {
+    console.warn('Cross-module labor advance sync notice during voucher update:', laborSyncErr);
   }
+
+  return {
+    success: true,
+    message: `${vtype} voucher (${updateResult.voucherNo}) updated successfully`,
+    data: {
+      voucherGroupId: updateResult.voucherGroupId,
+      voucherNo: updateResult.voucherNo,
+      status: 'UPDATED'
+    }
+  };
 });

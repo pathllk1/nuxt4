@@ -5,6 +5,7 @@ import BankAccount from '../../models/BankAccount';
 import { UnifiedPostingService } from '../../utils/accounting/unified-posting.service';
 import { TdsCalculator } from '../../utils/accounting/tds-calculator';
 import { type IVoucherLeg } from '../../types/accounting';
+import { connectDB } from '../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -36,6 +37,8 @@ export default defineEventHandler(async (event) => {
         statusMessage: 'Firm ID, Subcontractor ID, and a positive amount are required'
       });
     }
+
+    await connectDB();
 
     // 1. Authorize current user in this firm (Owner, Admin, Manager or Superadmin)
     const currentUser = await User.findById(currentUserId);
@@ -167,12 +170,8 @@ export default defineEventHandler(async (event) => {
     });
 
     // 6. Post Transaction via UnifiedPostingService with Mongo Session
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    let postResult;
-    try {
-      postResult = await UnifiedPostingService.postVoucher({
+    const executePost = async (session?: mongoose.ClientSession) => {
+      return await UnifiedPostingService.postVoucher({
         firmId: firmIdObj,
         voucherType: 'PAYMENT',
         transactionDate,
@@ -192,13 +191,34 @@ export default defineEventHandler(async (event) => {
           projectId: projectId || ''
         }
       }, session);
+    };
 
+    let postResult: any;
+    let session: mongoose.ClientSession | null = null;
+    try {
+      session = await mongoose.connection.startSession();
+      session.startTransaction();
+      postResult = await executePost(session);
       await session.commitTransaction();
-    } catch (postError) {
-      await session.abortTransaction();
-      throw postError;
+    } catch (postError: any) {
+      if (session) {
+        try { await session.abortTransaction(); } catch (_) {}
+      }
+
+      if (
+        postError.message?.includes('ClientSession must be from the same MongoClient') ||
+        postError.message?.includes('replica set') ||
+        postError.message?.includes('Transaction numbers')
+      ) {
+        console.warn('[Subcontractor Payout] Retrying without transaction session:', postError.message);
+        postResult = await executePost(undefined);
+      } else {
+        throw postError;
+      }
     } finally {
-      session.endSession();
+      if (session) {
+        try { session.endSession(); } catch (_) {}
+      }
     }
 
     return {

@@ -16,18 +16,22 @@ export default defineEventHandler(async (event) => {
 
     // 1. Audit MongoDB: Scan all vouchers that have TDS legs
     const tdsCandidates = await Ledger.find({
-      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      $and: [
+        { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
+        {
+          $or: [
+            { accountType: 'DUTIES_AND_TAXES' },
+            { accountHead: { $regex: /\btds\b|\btax deducted\b|\bwithholding\b/i } }
+          ]
+        }
+      ],
       creditAmount: { $gt: 0 },
       isReversed: { $ne: true },
-      $or: [
-        { accountType: 'DUTIES_AND_TAXES' },
-        { accountHead: { $regex: /\btds\b|\btax deducted\b|\bwithholding\b/i } }
-      ],
       accountHead: { $not: /borne by company/i }
     }).lean();
 
     const genuineTdsLegs = tdsCandidates.filter(l => TdsManagerService.isTdsLiabilityLeg(l));
-    const voucherGroupIds = Array.from(new Set(genuineTdsLegs.map(l => l.voucherGroupId).filter(Boolean)));
+    const voucherGroupIds: string[] = Array.from(new Set(genuineTdsLegs.map(l => l.voucherGroupId).filter((id): id is string => Boolean(id))));
 
     const allLegs = await Ledger.find({
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],

@@ -51,12 +51,16 @@ export default defineEventHandler(async (event) => {
 
   // Also check if any ledger entry mentions Sanjit Sinha in narration or accountHead
   const nameSearchFilter: any = {
-    $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-    isReversed: { $ne: true },
-    $or: [
-      { narration: { $regex: employee?.employee_name || 'Sanjit', $options: 'i' } },
-      { accountHead: { $regex: employee?.employee_name || 'Sanjit', $options: 'i' } }
-    ]
+    $and: [
+      { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
+      {
+        $or: [
+          { narration: { $regex: employee?.employee_name || 'Sanjit', $options: 'i' } },
+          { accountHead: { $regex: employee?.employee_name || 'Sanjit', $options: 'i' } }
+        ]
+      }
+    ],
+    isReversed: { $ne: true }
   };
   if (toDate) {
     nameSearchFilter.transactionDate = { $lte: toDate };

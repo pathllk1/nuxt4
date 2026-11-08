@@ -2,9 +2,11 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ILedger extends Document {
   firmId: mongoose.Types.ObjectId;
+  firm_id?: mongoose.Types.ObjectId;
   transactionDate: string;
   accountHead: string;
   accountType: string;
+  accountCode?: string | null;
   debitAmount: number;
   creditAmount: number;
   narration?: string;
@@ -21,6 +23,9 @@ export interface ILedger extends Document {
   isWageEntry?: boolean;
   masterRollId?: mongoose.Types.ObjectId;
   isReversed?: boolean;
+  reversedAt?: Date | null;
+  reversedBy?: string | null;
+  replacesVoucherGroupId?: string | null;
   statutory?: Record<string, any> | null;
   createdBy?: string;
   createdAt: Date;
@@ -35,6 +40,11 @@ const LedgerSchema = new Schema<ILedger>(
       required: true,
       index: true,
     },
+    firm_id: {
+      type: Schema.Types.ObjectId,
+      ref: 'Firm',
+      index: true,
+    },
     transactionDate: {
       type: String,
       required: true,
@@ -47,6 +57,12 @@ const LedgerSchema = new Schema<ILedger>(
     accountType: {
       type: String,
       required: true,
+    },
+    accountCode: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
     },
     debitAmount: {
       type: Number,
@@ -124,6 +140,19 @@ const LedgerSchema = new Schema<ILedger>(
       default: false,
       index: true,
     },
+    reversedAt: {
+      type: Date,
+      default: null,
+    },
+    reversedBy: {
+      type: String,
+      default: null,
+    },
+    replacesVoucherGroupId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     statutory: {
       type: Schema.Types.Mixed,
       default: null,
@@ -135,8 +164,17 @@ const LedgerSchema = new Schema<ILedger>(
   { timestamps: true }
 );
 
+LedgerSchema.pre('save', function () {
+  if (this.firmId && !(this as any).firm_id) (this as any).firm_id = this.firmId;
+  if ((this as any).firm_id && !this.firmId) this.firmId = (this as any).firm_id;
+});
+
 LedgerSchema.index({ firmId: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, accountHead: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, voucherType: 1, voucherGroupId: 1 });
+LedgerSchema.index({ firmId: 1, partyId: 1, transactionDate: 1 });
+LedgerSchema.index({ firmId: 1, masterRollId: 1, transactionDate: 1 });
+LedgerSchema.index({ firmId: 1, bankAccountId: 1, transactionDate: 1 });
+LedgerSchema.index({ firmId: 1, accountCode: 1, transactionDate: 1 });
 
 export default (mongoose.models.Ledger as mongoose.Model<ILedger>) || mongoose.model<ILedger>('Ledger', LedgerSchema);

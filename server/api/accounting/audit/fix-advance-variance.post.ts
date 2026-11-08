@@ -153,7 +153,7 @@ export default defineEventHandler(async (event) => {
       type: 'ADVANCE',
       amount: variance,
       date: advanceDate,
-      payment_mode: orphanGl?.paymentMode || 'CASH',
+      payment_mode: (orphanGl?.paymentMode === 'BANK' ? 'BANK' : orphanGl?.paymentMode === 'WAGE_DEDUCTION' ? 'WAGE_DEDUCTION' : 'CASH') as 'CASH' | 'BANK' | 'WAGE_DEDUCTION',
       bank_account_id: orphanGl?.bankAccountId || null,
       wage_id: null,
       remarks: orphanGl?.narration || `System SL-GL Advance reconciliation adjustment for ${employee.employee_name}`,

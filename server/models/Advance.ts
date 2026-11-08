@@ -95,10 +95,9 @@ const advanceSchema = new Schema<IAdvance>(
   { timestamps: true }
 );
 
-advanceSchema.pre('save', function (next) {
+advanceSchema.pre('save', function () {
   if (this.firmId && !this.firm_id) this.firm_id = this.firmId;
   if (this.firm_id && !this.firmId) this.firmId = this.firm_id;
-  next();
 });
 
 const Advance = (mongoose.models.Advance as mongoose.Model<IAdvance>) || mongoose.model<IAdvance>('Advance', advanceSchema);

@@ -146,16 +146,20 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
   { timestamps: true }
 );
 
-chartOfAccountsSchema.pre('save', function (next) {
+chartOfAccountsSchema.pre('save', function () {
   if (this.firmId && !this.firm_id) this.firm_id = this.firmId;
   if (this.firm_id && !this.firmId) this.firmId = this.firm_id;
-  next();
 });
 
 chartOfAccountsSchema.index(
   { firm_id: 1, account_name: 1 },
   { unique: true, collation: { locale: 'en', strength: 2 } }
 );
-chartOfAccountsSchema.index({ firmId: 1, account_name: 1 });
+chartOfAccountsSchema.index(
+  { firmId: 1, account_name: 1 },
+  { unique: true, collation: { locale: 'en', strength: 2 } }
+);
+chartOfAccountsSchema.index({ firmId: 1, account_code: 1 });
+chartOfAccountsSchema.index({ firm_id: 1, account_code: 1 });
 
 export default (mongoose.models.ChartOfAccounts as mongoose.Model<IChartOfAccounts>) || mongoose.model<IChartOfAccounts>('ChartOfAccounts', chartOfAccountsSchema);

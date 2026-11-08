@@ -6,10 +6,11 @@ import { StockService } from '../../utils/inventory/stock.service';
 import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
 import { isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
+import { connectDB } from '../../plugins/mongodb';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
-  const body = await readBody(event) || {};
+  const body = (await readBody(event)) || {};
   const { originalBillId, returnCart, narration } = body;
 
   if (!originalBillId || !mongoose.Types.ObjectId.isValid(originalBillId)) {
@@ -19,13 +20,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Return cart cannot be empty' });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  await connectDB();
 
-  try {
-    const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
-    const username = user.username || user.email || 'system';
-    const originalBill = await (Bill as any).findOne({ _id: new mongoose.Types.ObjectId(originalBillId), firmId: firmIdObj }).session(session).lean();
+  const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
+  const username = user.username || user.email || 'system';
+
+  const executeDebitNote = async (session?: mongoose.ClientSession) => {
+    const origBillQuery = (Bill as any).findOne({ _id: new mongoose.Types.ObjectId(originalBillId), firmId: firmIdObj });
+    if (session) origBillQuery.session(session);
+    const originalBill = await origBillQuery.lean();
+
     if (!originalBill || originalBill.btype !== 'PURCHASE') {
       throw createError({ statusCode: 400, statusMessage: 'Invalid original purchase bill' });
     }
@@ -55,33 +59,36 @@ export default defineEventHandler(async (event) => {
     delete original.createdAt;
     delete original.updatedAt;
 
-    const [dnBill] = await (Bill as any).create([{
+    const dnBillData = {
       ...original,
       firmId: firmIdObj,
-      refBillId: originalBill._id,
       bno: billNo,
       voucherId: String(voucherId),
-      bdate: new Date().toISOString().split('T')[0],
       btype: 'DEBIT_NOTE',
+      bdate: new Date().toISOString().split('T')[0],
+      items: processedItems,
       grossTotal: totals.grossTotal,
       netTotal: totals.netTotal,
-      roundOff: totals.roundOff,
       cgst: totals.cgst,
       sgst: totals.sgst,
       igst: totals.igst,
-      items: processedItems,
-      otherCharges: [],
-      narration,
+      roundOff: totals.roundOff,
+      narration: narration || `Debit Note against Purchase Bill ${originalBill.bno}`,
+      originalBillId: originalBill._id,
+      originalBillNo: originalBill.bno,
       createdBy: username,
       status: 'ACTIVE'
-    }], { session });
+    };
 
-    const purchasedItems: Array<{ stockId: any; stockRegId: any; item: string; lineValue: number }> = [];
+    const dnBill = session
+      ? (await (Bill as any).create([dnBillData], { session }))[0]
+      : await (Bill as any).create(dnBillData);
+
+    const purchasedItems: any[] = [];
     for (const item of processedItems) {
-      const qty = item.qty;
-      const lineValue = item.total;
-      if (isServiceItem(item)) {
-        await (StockReg as any).create([{
+      const isService = isServiceItem(item);
+      if (isService) {
+        const sRegData = {
           firm_id: firmIdObj,
           type: 'DEBIT_NOTE',
           bno: billNo,
@@ -89,31 +96,53 @@ export default defineEventHandler(async (event) => {
           supply: originalBill.partyName,
           item: item.item,
           item_type: 'SERVICE',
-          qty,
+          qty: item.qty,
           uom: item.uom,
           hsn: item.hsn,
           rate: item.rate,
           grate: item.grate,
           disc: item.disc || 0,
-          total: lineValue,
+          total: item.total,
           bill_id: dnBill._id,
           user: username,
           qtyh: 0,
           item_narration: item.narration
-        }], { session });
-        continue;
+        };
+        if (session) {
+          await StockReg.create([sRegData], { session });
+        } else {
+          await StockReg.create(sRegData);
+        }
+      } else {
+        const stockMove = await StockService.updateStockOutward({
+          firmId: firmIdObj,
+          itemData: {
+            stockId: item.stockId,
+            item: item.item,
+            hsn: item.hsn,
+            qty: item.qty,
+            rate: item.rate,
+            grate: item.grate,
+            uom: item.uom,
+            narration: item.narration
+          },
+          billData: {
+            bno: billNo,
+            bdate: dnBill.bdate,
+            supply: originalBill.partyName,
+            billId: dnBill._id,
+            btype: 'DEBIT_NOTE'
+          },
+          user: username,
+          session
+        });
+        purchasedItems.push({
+          item: item.item,
+          total: item.total,
+          grate: item.grate,
+          stockId: stockMove.stock?._id || item.stockId
+        });
       }
-
-      if (!item.stockId) throw new Error(`Stock ID is required for ${item.item}`);
-      await StockService.updateStockOutward({
-        firmId: firmIdObj,
-        itemData: { stockId: new mongoose.Types.ObjectId(item.stockId), item: item.item, qty, rate: item.rate, grate: item.grate, batch: item.batch, narration: item.narration },
-        billData: { bno: billNo, bdate: dnBill.bdate, supply: originalBill.partyName, billId: dnBill._id, btype: 'DEBIT_NOTE' },
-        user: username,
-        session
-      });
-      const reg = await (StockReg as any).findOne({ bill_id: dnBill._id, stock_id: item.stockId }).sort({ createdAt: -1 }).session(session);
-      purchasedItems.push({ stockId: item.stockId, stockRegId: reg?._id, item: item.item, lineValue });
     }
 
     await LedgerService.postDebitNoteLedger({
@@ -134,12 +163,41 @@ export default defineEventHandler(async (event) => {
       session
     } as any);
 
+    return dnBill;
+  };
+
+  let session: mongoose.ClientSession | null = null;
+  let dnBill: any;
+
+  try {
+    session = await mongoose.connection.startSession();
+    session.startTransaction();
+    dnBill = await executeDebitNote(session);
     await session.commitTransaction();
-    return { success: true, message: 'Debit note created successfully', data: dnBill };
   } catch (err: any) {
-    await session.abortTransaction();
-    throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message || 'Failed to create debit note' });
+    if (session) {
+      try { await session.abortTransaction(); } catch (_) {}
+    }
+
+    if (
+      err.message?.includes('ClientSession must be from the same MongoClient') ||
+      err.message?.includes('replica set') ||
+      err.message?.includes('Transaction numbers')
+    ) {
+      console.warn('[Debit Note Post] Retrying without transaction session:', err.message);
+      try {
+        dnBill = await executeDebitNote(undefined);
+      } catch (retryErr: any) {
+        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message || 'Failed to create debit note' });
+      }
+    } else {
+      throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message || 'Failed to create debit note' });
+    }
   } finally {
-    session.endSession();
+    if (session) {
+      try { session.endSession(); } catch (_) {}
+    }
   }
+
+  return { success: true, message: 'Debit note created successfully', data: dnBill };
 });

@@ -90,10 +90,9 @@ const bankAccountSchema = new Schema<IBankAccount>(
   { timestamps: true }
 );
 
-bankAccountSchema.pre('save', function (next) {
+bankAccountSchema.pre('save', function () {
   if (this.firmId && !this.firm_id) this.firm_id = this.firmId;
   if (this.firm_id && !this.firmId) this.firmId = this.firm_id;
-  next();
 });
 
 bankAccountSchema.index({ firm_id: 1, account_number: 1 }, { unique: true });

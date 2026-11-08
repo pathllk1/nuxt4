@@ -276,9 +276,75 @@ export const PARTY_REQUIRED_ACCOUNT_TYPES = new Set([
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────
+// INTEGER-PAISE ARITHMETIC UTILITIES (ELIMINATING IEEE-754 FLOATING POINT DRIFT)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Normalizes any monetary value in Rupees to exact integer Paise (cents).
+ * Formula: Math.round((Number(rupees) + Number.EPSILON) * 100)
+ */
+export const toPaise = (rupees: number | string | null | undefined): number => {
+  if (rupees === null || rupees === undefined) return 0;
+  const num = typeof rupees === 'string' ? parseFloat(rupees) : Number(rupees);
+  if (isNaN(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100);
+};
+
+/**
+ * Converts integer Paise back to decimal Rupees.
+ */
+export const fromPaise = (paise: number): number => {
+  return Number((paise / 100).toFixed(2));
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// CANONICAL 4-DIGIT STATUTORY ACCOUNT CODES (1000–5999)
+// ─────────────────────────────────────────────────────────────────────────
+
+export const ACCOUNT_CODE_MAP: Record<string, string> = {
+  CASH: '1100',
+  BANK: '1200',
+  BANK_ACCOUNT: '1200',
+  SUNDRY_DEBTORS: '1300',
+  DEBTOR: '1300',
+  RECEIVABLE: '1300',
+  LOANS_ADVANCES: '1400',
+  EMPLOYEE_ADVANCE: '1410',
+  LABOR_ADVANCE: '1420',
+  SITE_IMPREST: '1430',
+  FIXED_ASSETS: '1500',
+  ASSET: '1500',
+  SUNDRY_CREDITORS: '2100',
+  CREDITOR: '2100',
+  PAYABLE: '2100',
+  TRANSPORTER: '2150',
+  SUBCONTRACTOR_PAYABLE: '2150',
+  RETENTION_PAYABLE: '2160',
+  LABOR_LEADER: '2210',
+  LABOR_PAYABLE: '2210',
+  DUTIES_AND_TAXES: '2300',
+  LIABILITY: '2300',
+  STAFF: '2410',
+  SALARIES_PAYABLE: '2410',
+  LOANS_BORROWINGS: '2500',
+  CAPITAL: '3100',
+  RESERVES_SURPLUS: '3200',
+  INCOME: '4100',
+  DIRECT_INCOME: '4200',
+  INDIRECT_INCOME: '4300',
+  ROUND_OFF_GAIN: '4990',
+  DIRECT_EXPENSE: '5100',
+  EXPENSE: '5200',
+  INDIRECT_EXPENSE: '5200',
+  CASUAL_LABOR: '5210',
+  COGS: '5190',
+  ROUND_OFF_LOSS: '5990',
+};
+
+// ─────────────────────────────────────────────────────────────────────────
 // DOUBLE-ENTRY TOLERANCE
 // Maximum allowed absolute difference between sum(DR) and sum(CR)
-// before the engine rejects the voucher. Set to 1 paisa.
+// before the engine rejects the voucher. Set to 1 paisa (0.01).
 // ─────────────────────────────────────────────────────────────────────────
 
 export const DOUBLE_ENTRY_TOLERANCE = 0.01;

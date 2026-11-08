@@ -202,12 +202,23 @@ export default defineEventHandler(async (event) => {
       purchasedItems.push({ stockId: reg?.stock_id, stockRegId: reg?._id, item: item.item, lineValue });
     }
 
-    // Step 5: Delete old ledger entries and post new ones
-    await Ledger.deleteMany({
-      firmId: firmIdObj,
-      voucherGroupId: existingBill.voucherId,
-      voucherType: 'PURCHASE'
-    }, { session });
+    // Step 5: Invalidate old ledger entries (Statutory Audit Immutability — never delete financial records)
+    await Ledger.updateMany(
+      {
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        voucherGroupId: existingBill.voucherId,
+        isReversed: { $ne: true }
+      },
+      {
+        $set: {
+          isReversed: true,
+          reversedAt: new Date(),
+          reversedBy: username,
+          replacesVoucherGroupId: String(existingBill.voucherId)
+        }
+      },
+      { session }
+    );
 
     await LedgerService.postPurchaseLedger({
       firmId: firmIdObj,
