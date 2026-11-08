@@ -24,9 +24,21 @@
             </p>
           </div>
         </div>
-        <button @click="$emit('update:modelValue', false)" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer ring-1 ring-white/10">
-          <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="isEdit && (form.voucherNo || voucherGroupId)"
+            type="button"
+            @click="printCurrentVoucher"
+            class="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5 transition-colors cursor-pointer ring-1 ring-white/10 text-xs font-bold"
+            title="Print Voucher PDF"
+          >
+            <UIcon name="i-heroicons-printer" class="w-4 h-4 text-blue-300" />
+            <span class="hidden sm:inline">Print Voucher</span>
+          </button>
+          <button @click="$emit('update:modelValue', false)" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer ring-1 ring-white/10">
+            <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <!-- Main Content -->
@@ -538,6 +550,16 @@
           Tally Double-Entry ledger posting with automated balance recalculation
         </div>
         <div class="flex items-center gap-2.5 ml-auto">
+          <button
+            v-if="isEdit && (form.voucherNo || voucherGroupId)"
+            type="button"
+            @click="printCurrentVoucher"
+            class="px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-200/70 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Print Voucher PDF"
+          >
+            <UIcon name="i-heroicons-printer" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>Print PDF</span>
+          </button>
           <button @click="$emit('update:modelValue', false)" class="px-4 py-2 text-xs font-bold text-slate-600 dark:text-zinc-300 hover:bg-slate-200/60 dark:hover:bg-zinc-800 rounded-xl transition-colors cursor-pointer">
             Cancel
           </button>
@@ -1101,6 +1123,13 @@ async function submitVoucher() {
   } catch (err: any) {
     alert(err.message || 'Failed to save voucher');
   }
+}
+
+function printCurrentVoucher() {
+  const vId = props.voucherGroupId || form.voucherNo;
+  if (!vId) return;
+  const url = `/api/accounting/vouchers/${encodeURIComponent(vId)}/pdf`;
+  window.open(url, '_blank');
 }
 
 function resetForm() {

@@ -355,6 +355,16 @@
                   <!-- Actions -->
                   <td class="py-2 px-3.5 text-center">
                     <div v-if="enIdx === 0" class="flex items-center justify-center gap-1">
+                      <!-- Print Voucher PDF -->
+                      <UButton
+                        color="neutral"
+                        variant="ghost"
+                        icon="i-heroicons-printer"
+                        size="xs"
+                        @click="printVoucher(v)"
+                        title="Print Voucher PDF"
+                      />
+
                       <!-- Edit Voucher -->
                       <UButton
                         v-if="canEditVoucher(v)"
@@ -450,6 +460,16 @@
                 <!-- Actions -->
                 <td class="py-2.5 px-3.5 text-center">
                   <div class="flex items-center justify-center gap-1">
+                    <!-- Print Voucher PDF -->
+                    <UButton
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-heroicons-printer"
+                      size="xs"
+                      @click="printVoucher(v)"
+                      title="Print Voucher PDF"
+                    />
+
                     <!-- Edit Voucher -->
                     <UButton
                       v-if="canEditVoucher(v)"
@@ -772,6 +792,12 @@ function getVoucherBadgeClass(type: string = '') {
   if (t.includes('DEBIT_NOTE')) return 'bg-cyan-100 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300';
   if (t.includes('CREDIT_NOTE')) return 'bg-fuchsia-100 dark:bg-fuchsia-950/50 text-fuchsia-700 dark:text-fuchsia-300';
   return 'bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300';
+}
+
+function printVoucher(v: any) {
+  if (!v?.voucherGroupId) return;
+  const url = `/api/accounting/vouchers/${encodeURIComponent(v.voucherGroupId)}/pdf`;
+  window.open(url, '_blank');
 }
 
 function drillIntoVoucher(v: any) {

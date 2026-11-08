@@ -927,8 +927,80 @@ export async function exportLedgerToPdfBuffer(data: {
     },
     content: [
       { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
-      { text: `ACCOUNT LEDGER: ${data.accountHead.toUpperCase()}`, fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: data.periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      { text: `ACCOUNT STATEMENT: ${data.accountHead.toUpperCase()}`, fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
+      { text: `Statement Period: ${data.periodText}`, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+
+      // Executive Ledger Summary Ribbon
+      {
+        columns: [
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'OPENING BALANCE', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: `${formatCurrency(data.startingBal.balance)} ${data.startingBal.balanceType}`, fontSize: 9.5, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL PERIOD DEBITS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(data.totalDebits), fontSize: 9.5, bold: true, color: C.green, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL PERIOD CREDITS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(data.totalCredits), fontSize: 9.5, bold: true, color: C.red, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'CLOSING NET BALANCE', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: `${formatCurrency(data.finalBalance)} ${data.finalBalanceType}`, fontSize: 9.5, bold: true, color: C.primary, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          }
+        ],
+        margin: [0, 0, 0, 10]
+      },
+
       {
         table: {
           headerRows: 1,
@@ -945,32 +1017,97 @@ export async function exportLedgerToPdfBuffer(data: {
               { text: 'Running Bal', style: 'tblHdr', alignment: 'right' },
             ],
             ...(data.startingBal.balance > 0 || data.periodText !== 'All Time' ? [[
-              { text: '—', alignment: 'center', fontSize: 8 },
-              { text: 'OPENING BAL', bold: true, fontSize: 8 },
-              { text: 'Opening Balance', bold: true, fontSize: 8 },
-              { text: 'Brought forward balance', fontSize: 8 },
-              { text: data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8 },
-              { text: data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8 },
-              { text: `${formatCurrency(data.startingBal.balance)} ${data.startingBal.balanceType}`, alignment: 'right', bold: true, fontSize: 8 },
+              { text: '—', alignment: 'center', fontSize: 8, fillColor: '#F8FAFC' },
+              { text: 'OPENING BAL', bold: true, fontSize: 8, fillColor: '#F8FAFC' },
+              { text: 'Opening Balance', bold: true, fontSize: 8, fillColor: '#F8FAFC' },
+              { text: 'Brought forward balance', fontSize: 8, fillColor: '#F8FAFC' },
+              { text: data.startingBal.balanceType === 'DR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8, fillColor: '#F8FAFC' },
+              { text: data.startingBal.balanceType === 'CR' && data.startingBal.balance > 0 ? formatCurrency(data.startingBal.balance) : '', alignment: 'right', fontSize: 8, fillColor: '#F8FAFC' },
+              { text: `${formatCurrency(data.startingBal.balance)} ${data.startingBal.balanceType}`, alignment: 'right', bold: true, fontSize: 8, fillColor: '#F8FAFC' },
             ]] : []),
-            ...data.mappedEntries.map((e) => [
-              { text: formatDate(e.transactionDate), alignment: 'center', fontSize: 8 },
-              { text: e.voucherNo || e.refType || '', fontSize: 8 },
-              { text: e.opposingAccountHead || '—', fontSize: 8, bold: true },
-              { text: e.narration || '', fontSize: 8 },
-              { text: e.debitAmount > 0 ? formatCurrency(e.debitAmount) : '', alignment: 'right', fontSize: 8 },
-              { text: e.creditAmount > 0 ? formatCurrency(e.creditAmount) : '', alignment: 'right', fontSize: 8 },
-              { text: `${formatCurrency(e.runningBalance)} ${e.runningBalanceType}`, alignment: 'right', bold: true, fontSize: 8 },
-            ]),
+            ...data.mappedEntries.map((e, idx) => {
+              const bg = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+              return [
+                { text: formatDate(e.transactionDate), alignment: 'center', fontSize: 8, fillColor: bg },
+                { text: e.voucherNo || e.refType || '', fontSize: 8, fillColor: bg },
+                { text: e.opposingAccountHead || '—', fontSize: 8, bold: true, fillColor: bg },
+                { text: e.narration || '', fontSize: 7.5, color: C.textMid, fillColor: bg },
+                { text: e.debitAmount > 0 ? formatCurrency(e.debitAmount) : '', alignment: 'right', fontSize: 8, color: C.green, fillColor: bg },
+                { text: e.creditAmount > 0 ? formatCurrency(e.creditAmount) : '', alignment: 'right', fontSize: 8, color: C.red, fillColor: bg },
+                { text: `${formatCurrency(e.runningBalance)} ${e.runningBalanceType}`, alignment: 'right', bold: true, fontSize: 8, fillColor: bg },
+              ];
+            }),
             [
-              { text: 'TOTALS', colSpan: 4, bold: true, alignment: 'center', fontSize: 8 },
+              { text: 'TOTALS', colSpan: 4, bold: true, alignment: 'center', fontSize: 8, fillColor: '#F1F5F9' },
               {}, {}, {},
-              { text: formatCurrency(data.totalDebits), alignment: 'right', bold: true, fontSize: 8 },
-              { text: formatCurrency(data.totalCredits), alignment: 'right', bold: true, fontSize: 8 },
-              { text: `${formatCurrency(data.finalBalance)} ${data.finalBalanceType}`, alignment: 'right', bold: true, fontSize: 8 },
+              { text: formatCurrency(data.totalDebits), alignment: 'right', bold: true, fontSize: 8, color: C.green, fillColor: '#F1F5F9' },
+              { text: formatCurrency(data.totalCredits), alignment: 'right', bold: true, fontSize: 8, color: C.red, fillColor: '#F1F5F9' },
+              { text: `${formatCurrency(data.finalBalance)} ${data.finalBalanceType}`, alignment: 'right', bold: true, fontSize: 8, fillColor: '#F1F5F9' },
             ]
           ]
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length) ? 0.75 : 0.35,
+          vLineWidth: () => 0.5,
+          hLineColor: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length) ? C.borderDark : C.border,
+          vLineColor: () => C.border
         }
+      },
+
+      // Statutory Balance Confirmation & Reconciliation Slip
+      {
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
+          {
+            text: 'BALANCE CONFIRMATION VOUCHER: Please examine this statement immediately. If no discrepancy is reported within 15 days of issuance, the closing balance indicated above shall be deemed confirmed and accepted for statutory audit and accounts finalization.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
+          },
+          {
+            columns: [
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Party / Customer Balance Confirmation', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 220, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Confirmed Balance Accepted with Seal & Signature', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '4%', text: '' },
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: `For ${(data.firmName || '').toUpperCase()}`, fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 220, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Authorized Finance Signatory / Audit Dept', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
+            ]
+          }
+        ]
       }
     ],
     styles: {
@@ -996,37 +1133,213 @@ export async function exportTrialBalanceToPdfBuffer(data: {
 
   const docDefinition: any = {
     pageSize: 'A4',
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 36, 30, 32],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [30, 10, 30, 0],
+        columns: [
+          { text: `${(data.firmName || '').toUpperCase()} — CERTIFIED TRIAL BALANCE`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [30, 8, 30, 0],
+        columns: [
+          { text: `Trial Balance  •  Statement Period: ${data.periodText}`, fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
-      { text: 'TRIAL BALANCE', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: data.periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      { text: 'CERTIFIED TRIAL BALANCE STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
+      { text: `Statement Period: ${data.periodText}  |  Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+
+      // Executive Audit & KPI Ribbon
+      {
+        margin: [0, 0, 0, 10],
+        columns: [
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL DEBIT TURNOVER', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(totalDr), fontSize: 9.5, bold: true, color: C.green, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL CREDIT TURNOVER', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(totalCr), fontSize: 9.5, bold: true, color: C.red, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'LEDGER DIFFERENCE / DRIFT', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: data.diff < 0.01 ? '₹ 0.00' : formatCurrency(data.diff), fontSize: 9.5, bold: true, color: data.diff < 0.01 ? C.green : C.red, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'AUDIT COMPLIANCE', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: data.isBalanced ? '✓ PERFECTLY BALANCED' : '⚠ AUDIT VARIANCE', fontSize: 8.5, bold: true, color: data.isBalanced ? '#15803D' : '#B91C1C', margin: [0, 3, 0, 0] }
+                  ],
+                  fillColor: data.isBalanced ? '#F0FDF4' : '#FEF2F2',
+                  borderColor: [data.isBalanced ? '#BBF7D0' : '#FECACA', data.isBalanced ? '#BBF7D0' : '#FECACA', data.isBalanced ? '#BBF7D0' : '#FECACA', data.isBalanced ? '#BBF7D0' : '#FECACA']
+                }
+              ]]
+            }
+          }
+        ]
+      },
+
+      // Trial Balance Table
       {
         table: {
           headerRows: 1,
-          widths: ['*', 100, 100, 100],
+          widths: ['*', 100, 95, 95],
           body: [
             [
               { text: 'Account Head', style: 'tblHdr' },
-              { text: 'Category', style: 'tblHdr' },
-              { text: 'Debit (₹)', style: 'tblHdr', alignment: 'right' },
-              { text: 'Credit (₹)', style: 'tblHdr', alignment: 'right' },
+              { text: 'Classification Group', style: 'tblHdr' },
+              { text: 'Debit Amount (₹)', style: 'tblHdr', alignment: 'right' },
+              { text: 'Credit Amount (₹)', style: 'tblHdr', alignment: 'right' },
             ],
-            ...data.tbData.map((row) => [
-              { text: row.accountHead, fontSize: 8 },
-              { text: row.accountType?.replace(/_/g, ' ') || 'GENERAL', fontSize: 8 },
-              { text: row.totalDebit > 0 ? formatCurrency(row.totalDebit) : '', alignment: 'right', fontSize: 8 },
-              { text: row.totalCredit > 0 ? formatCurrency(row.totalCredit) : '', alignment: 'right', fontSize: 8 },
-            ]),
+            ...data.tbData.map((row, idx) => {
+              const bg = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFC';
+              return [
+                { text: row.accountHead, fontSize: 8, bold: true, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+                { text: row.accountType?.replace(/_/g, ' ') || 'GENERAL', fontSize: 7.5, color: C.textMid, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+                { text: row.totalDebit > 0 ? formatCurrency(row.totalDebit) : '-', alignment: 'right', fontSize: 8, color: row.totalDebit > 0 ? C.textDark : C.textLight, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+                { text: row.totalCredit > 0 ? formatCurrency(row.totalCredit) : '-', alignment: 'right', fontSize: 8, color: row.totalCredit > 0 ? C.textDark : C.textLight, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+              ];
+            }),
             [
-              { text: 'GRAND TOTALS', colSpan: 2, bold: true, fontSize: 8.5 },
+              { text: `GRAND TOTALS (${data.tbData.length} Accounts)`, colSpan: 2, bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
               {},
-              { text: formatCurrency(totalDr), alignment: 'right', bold: true, fontSize: 8.5 },
-              { text: formatCurrency(totalCr), alignment: 'right', bold: true, fontSize: 8.5 },
+              { text: formatCurrency(totalDr), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
+              { text: formatCurrency(totalCr), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
             ]
           ]
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length) ? 0.75 : 0.35,
+          vLineWidth: () => 0.5,
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length) ? C.borderDark : C.border,
+          vLineColor: () => C.border
         }
+      },
+
+      // Statutory Sign-Off Block
+      {
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
+          {
+            text: 'STATUTORY AUDIT CERTIFICATION: We hereby certify that the above Trial Balance extracts have been verified against the underlying General Ledger books of account and vouchers, and represent a true and balanced ledger position as of the specified statement date.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
+          },
+          {
+            columns: [
+              {
+                width: '32%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Prepared By', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 15, y1: 0, x2: 135, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Chief Accountant / Accounts Lead', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '32%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Reviewed & Checked By', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 15, y1: 0, x2: 135, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Internal Auditor / Controller', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '32%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: `For ${(data.firmName || '').toUpperCase()}`, fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 15, y1: 0, x2: 135, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'CFO / Proprietor / Authorized Signatory', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
+            ]
+          }
+        ]
       }
     ],
     styles: {
@@ -1163,9 +1476,9 @@ export async function exportProfitLossToPdfBuffer(data: {
   // 5. Construct Table Body
   const tableBody: any[] = [
     [
-      { text: 'DEBIT SIDE (DR)', style: 'tblHdrDr' },
+      { text: '[DR] EXPENDITURE & DIRECT CHARGES', style: 'tblHdrDr' },
       { text: 'AMOUNT (₹)', style: 'tblHdrDr', alignment: 'right' },
-      { text: 'CREDIT SIDE (CR)', style: 'tblHdrCr' },
+      { text: '[CR] REVENUE & OTHER INCOMES', style: 'tblHdrCr' },
       { text: 'AMOUNT (₹)', style: 'tblHdrCr', alignment: 'right' },
     ]
   ];
@@ -1239,21 +1552,40 @@ export async function exportProfitLossToPdfBuffer(data: {
 
   // Footer Grand Totals
   tableBody.push([
-    { text: 'DR TOTAL', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
-    { text: formatCurrency(plModel.drGrand), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
-    { text: 'CR TOTAL', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
-    { text: formatCurrency(plModel.crGrand), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#4F46E5', margin: [2, 4, 2, 4] },
+    { text: 'DR GRAND TOTAL', bold: true, fontSize: 8.5, color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
+    { text: formatCurrency(plModel.drGrand), bold: true, fontSize: 8.5, alignment: 'right', color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
+    { text: 'CR GRAND TOTAL', bold: true, fontSize: 8.5, color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
+    { text: formatCurrency(plModel.crGrand), bold: true, fontSize: 8.5, alignment: 'right', color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
   ]);
 
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [30, 25, 30, 25],
+    pageMargins: [28, 30, 28, 28],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [28, 10, 28, 0],
+        columns: [
+          { text: `${(firmName || '').toUpperCase()} — TRADING & PROFIT/LOSS STATEMENT`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [28, 8, 28, 0],
+        columns: [
+          { text: `Schedule III Trading & Profit/Loss Statement  •  ${periodText}  •  Accounting Standards (AS / Ind AS)`, fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       { text: (firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
       { text: 'TRADING AND PROFIT & LOSS STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+      { text: `Conforming to Schedule III & Applicable Accounting Standards  |  Period: ${periodText}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
 
       // Executive KPI Cards
       {
@@ -1263,39 +1595,39 @@ export async function exportProfitLossToPdfBuffer(data: {
           body: [
             [
               {
-                fillColor: '#F0FDF4',
+                fillColor: '#F8FAFC',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'REVENUE', fontSize: 7, bold: true, color: '#166534' },
-                  { text: formatCurrency(plModel.totalRevenueCr), fontSize: 10, bold: true, color: '#14532D', margin: [0, 2, 0, 0] },
-                  { text: `${(plModel.crIncome || []).length} account(s)`, fontSize: 6.5, color: '#166534' }
+                  { text: 'GROSS TURNOVER / REVENUE', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: formatCurrency(plModel.totalRevenueCr), fontSize: 10, bold: true, color: '#166534', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.crIncome || []).length} revenue account(s)`, fontSize: 6.5, color: C.textMid }
                 ]
               },
               {
-                fillColor: '#F0F9FF',
+                fillColor: '#F8FAFC',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'GROSS PROFIT', fontSize: 7, bold: true, color: '#0369A1' },
-                  { text: formatCurrency(plModel.grossProfit), fontSize: 10, bold: true, color: plModel.grossProfit >= 0 ? '#075985' : '#991B1B', margin: [0, 2, 0, 0] },
-                  { text: `${(plModel.gpMargin || 0).toFixed(1)}% GP Margin`, fontSize: 6.5, color: '#0369A1' }
+                  { text: 'GROSS PROFIT / (LOSS)', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: formatCurrency(plModel.grossProfit), fontSize: 10, bold: true, color: plModel.grossProfit >= 0 ? '#0369A1' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.gpMargin || 0).toFixed(1)}% Gross Margin`, fontSize: 6.5, color: C.textMid }
                 ]
               },
               {
-                fillColor: '#FFFBEB',
+                fillColor: '#F8FAFC',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'TOTAL OPEX', fontSize: 7, bold: true, color: '#B45309' },
-                  { text: formatCurrency(plModel.totalOpex), fontSize: 10, bold: true, color: '#78350F', margin: [0, 2, 0, 0] },
-                  { text: `${(plModel.drOpex || []).length} account(s)`, fontSize: 6.5, color: '#B45309' }
+                  { text: 'TOTAL OPERATING EXPENSES', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: formatCurrency(plModel.totalOpex), fontSize: 10, bold: true, color: '#B45309', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.drOpex || []).length} opex account(s)`, fontSize: 6.5, color: C.textMid }
                 ]
               },
               {
-                fillColor: plModel.netProfit >= 0 ? '#FAF5FF' : '#FEF2F2',
+                fillColor: plModel.netProfit >= 0 ? '#F0FDF4' : '#FEF2F2',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'NET PROFIT', fontSize: 7, bold: true, color: plModel.netProfit >= 0 ? '#6B21A8' : '#991B1B' },
-                  { text: formatCurrency(plModel.netProfit), fontSize: 10, bold: true, color: plModel.netProfit >= 0 ? '#581C87' : '#991B1B', margin: [0, 2, 0, 0] },
-                  { text: `${(plModel.npMargin || 0).toFixed(1)}% NP Margin`, fontSize: 6.5, color: plModel.netProfit >= 0 ? '#6B21A8' : '#991B1B' }
+                  { text: 'NET PROFIT / (LOSS)', fontSize: 6.5, bold: true, color: plModel.netProfit >= 0 ? '#166534' : '#991B1B' },
+                  { text: formatCurrency(plModel.netProfit), fontSize: 10, bold: true, color: plModel.netProfit >= 0 ? '#14532D' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: `${(plModel.npMargin || 0).toFixed(1)}% Net Margin`, fontSize: 6.5, color: plModel.netProfit >= 0 ? '#166534' : '#991B1B' }
                 ]
               }
             ]
@@ -1304,8 +1636,8 @@ export async function exportProfitLossToPdfBuffer(data: {
         layout: {
           hLineWidth: () => 0.5,
           vLineWidth: () => 0.5,
-          hLineColor: () => '#E2E8F0',
-          vLineColor: () => '#E2E8F0',
+          hLineColor: () => C.border,
+          vLineColor: () => C.border,
         }
       },
 
@@ -1316,16 +1648,72 @@ export async function exportProfitLossToPdfBuffer(data: {
           body: tableBody
         },
         layout: {
-          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
-          vLineWidth: (i: number) => (i === 0 || i === 2 || i === 4 ? 1 : 0.5),
-          hLineColor: () => '#E2E8F0',
-          vLineColor: () => '#E2E8F0',
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length ? 0.75 : 0.35),
+          vLineWidth: (i: number) => (i === 0 || i === 2 || i === 4 ? 0.75 : 0.35),
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length ? C.borderDark : C.border),
+          vLineColor: () => C.border,
         }
+      },
+
+      // Statutory Authorization & Sign-Off Block
+      {
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
+          {
+            text: 'STATUTORY DISCLOSURE: This Statement of Profit & Loss has been prepared in conformity with Schedule III of the Companies Act and Indian Accounting Standards (AS / Ind AS). Accounting policies and explanatory notes form an integral part of this statement.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
+          },
+          {
+            columns: [
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Prepared & Certified By', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 30, y1: 0, x2: 320, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Chief Financial Officer / Head of Accounts', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '4%', text: '' },
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: `For and on behalf of ${(firmName || '').toUpperCase()}`, fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 30, y1: 0, x2: 320, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Proprietor / Partner / Managing Director', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
+            ]
+          }
+        ]
       }
     ],
     styles: {
-      tblHdrDr: { bold: true, fontSize: 8.5, fillColor: '#BE123C', color: '#FFFFFF', margin: [2, 3, 2, 3] },
-      tblHdrCr: { bold: true, fontSize: 8.5, fillColor: '#047857', color: '#FFFFFF', margin: [2, 3, 2, 3] },
+      tblHdrDr: { bold: true, fontSize: 8.5, fillColor: '#F8FAFC', color: '#0F172A', margin: [2, 3, 2, 3] },
+      tblHdrCr: { bold: true, fontSize: 8.5, fillColor: '#F8FAFC', color: '#0F172A', margin: [2, 3, 2, 3] },
     }
   };
 
@@ -1400,12 +1788,12 @@ export async function exportBalanceSheetToPdfBuffer(data: {
 
   // Footer Grand Totals
   mainTableBody.push([
-    { text: 'TOTAL CAPITAL & LIABILITIES', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
-    { text: '', fillColor: '#1E293B' },
-    { text: formatCurrency(bsModel.totalLiabSide), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
-    { text: 'TOTAL ASSETS', bold: true, fontSize: 9, color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
-    { text: '', fillColor: '#1E293B' },
-    { text: formatCurrency(bsModel.totalAssets), bold: true, fontSize: 9, alignment: 'right', color: '#FFFFFF', fillColor: '#1E293B', margin: [2, 4, 2, 4] },
+    { text: 'TOTAL CAPITAL & LIABILITIES', bold: true, fontSize: 8.5, color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
+    { text: '', fillColor: '#F1F5F9' },
+    { text: formatCurrency(bsModel.totalLiabSide), bold: true, fontSize: 8.5, alignment: 'right', color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
+    { text: 'TOTAL ASSETS', bold: true, fontSize: 8.5, color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
+    { text: '', fillColor: '#F1F5F9' },
+    { text: formatCurrency(bsModel.totalAssets), bold: true, fontSize: 8.5, alignment: 'right', color: C.primary, fillColor: '#F1F5F9', margin: [2, 4, 2, 4] },
   ]);
 
   // 2. Build Detailed Annexures (Pages 2+)
@@ -1443,7 +1831,7 @@ export async function exportBalanceSheetToPdfBuffer(data: {
                 text: cell,
                 fontSize: 7.5,
                 color: C.textDark,
-                fillColor: idx % 2 === 0 ? '#FFFFFF' : '#FBFBFB',
+                fillColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFC',
                 alignment: columns[cIdx]?.align || 'left',
                 margin: [2, 2, 2, 2]
               }))
@@ -1472,10 +1860,10 @@ export async function exportBalanceSheetToPdfBuffer(data: {
           ]
         },
         layout: {
-          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length ? 0.75 : 0.35),
           vLineWidth: () => 0.5,
-          hLineColor: () => '#CBD5E1',
-          vLineColor: () => '#E2E8F0',
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length) ? C.borderDark : C.border,
+          vLineColor: () => C.border,
         }
       }
     ];
@@ -1699,13 +2087,32 @@ export async function exportBalanceSheetToPdfBuffer(data: {
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [30, 25, 30, 25],
+    pageMargins: [28, 30, 28, 28],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [28, 10, 28, 0],
+        columns: [
+          { text: `${(firmName || '').toUpperCase()} — STATUTORY BALANCE SHEET`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [28, 8, 28, 0],
+        columns: [
+          { text: `Schedule III Balance Sheet  •  ${periodText}  •  Accounting Standards (AS / Ind AS)`, fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       // PAGE 1: STATUTORY BALANCE SHEET
       { text: (firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
-      { text: 'BALANCE SHEET STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 1] },
-      { text: `(Prepared in accordance with ICAI Standards & Schedule III GAAP) — ${periodText}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+      { text: 'STATUTORY BALANCE SHEET STATEMENT', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 1] },
+      { text: `(Prepared in accordance with Schedule III & Applicable Accounting Standards) — ${periodText}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
 
       // Executive KPI Cards
       {
@@ -1715,39 +2122,39 @@ export async function exportBalanceSheetToPdfBuffer(data: {
           body: [
             [
               {
-                fillColor: '#F0FDF4',
+                fillColor: '#F8FAFC',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'TOTAL ASSETS', fontSize: 7, bold: true, color: '#166534' },
-                  { text: formatCurrency(bsModel.totalAssets), fontSize: 10, bold: true, color: '#14532D', margin: [0, 2, 0, 0] },
-                  { text: `${bsModel.assetSideCount || 0} asset A/Cs`, fontSize: 6.5, color: '#166534' }
+                  { text: 'TOTAL ASSETS / BS SIZE', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: formatCurrency(bsModel.totalAssets), fontSize: 10, bold: true, color: '#166534', margin: [0, 2, 0, 0] },
+                  { text: `${bsModel.assetSideCount || 0} active asset A/Cs`, fontSize: 6.5, color: C.textMid }
                 ]
               },
               {
-                fillColor: '#FFF1F2',
+                fillColor: '#F8FAFC',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'EXTERNAL LIABILITIES', fontSize: 7, bold: true, color: '#BE123C' },
+                  { text: 'EXTERNAL LIABILITIES', fontSize: 6.5, bold: true, color: C.textLight },
                   { text: formatCurrency(bsModel.totalExtLib), fontSize: 10, bold: true, color: '#9F1239', margin: [0, 2, 0, 0] },
-                  { text: `${bsModel.liabilitySideCount || 0} liability A/Cs`, fontSize: 6.5, color: '#BE123C' }
+                  { text: `${bsModel.liabilitySideCount || 0} liability A/Cs`, fontSize: 6.5, color: C.textMid }
                 ]
               },
               {
-                fillColor: (bsModel.capital || 0) >= 0 ? '#F0F9FF' : '#FEF2F2',
+                fillColor: (bsModel.capital || 0) >= 0 ? '#F8FAFC' : '#FEF2F2',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'CAPITAL (EQUITY)', fontSize: 7, bold: true, color: (bsModel.capital || 0) >= 0 ? '#0369A1' : '#991B1B' },
+                  { text: 'PROPRIETOR CAPITAL & EQUITY', fontSize: 6.5, bold: true, color: (bsModel.capital || 0) >= 0 ? C.textLight : '#991B1B' },
                   { text: formatCurrency(Math.abs(bsModel.capital || 0)), fontSize: 10, bold: true, color: (bsModel.capital || 0) >= 0 ? '#075985' : '#991B1B', margin: [0, 2, 0, 0] },
-                  { text: (bsModel.capital || 0) >= 0 ? 'Owner Equity' : 'Equity Deficit', fontSize: 6.5, color: (bsModel.capital || 0) >= 0 ? '#0369A1' : '#991B1B' }
+                  { text: (bsModel.capital || 0) >= 0 ? 'Owner Capital Reserve' : 'Deficit / Overdrawn', fontSize: 6.5, color: C.textMid }
                 ]
               },
               {
-                fillColor: (bsModel.netProfit || 0) >= 0 ? '#FAF5FF' : '#FEF2F2',
+                fillColor: (bsModel.netProfit || 0) >= 0 ? '#F0FDF4' : '#FEF2F2',
                 margin: [4, 4, 4, 4],
                 stack: [
-                  { text: 'NET PROFIT / (LOSS)', fontSize: 7, bold: true, color: (bsModel.netProfit || 0) >= 0 ? '#6B21A8' : '#991B1B' },
-                  { text: formatCurrency(Math.abs(bsModel.netProfit || 0)), fontSize: 10, bold: true, color: (bsModel.netProfit || 0) >= 0 ? '#581C87' : '#991B1B', margin: [0, 2, 0, 0] },
-                  { text: (bsModel.netProfit || 0) >= 0 ? 'Period Surplus' : 'Period Deficit', fontSize: 6.5, color: (bsModel.netProfit || 0) >= 0 ? '#6B21A8' : '#991B1B' }
+                  { text: 'NET SURPLUS / (DEFICIT)', fontSize: 6.5, bold: true, color: (bsModel.netProfit || 0) >= 0 ? '#166534' : '#991B1B' },
+                  { text: formatCurrency(Math.abs(bsModel.netProfit || 0)), fontSize: 10, bold: true, color: (bsModel.netProfit || 0) >= 0 ? '#14532D' : '#991B1B', margin: [0, 2, 0, 0] },
+                  { text: (bsModel.netProfit || 0) >= 0 ? 'Transferred to Equity' : 'Adjusted in Capital', fontSize: 6.5, color: (bsModel.netProfit || 0) >= 0 ? '#166534' : '#991B1B' }
                 ]
               }
             ]
@@ -1756,8 +2163,8 @@ export async function exportBalanceSheetToPdfBuffer(data: {
         layout: {
           hLineWidth: () => 0.5,
           vLineWidth: () => 0.5,
-          hLineColor: () => '#E2E8F0',
-          vLineColor: () => '#E2E8F0',
+          hLineColor: () => C.border,
+          vLineColor: () => C.border,
         }
       },
 
@@ -1771,15 +2178,15 @@ export async function exportBalanceSheetToPdfBuffer(data: {
               { text: `Current Ratio: ${(bsModel.currentRatio || 0).toFixed(2)}`, fontSize: 7.5, bold: true, color: '#334155', fillColor: '#F8FAFC', alignment: 'center', margin: [2, 3, 2, 3] },
               { text: `Quick Ratio: ${(bsModel.quickRatio || 0).toFixed(2)}`, fontSize: 7.5, bold: true, color: '#334155', fillColor: '#F8FAFC', alignment: 'center', margin: [2, 3, 2, 3] },
               { text: `Working Capital: ${formatCurrency(bsModel.workingCapital || 0)}`, fontSize: 7.5, bold: true, color: '#334155', fillColor: '#F8FAFC', alignment: 'center', margin: [2, 3, 2, 3] },
-              { text: bsModel.balanced ? 'STATUS: BALANCED' : 'STATUS: IMBALANCED', fontSize: 7.5, bold: true, color: bsModel.balanced ? '#059669' : '#DC2626', fillColor: bsModel.balanced ? '#ECFDF5' : '#FEF2F2', alignment: 'center', margin: [2, 3, 2, 3] },
+              { text: bsModel.balanced ? 'STATUS: BALANCED (Assets = Liabilities)' : 'STATUS: IMBALANCED (Check Diff)', fontSize: 7.5, bold: true, color: bsModel.balanced ? '#059669' : '#DC2626', fillColor: bsModel.balanced ? '#ECFDF5' : '#FEF2F2', alignment: 'center', margin: [2, 3, 2, 3] },
             ]
           ]
         },
         layout: {
           hLineWidth: () => 0.5,
           vLineWidth: () => 0.5,
-          hLineColor: () => '#CBD5E1',
-          vLineColor: () => '#CBD5E1',
+          hLineColor: () => C.border,
+          vLineColor: () => C.border,
         }
       },
 
@@ -1790,33 +2197,83 @@ export async function exportBalanceSheetToPdfBuffer(data: {
           body: mainTableBody
         },
         layout: {
-          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
-          vLineWidth: (i: number) => (i === 0 || i === 3 || i === 6 ? 1 : 0.5),
-          hLineColor: () => '#CBD5E1',
-          vLineColor: () => '#CBD5E1',
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length ? 0.75 : 0.35),
+          vLineWidth: (i: number) => (i === 0 || i === 3 || i === 6 ? 0.75 : 0.35),
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length ? C.borderDark : C.border),
+          vLineColor: () => C.border,
         }
       },
 
-      // Statutory Sign-off Block on Page 1
+      // Corporate Governance & Audit Sign-Off Block on Page 1
       {
-        margin: [0, 16, 0, 0],
-        columns: [
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
           {
-            width: '*',
-            stack: [
-              { text: 'Significant Accounting Policies and Notes & Annexures (1 to 10) form an integral part of this Balance Sheet.', fontSize: 7, italic: true, color: '#64748B' },
-              { text: 'As per our report of even date attached.', fontSize: 7, color: '#64748B', margin: [0, 2, 0, 14] },
-              { text: `For ${(firmName || 'THE FIRM').toUpperCase()}`, fontSize: 8, bold: true, color: '#0F172A' },
-              { text: '\n\nProprietor / Partner / Director', fontSize: 7.5, color: '#475569' }
-            ]
+            text: 'STATUTORY AUDIT & GOVERNANCE CERTIFICATION: Significant Accounting Policies, Explanatory Notes and Schedules (1 to 10) form an integral part of this Balance Sheet. Prepared in accordance with Schedule III of the Companies Act and Indian Accounting Standards.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
           },
           {
-            width: 240,
-            stack: [
-              { text: 'For Statutory Compliance & Audit Records', fontSize: 7, bold: true, alignment: 'right', color: '#64748B' },
-              { text: `Place: Siliguri, WB\nDate: ${periodText.replace(/As of /i, '')}`, fontSize: 7, alignment: 'right', color: '#64748B', margin: [0, 2, 0, 14] },
-              { text: 'Chartered Accountants / Authorised Signatory', fontSize: 8, bold: true, alignment: 'right', color: '#0F172A' },
-              { text: '\n\nFirm Reg No. / UDIN Applicable', fontSize: 7, alignment: 'right', color: '#64748B' }
+            columns: [
+              {
+                width: '32%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Chief Financial Officer', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 190, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Head of Accounts / Finance Lead', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '32%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Statutory Auditor Certification', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 190, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'As per Audit Report of even date attached', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '32%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: `For and on behalf of ${(firmName || 'THE FIRM').toUpperCase()}`, fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 190, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Proprietor / Managing Partner / Director', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
             ]
           }
         ]
@@ -1826,9 +2283,9 @@ export async function exportBalanceSheetToPdfBuffer(data: {
       ...annexureContent
     ],
     styles: {
-      tblHdrLiab: { bold: true, fontSize: 8.5, fillColor: '#BE123C', color: '#FFFFFF', margin: [2, 3, 2, 3] },
-      tblHdrAsset: { bold: true, fontSize: 8.5, fillColor: '#047857', color: '#FFFFFF', margin: [2, 3, 2, 3] },
-      tblHdrAnnex: { bold: true, fontSize: 8, fillColor: '#334155', color: '#FFFFFF', margin: [2, 3, 2, 3] },
+      tblHdrLiab: { bold: true, fontSize: 8.5, fillColor: '#F8FAFC', color: '#0F172A', margin: [2, 3, 2, 3] },
+      tblHdrAsset: { bold: true, fontSize: 8.5, fillColor: '#F8FAFC', color: '#0F172A', margin: [2, 3, 2, 3] },
+      tblHdrAnnex: { bold: true, fontSize: 8, fillColor: '#F8FAFC', color: '#0F172A', margin: [2, 3, 2, 3] },
     }
   };
 
@@ -1845,8 +2302,8 @@ export async function exportDrillDownToPdfBuffer(data: {
 }): Promise<Buffer> {
   const tableBody: any[] = [
     [
-      { text: '#', style: 'tblHdr' },
-      { text: 'ACCOUNT HEAD', style: 'tblHdr' },
+      { text: '#', style: 'tblHdr', alignment: 'center' },
+      { text: 'ACCOUNT HEAD / SUBSIDIARY LEDGER', style: 'tblHdr' },
       { text: 'DEBITS (₹)', style: 'tblHdr', alignment: 'right' },
       { text: 'CREDITS (₹)', style: 'tblHdr', alignment: 'right' },
       { text: 'NET BALANCE (₹)', style: 'tblHdr', alignment: 'right' },
@@ -1854,38 +2311,193 @@ export async function exportDrillDownToPdfBuffer(data: {
   ];
 
   data.accounts.forEach((acc, idx) => {
+    const bg = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFC';
     tableBody.push([
-      { text: String(idx + 1), alignment: 'center' },
-      { text: acc.accountHead, bold: true },
-      { text: formatCurrency(acc.totalDebit), alignment: 'right', color: acc.totalDebit > 0 ? C.green : C.textDark },
-      { text: formatCurrency(acc.totalCredit), alignment: 'right', color: acc.totalCredit > 0 ? C.red : C.textDark },
-      { text: `${formatCurrency(acc.balance)} ${acc.balanceType}`, alignment: 'right', bold: true }
+      { text: String(idx + 1), alignment: 'center', fontSize: 7.5, color: C.textMid, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+      { text: acc.accountHead, bold: true, fontSize: 8, color: C.textDark, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+      { text: acc.totalDebit > 0 ? formatCurrency(acc.totalDebit) : '-', alignment: 'right', fontSize: 8, color: acc.totalDebit > 0 ? C.textDark : C.textLight, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+      { text: acc.totalCredit > 0 ? formatCurrency(acc.totalCredit) : '-', alignment: 'right', fontSize: 8, color: acc.totalCredit > 0 ? C.textDark : C.textLight, fillColor: bg, margin: [2, 2.5, 2, 2.5] },
+      { text: `${formatCurrency(acc.balance)} ${acc.balanceType}`, alignment: 'right', bold: true, fontSize: 8, color: C.textDark, fillColor: bg, margin: [2, 2.5, 2, 2.5] }
     ]);
   });
 
   tableBody.push([
-    { text: 'GRAND TOTAL', colSpan: 2, bold: true, alignment: 'right' },
+    { text: `GRAND TOTAL (${data.accounts.length} Accounts)`, colSpan: 2, bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
     {},
-    { text: formatCurrency(data.grandTotalDebit), alignment: 'right', bold: true, color: C.green },
-    { text: formatCurrency(data.grandTotalCredit), alignment: 'right', bold: true, color: C.red },
-    { text: `${formatCurrency(Math.abs(data.grandTotalDebit - data.grandTotalCredit))} ${data.grandTotalDebit >= data.grandTotalCredit ? 'DR' : 'CR'}`, alignment: 'right', bold: true }
+    { text: formatCurrency(data.grandTotalDebit), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
+    { text: formatCurrency(data.grandTotalCredit), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
+    { text: `${formatCurrency(Math.abs(data.grandTotalDebit - data.grandTotalCredit))} ${data.grandTotalDebit >= data.grandTotalCredit ? 'DR' : 'CR'}`, alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] }
   ]);
 
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'portrait',
-    pageMargins: [30, 30, 30, 30],
+    pageMargins: [30, 36, 30, 32],
     defaultStyle: { fontSize: 8.5, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [30, 10, 30, 0],
+        columns: [
+          { text: `${(data.firmName || '').toUpperCase()} — DRILL-DOWN STATEMENT`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [30, 8, 30, 0],
+        columns: [
+          { text: `Drill-Down: ${data.categoryTitle.toUpperCase()}  •  ${data.periodText}`, fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
       { text: `DRILL-DOWN STATEMENT: ${data.categoryTitle.toUpperCase()}`, fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: data.periodText, fontSize: 8.5, italic: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      { text: `Statement Period: ${data.periodText}  |  Generated on: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+
+      // Executive KPI Ribbon
+      {
+        margin: [0, 0, 0, 10],
+        columns: [
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'CATEGORY GROUP', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: data.categoryTitle.toUpperCase(), fontSize: 8.5, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL ACCOUNTS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: `${data.accounts.length} Heads`, fontSize: 9.5, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL PERIOD DEBITS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(data.grandTotalDebit), fontSize: 9.5, bold: true, color: C.green, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL PERIOD CREDITS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(data.grandTotalCredit), fontSize: 9.5, bold: true, color: C.red, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          }
+        ]
+      },
+
+      // Drill-Down Table
       {
         table: {
           headerRows: 1,
-          widths: [25, '*', 100, 100, 110],
+          widths: [25, '*', 95, 95, 110],
           body: tableBody
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length) ? 0.75 : 0.35,
+          vLineWidth: () => 0.5,
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length) ? C.borderDark : C.border,
+          vLineColor: () => C.border
         }
+      },
+
+      // Statutory Sign-Off Block
+      {
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
+          {
+            text: 'AUDIT DISCLOSURE: This subsidiary drill-down statement represents detailed account balances forming part of the General Ledger and Trial Balance. Figures have been extracted from validated journal entries.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
+          },
+          {
+            columns: [
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Prepared & Checked By', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 220, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Accounts Department / Ledger In-Charge', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '4%', text: '' },
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: `For ${(data.firmName || '').toUpperCase()}`, fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 20, y1: 0, x2: 220, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'CFO / Authorized Finance Signatory', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
+            ]
+          }
+        ]
       }
     ],
     styles: {
@@ -1908,73 +2520,636 @@ export async function generateDayBookPdf(data: {
       { text: 'Voucher No', style: 'tblHdr' },
       { text: 'Type', style: 'tblHdr', alignment: 'center' },
       { text: 'Particulars (Account Heads)', style: 'tblHdr' },
-      { text: 'Narration', style: 'tblHdr' },
+      { text: 'Narration / Description', style: 'tblHdr' },
       { text: 'Debit (₹)', style: 'tblHdr', alignment: 'right' },
       { text: 'Credit (₹)', style: 'tblHdr', alignment: 'right' }
     ]
   ];
 
-  (data.vouchers || []).forEach((v: any) => {
+  (data.vouchers || []).forEach((v: any, vIdx: number) => {
+    const rowBg = vIdx % 2 === 0 ? '#FFFFFF' : '#FAFAFC';
     if (Array.isArray(v.entries) && v.entries.length > 0) {
       v.entries.forEach((en: any, entryIdx: number) => {
         tableBody.push([
-          { text: entryIdx === 0 ? v.transactionDate : '', alignment: 'center', fontSize: 7.5 },
-          { text: entryIdx === 0 ? v.voucherNo : '', bold: entryIdx === 0, fontSize: 8 },
-          { text: entryIdx === 0 ? v.voucherType : '', alignment: 'center', fontSize: 7.5 },
-          { text: `${en.debitAmount > 0 ? 'Dr. ' : '     To '} ${en.accountHead}`, bold: en.debitAmount > 0, fontSize: 8 },
-          { text: entryIdx === 0 ? (v.narration || '') : '', fontSize: 7.5, color: C.textMid },
-          { text: en.debitAmount > 0 ? formatCurrency(en.debitAmount) : '', alignment: 'right', fontSize: 8, color: C.green },
-          { text: en.creditAmount > 0 ? formatCurrency(en.creditAmount) : '', alignment: 'right', fontSize: 8, color: C.red }
+          { text: entryIdx === 0 ? formatDate(v.transactionDate) : '', alignment: 'center', fontSize: 7.5, color: C.textDark, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+          { text: entryIdx === 0 ? v.voucherNo : '', bold: entryIdx === 0, fontSize: 8, color: C.textDark, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+          { text: entryIdx === 0 ? v.voucherType : '', alignment: 'center', fontSize: 7, color: C.textMid, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+          { text: `${en.debitAmount > 0 ? 'Dr. ' : '     To '} ${en.accountHead}`, bold: en.debitAmount > 0, fontSize: 8, color: C.textDark, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+          { text: entryIdx === 0 ? (v.narration || '') : '', fontSize: 7.5, color: C.textLight, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+          { text: en.debitAmount > 0 ? formatCurrency(en.debitAmount) : '-', alignment: 'right', fontSize: 8, color: en.debitAmount > 0 ? C.textDark : C.textLight, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+          { text: en.creditAmount > 0 ? formatCurrency(en.creditAmount) : '-', alignment: 'right', fontSize: 8, color: en.creditAmount > 0 ? C.textDark : C.textLight, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] }
         ]);
       });
     } else {
       tableBody.push([
-        { text: v.transactionDate, alignment: 'center', fontSize: 7.5 },
-        { text: v.voucherNo, bold: true, fontSize: 8 },
-        { text: v.voucherType, alignment: 'center', fontSize: 7.5 },
-        { text: v.primaryAccount, fontSize: 8 },
-        { text: v.narration || '', fontSize: 7.5, color: C.textMid },
-        { text: v.totalDebit > 0 ? formatCurrency(v.totalDebit) : '', alignment: 'right', fontSize: 8, color: C.green },
-        { text: v.totalCredit > 0 ? formatCurrency(v.totalCredit) : '', alignment: 'right', fontSize: 8, color: C.red }
+        { text: formatDate(v.transactionDate), alignment: 'center', fontSize: 7.5, color: C.textDark, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+        { text: v.voucherNo, bold: true, fontSize: 8, color: C.textDark, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+        { text: v.voucherType, alignment: 'center', fontSize: 7, color: C.textMid, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+        { text: v.primaryAccount, fontSize: 8, color: C.textDark, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+        { text: v.narration || '', fontSize: 7.5, color: C.textLight, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+        { text: v.totalDebit > 0 ? formatCurrency(v.totalDebit) : '-', alignment: 'right', fontSize: 8, color: v.totalDebit > 0 ? C.textDark : C.textLight, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] },
+        { text: v.totalCredit > 0 ? formatCurrency(v.totalCredit) : '-', alignment: 'right', fontSize: 8, color: v.totalCredit > 0 ? C.textDark : C.textLight, fillColor: rowBg, margin: [2, 2.5, 2, 2.5] }
       ]);
     }
   });
 
   // Grand Total Row
   tableBody.push([
-    { text: 'TOTALS', colSpan: 4, bold: true, alignment: 'right', fontSize: 8.5 },
+    { text: `GRAND TOTALS (${data.summary.totalVouchers || 0} Vouchers)`, colSpan: 4, bold: true, alignment: 'left', fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
     {},
     {},
     {},
-    { text: `Count: ${data.summary.totalVouchers || 0}`, bold: true, fontSize: 8 },
-    { text: formatCurrency(data.summary.totalDebits || 0), alignment: 'right', bold: true, color: C.green, fontSize: 8.5 },
-    { text: formatCurrency(data.summary.totalCredits || 0), alignment: 'right', bold: true, color: C.red, fontSize: 8.5 }
+    { text: '', fillColor: '#F1F5F9' },
+    { text: formatCurrency(data.summary.totalDebits || 0), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
+    { text: formatCurrency(data.summary.totalCredits || 0), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] }
   ]);
 
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [25, 25, 25, 25],
+    pageMargins: [25, 30, 25, 28],
     defaultStyle: { fontSize: 8, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [25, 10, 25, 0],
+        columns: [
+          { text: `${(data.firmName || '').toUpperCase()} — DAY BOOK (TRANSACTION JOURNAL)`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [25, 8, 25, 0],
+        columns: [
+          { text: `Daily Transaction Audit Journal  •  ${data.periodText}`, fontSize: 7.5, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7.5, color: C.textDark }
+        ]
+      };
+    },
     content: [
       { text: (data.firmName || '').toUpperCase(), fontSize: 13, bold: true, color: C.primary, alignment: 'center' },
-      { text: 'DAY BOOK (TRANSACTION JOURNAL)', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
-      { text: `Period: ${data.periodText}  |  Generated on: ${new Date().toLocaleString('en-IN')}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+      { text: 'DAY BOOK (TRANSACTION AUDIT JOURNAL)', fontSize: 11, bold: true, alignment: 'center', margin: [0, 2, 0, 2] },
+      { text: `Statement Period: ${data.periodText}  |  Generated on: ${new Date().toLocaleString('en-IN')}`, fontSize: 8, italic: true, alignment: 'center', margin: [0, 0, 0, 8] },
+
+      // Executive Daily Audit Ribbon
       {
+        margin: [0, 0, 0, 9],
         columns: [
-          { text: `Total Vouchers: ${data.summary.totalVouchers || 0}`, bold: true },
-          { text: `Total Inflows: ${formatCurrency(data.summary.totalReceipts || 0)}`, bold: true, color: C.green },
-          { text: `Total Outflows: ${formatCurrency(data.summary.totalPayments || 0)}`, bold: true, color: C.red },
-          { text: `Status: ${data.summary.isBooksBalanced ? 'BALANCED (Dr = Cr)' : 'IMBALANCED'}`, bold: true, alignment: 'right' }
-        ],
-        margin: [0, 0, 0, 6]
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL TRANSACTIONS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: `${data.summary.totalVouchers || 0} Vouchers`, fontSize: 9.5, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL INFLOWS (RECEIPTS)', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(data.summary.totalReceipts || 0), fontSize: 9.5, bold: true, color: C.green, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'TOTAL OUTFLOWS (PAYMENTS)', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: formatCurrency(data.summary.totalPayments || 0), fontSize: 9.5, bold: true, color: C.red, margin: [0, 2, 0, 0] }
+                  ],
+                  fillColor: '#F8FAFC',
+                  borderColor: [C.border, C.border, C.border, C.border]
+                }
+              ]]
+            }
+          },
+          {
+            width: '25%',
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: 'JOURNAL EQUALITY STATUS', fontSize: 6.5, bold: true, color: C.textLight },
+                    { text: data.summary.isBooksBalanced ? '✓ PERFECTLY BALANCED' : '⚠ IMBALANCED JOURNAL', fontSize: 8.5, bold: true, color: data.summary.isBooksBalanced ? '#15803D' : '#B91C1C', margin: [0, 3, 0, 0] }
+                  ],
+                  fillColor: data.summary.isBooksBalanced ? '#F0FDF4' : '#FEF2F2',
+                  borderColor: [data.summary.isBooksBalanced ? '#BBF7D0' : '#FECACA', data.summary.isBooksBalanced ? '#BBF7D0' : '#FECACA', data.summary.isBooksBalanced ? '#BBF7D0' : '#FECACA', data.summary.isBooksBalanced ? '#BBF7D0' : '#FECACA']
+                }
+              ]]
+            }
+          }
+        ]
       },
+
+      // Day Book Table
       {
         table: {
           headerRows: 1,
           widths: [55, 75, 55, 210, '*', 95, 95],
           body: tableBody
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length) ? 0.75 : 0.35,
+          vLineWidth: () => 0.5,
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length) ? C.borderDark : C.border,
+          vLineColor: () => C.border
         }
+      },
+
+      // Dual Sign-Off Block
+      {
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
+          {
+            text: 'DAILY JOURNAL CERTIFICATION: All transactions entered above have been verified with primary source documents, vouchers, and authorized payment instructions.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
+          },
+          {
+            columns: [
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Prepared By (Day Cashier / Ledger Clerk)', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 30, y1: 0, x2: 320, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Verified with Daily Cash / Bank Scrolls', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '4%', text: '' },
+              {
+                width: '48%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: `For and on behalf of ${(data.firmName || '').toUpperCase()}`, fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 30, y1: 0, x2: 320, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Internal Auditor / Head of Accounts', fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 3, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    styles: {
+      tblHdr: { bold: true, fontSize: 8, fillColor: C.tableHdrBg, color: C.tableHdrText, margin: [2, 3, 2, 3] }
+    }
+  };
+
+  return createPdfBufferFromDocDef(docDefinition);
+}
+
+// ── Single Accounting Voucher PDF Generator ─────────────────────────────────
+export async function exportSingleVoucherToPdfBuffer(data: {
+  firm: any;
+  voucherGroupId: string;
+  voucherNo?: string;
+  voucherType: string;
+  transactionDate: string;
+  narration?: string;
+  entries: Array<{
+    accountHead: string;
+    accountType?: string;
+    accountCode?: string;
+    debitAmount: number;
+    creditAmount: number;
+    narration?: string;
+  }>;
+  totalDebit: number;
+  totalCredit: number;
+  paymentMode?: string;
+  refNo?: string;
+  bankAccountDetails?: string;
+  costCenter?: string;
+}): Promise<Buffer> {
+  const firm = data.firm || {};
+  const firmTradeName = (firm.name || 'ENTERPRISE BUSINESS').toUpperCase();
+  const firmProprietor = firm.legal_name && firm.legal_name !== firm.name ? firm.legal_name : '';
+  const firmGstin = firm.gst_number || '';
+  const firmPan = firm.pan_number || '';
+  const firmAddress = [
+    firm.address,
+    firm.city,
+    firm.state ? (firm.pincode ? `${firm.state} - ${firm.pincode}` : firm.state) : firm.pincode
+  ].filter(Boolean).join(', ');
+
+  const vtypeUpper = (data.voucherType || 'JOURNAL').toUpperCase();
+  let vtitle = 'JOURNAL VOUCHER';
+  let vsubtitle = 'General Journal & Adjustment Voucher';
+  let badgeBorderColor = '#94A3B8';
+  let badgeBgColor = '#F8FAFC';
+  let badgeTextColor = '#0F172A';
+
+  if (vtypeUpper === 'PAYMENT') {
+    vtitle = 'PAYMENT VOUCHER';
+    vsubtitle = 'Cash / Bank Disbursement Slip';
+    badgeBorderColor = '#93C5FD';
+    badgeBgColor = '#EFF6FF';
+    badgeTextColor = '#1E40AF';
+  } else if (vtypeUpper === 'RECEIPT') {
+    vtitle = 'RECEIPT VOUCHER';
+    vsubtitle = 'Cash / Bank Receipt Acknowledgment';
+    badgeBorderColor = '#86EFAC';
+    badgeBgColor = '#F0FDF4';
+    badgeTextColor = '#166534';
+  } else if (vtypeUpper === 'CONTRA') {
+    vtitle = 'CONTRA VOUCHER';
+    vsubtitle = 'Bank ↔ Cash Transfer Voucher';
+    badgeBorderColor = '#FDE68A';
+    badgeBgColor = '#FFFBEB';
+    badgeTextColor = '#92400E';
+  }
+
+  const tableBody: any[] = [
+    [
+      { text: '#', style: 'tblHdr', alignment: 'center' },
+      { text: 'Particulars (Account Head & Line Details)', style: 'tblHdr' },
+      { text: 'Classification', style: 'tblHdr' },
+      { text: 'Code', style: 'tblHdr', alignment: 'center' },
+      { text: 'Debit (₹)', style: 'tblHdr', alignment: 'right' },
+      { text: 'Credit (₹)', style: 'tblHdr', alignment: 'right' }
+    ]
+  ];
+
+  data.entries.forEach((en, idx) => {
+    const bg = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFC';
+    const isDr = (en.debitAmount || 0) > 0;
+    const prefix = isDr ? 'Dr. ' : '     To ';
+
+    tableBody.push([
+      { text: String(idx + 1), alignment: 'center', fontSize: 7.5, color: C.textMid, fillColor: bg, margin: [2, 3, 2, 3] },
+      {
+        stack: [
+          { text: `${prefix}${en.accountHead}`, bold: isDr, fontSize: 8, color: C.textDark },
+          ...(en.narration ? [{ text: en.narration, fontSize: 7, italics: true, color: C.textLight, margin: [prefix.length * 2, 1, 0, 0] }] : [])
+        ],
+        fillColor: bg,
+        margin: [2, 3, 2, 3]
+      },
+      { text: en.accountType?.replace(/_/g, ' ') || 'GENERAL', fontSize: 7.5, color: C.textMid, fillColor: bg, margin: [2, 3, 2, 3] },
+      { text: en.accountCode || '-', alignment: 'center', fontSize: 7.5, color: C.textLight, fillColor: bg, margin: [2, 3, 2, 3] },
+      { text: en.debitAmount > 0 ? formatCurrency(en.debitAmount) : '-', alignment: 'right', fontSize: 8, color: en.debitAmount > 0 ? C.textDark : C.textLight, fillColor: bg, margin: [2, 3, 2, 3] },
+      { text: en.creditAmount > 0 ? formatCurrency(en.creditAmount) : '-', alignment: 'right', fontSize: 8, color: en.creditAmount > 0 ? C.textDark : C.textLight, fillColor: bg, margin: [2, 3, 2, 3] }
+    ]);
+  });
+
+  // Grand Totals Row
+  tableBody.push([
+    { text: `TOTAL (${data.entries.length} Ledger Leg${data.entries.length > 1 ? 's' : ''})`, colSpan: 4, bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
+    {},
+    {},
+    {},
+    { text: formatCurrency(data.totalDebit), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] },
+    { text: formatCurrency(data.totalCredit), alignment: 'right', bold: true, fontSize: 8.5, fillColor: '#F1F5F9', color: C.primary, margin: [2, 4, 2, 4] }
+  ]);
+
+  const docDefinition: any = {
+    pageSize: 'A4',
+    pageMargins: [30, 32, 30, 30],
+    defaultStyle: { fontSize: 8, color: C.textDark },
+    header: (currentPage: number, pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        margin: [30, 10, 30, 0],
+        columns: [
+          { text: `${firmTradeName} — ${vtitle} #${data.voucherNo || data.voucherGroupId}`, bold: true, fontSize: 8, color: C.textDark },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 8, color: C.textMid }
+        ]
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => {
+      return {
+        margin: [30, 8, 30, 0],
+        columns: [
+          { text: `Official General Ledger Voucher  •  Date: ${formatDate(data.transactionDate)}  •  BusinessPro ERP`, fontSize: 7, color: C.textLight },
+          { text: `Page ${currentPage} of ${pageCount}`, alignment: 'right', bold: true, fontSize: 7, color: C.textDark }
+        ]
+      };
+    },
+    content: [
+      // 1. Corporate Letterhead & Voucher Badge
+      {
+        columns: [
+          {
+            width: '*',
+            stack: [
+              { text: firmTradeName, fontSize: 13, bold: true, color: C.primary },
+              ...(firmProprietor ? [{ text: `(Proprietor: ${firmProprietor})`, fontSize: 8, bold: true, color: C.textMid, margin: [0, 1, 0, 0] }] : []),
+              ...(firmAddress ? [{ text: firmAddress, fontSize: 7.5, color: C.textMid, margin: [0, 2, 0, 0] }] : []),
+              {
+                margin: [0, 2, 0, 0],
+                text: [
+                  ...(firmGstin ? [{ text: `GSTIN: ${firmGstin}   `, fontSize: 7.5, bold: true, color: C.textDark }] : []),
+                  ...(firmPan ? [{ text: `PAN: ${firmPan}   `, fontSize: 7.5, bold: true, color: C.textDark }] : []),
+                  ...(firm.phone ? [{ text: `Ph: ${firm.phone}`, fontSize: 7.5, color: C.textMid }] : [])
+                ]
+              }
+            ]
+          },
+          {
+            width: 210,
+            table: {
+              widths: ['*'],
+              body: [[
+                {
+                  stack: [
+                    { text: vtitle, fontSize: 11, bold: true, color: badgeTextColor, alignment: 'center' },
+                    { text: vsubtitle, fontSize: 6.5, color: C.textLight, alignment: 'center', margin: [0, 1, 0, 3] },
+                    {
+                      canvas: [{ type: 'line', x1: 10, y1: 0, x2: 190, y2: 0, lineWidth: 0.5, lineColor: badgeBorderColor }]
+                    },
+                    {
+                      margin: [0, 4, 0, 0],
+                      columns: [
+                        { text: 'VOUCHER NO:', fontSize: 7, bold: true, color: C.textMid },
+                        { text: data.voucherNo || data.voucherGroupId, fontSize: 8, bold: true, color: C.primary, alignment: 'right' }
+                      ]
+                    },
+                    {
+                      margin: [0, 2, 0, 0],
+                      columns: [
+                        { text: 'POSTING DATE:', fontSize: 7, bold: true, color: C.textMid },
+                        { text: formatDate(data.transactionDate), fontSize: 8, bold: true, color: C.primary, alignment: 'right' }
+                      ]
+                    },
+                    {
+                      margin: [0, 2, 0, 0],
+                      columns: [
+                        { text: 'AUDIT STATUS:', fontSize: 7, bold: true, color: C.textMid },
+                        { text: '✓ POSTED & BALANCED', fontSize: 7, bold: true, color: '#15803D', alignment: 'right' }
+                      ]
+                    }
+                  ],
+                  fillColor: badgeBgColor,
+                  borderColor: [badgeBorderColor, badgeBorderColor, badgeBorderColor, badgeBorderColor],
+                  margin: [4, 4, 4, 4]
+                }
+              ]]
+            }
+          }
+        ],
+        margin: [0, 0, 0, 8]
+      },
+
+      // Thin decorative dividing hairline
+      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 535, y2: 0, lineWidth: 0.5, lineColor: C.border }], margin: [0, 0, 0, 8] },
+
+      // 2. Transaction Metadata Context Grid
+      {
+        margin: [0, 0, 0, 8],
+        table: {
+          widths: ['25%', '25%', '25%', '25%'],
+          body: [
+            [
+              {
+                fillColor: '#F8FAFC',
+                stack: [
+                  { text: 'PAYMENT / SETTLEMENT MODE', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: data.paymentMode || (vtypeUpper === 'JOURNAL' ? 'BOOK ADJUSTMENT' : 'BANK / CASH'), fontSize: 8.5, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                ],
+                margin: [3, 3, 3, 3]
+              },
+              {
+                fillColor: '#F8FAFC',
+                stack: [
+                  { text: 'INSTRUMENT / UTR / CHQ REF', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: data.refNo || 'N/A', fontSize: 8.5, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                ],
+                margin: [3, 3, 3, 3]
+              },
+              {
+                fillColor: '#F8FAFC',
+                stack: [
+                  { text: 'SETTLEMENT A/C (BANK / CASH)', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: data.bankAccountDetails || (vtypeUpper === 'JOURNAL' ? 'General Journal' : 'Liquid Account'), fontSize: 8, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                ],
+                margin: [3, 3, 3, 3]
+              },
+              {
+                fillColor: '#F8FAFC',
+                stack: [
+                  { text: 'COST CENTER / PROJECT SITE', fontSize: 6.5, bold: true, color: C.textLight },
+                  { text: data.costCenter || 'Main Operations', fontSize: 8, bold: true, color: C.textDark, margin: [0, 2, 0, 0] }
+                ],
+                margin: [3, 3, 3, 3]
+              }
+            ]
+          ]
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: () => C.border,
+          vLineColor: () => C.border
+        }
+      },
+
+      // 3. Accounting Entries Breakdown Table
+      {
+        table: {
+          headerRows: 1,
+          widths: [20, '*', 95, 45, 85, 85],
+          body: tableBody
+        },
+        layout: {
+          hLineWidth: (i: number, node: any) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length) ? 0.75 : 0.35,
+          vLineWidth: () => 0.5,
+          hLineColor: (i: number, node: any) => (i === node.table.body.length - 1 || i === node.table.body.length) ? C.borderDark : C.border,
+          vLineColor: () => C.border
+        }
+      },
+
+      // 4. Net Transaction Amount in Words Banner
+      {
+        margin: [0, 8, 0, 0],
+        table: {
+          widths: ['*'],
+          body: [[
+            {
+              stack: [
+                {
+                  columns: [
+                    {
+                      width: '*',
+                      text: [
+                        { text: 'Amount in Words:  ', fontSize: 7.5, bold: true, color: C.textMid },
+                        { text: numberToWords(data.totalDebit || data.totalCredit), fontSize: 8, bold: true, italics: true, color: C.primary }
+                      ]
+                    },
+                    {
+                      width: 190,
+                      alignment: 'right',
+                      text: [
+                        { text: 'NET AMOUNT:  ', fontSize: 8, bold: true, color: C.textMid },
+                        { text: formatCurrency(data.totalDebit || data.totalCredit), fontSize: 10, bold: true, color: C.primary }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              fillColor: '#F8FAFC',
+              borderColor: [C.border, C.border, C.border, C.border],
+              margin: [4, 4, 4, 4]
+            }
+          ]]
+        }
+      },
+
+      // 5. Narration & Transaction Explanation Box
+      {
+        margin: [0, 8, 0, 0],
+        table: {
+          widths: ['*'],
+          body: [[
+            {
+              stack: [
+                { text: 'NARRATION & TRANSACTION PARTICULARS:', fontSize: 7, bold: true, color: C.textLight },
+                { text: data.narration || 'Being amount posted in books of account against voucher.', fontSize: 8, color: C.textDark, margin: [0, 2, 0, 0] }
+              ],
+              fillColor: '#FFFFFF',
+              borderColor: [C.border, C.border, C.border, C.border],
+              margin: [4, 4, 4, 4]
+            }
+          ]]
+        }
+      },
+
+      // 6. Statutory 4-Tier Internal Financial Controls Sign-Off Box
+      {
+        margin: [0, 14, 0, 0],
+        dontBreakRows: true,
+        stack: [
+          {
+            text: 'INTERNAL FINANCIAL CONTROLS CERTIFICATION: We certify that this voucher has been entered in accordance with the established chart of accounts and financial delegation of powers. Supporting vouchers and instruments are verified.',
+            fontSize: 6.5,
+            italics: true,
+            color: C.textLight,
+            margin: [0, 0, 0, 8]
+          },
+          {
+            columns: [
+              {
+                width: '23.5%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Prepared By', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 10, y1: 0, x2: 95, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Cashier / Accounts Clerk', fontSize: 6, color: C.textLight, alignment: 'center', margin: [0, 2, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '23.5%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Checked & Verified', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 10, y1: 0, x2: 95, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'Internal Auditor / Sr. Acc', fontSize: 6, color: C.textLight, alignment: 'center', margin: [0, 2, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '23.5%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: 'Approved & Passed', fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 10, y1: 0, x2: 95, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: 'CFO / Authorized Signatory', fontSize: 6, color: C.textLight, alignment: 'center', margin: [0, 2, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              },
+              { width: '2%', text: '' },
+              {
+                width: '23.5%',
+                table: {
+                  widths: ['*'],
+                  body: [[
+                    {
+                      stack: [
+                        { text: vtypeUpper === 'JOURNAL' ? 'Finance Controller' : (vtypeUpper === 'RECEIPT' ? 'Depositor / Payer' : 'Receiver / Payee Sign'), fontSize: 7, bold: true, color: C.textDark, alignment: 'center' },
+                        { text: '\n\n', fontSize: 6 },
+                        { canvas: [{ type: 'line', x1: 10, y1: 0, x2: 95, y2: 0, lineWidth: 0.5, lineColor: C.borderDark }] },
+                        { text: vtypeUpper === 'JOURNAL' ? 'Accounting Approval' : 'Acknowledgment & Stamp', fontSize: 6, color: C.textLight, alignment: 'center', margin: [0, 2, 0, 0] }
+                      ],
+                      borderColor: [C.border, C.border, C.border, C.border],
+                      fillColor: '#FFFFFF'
+                    }
+                  ]]
+                }
+              }
+            ]
+          }
+        ]
       }
     ],
     styles: {
