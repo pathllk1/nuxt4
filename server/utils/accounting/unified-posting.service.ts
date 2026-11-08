@@ -16,6 +16,7 @@ import {
   DOUBLE_ENTRY_TOLERANCE,
   PNL_ACCOUNT_TYPES,
   BALANCE_SHEET_ACCOUNT_TYPES,
+  classifyAccountType,
 } from '../../types/accounting';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ export class UnifiedPostingService {
       paymentMode: leg.paymentMode || null,
       isWageEntry: isWage,
       masterRollId,
+      statutory: leg.statutory || null,
       createdBy: payload.createdBy,
     }));
 
@@ -334,6 +336,7 @@ export class UnifiedPostingService {
       paymentMode: leg.paymentMode || null,
       isWageEntry: isWage,
       masterRollId,
+      statutory: leg.statutory || null,
       createdBy: firstEntry.createdBy || payload.createdBy,
       createdAt: firstEntry.createdAt,
       updatedAt: new Date()
@@ -520,6 +523,7 @@ export class UnifiedPostingService {
     }
 
     // Auto-create the COA entry if it doesn't exist
+    const bsClass = classifyAccountType(normalizedType);
     try {
       const created = await (ChartOfAccounts as any).create(
         [
@@ -528,6 +532,7 @@ export class UnifiedPostingService {
             firmId: firmId,
             account_name: accountHead,
             account_type: normalizedType,
+            bs_classification: bsClass,
             is_system: false,
             is_active: true,
           },
@@ -559,9 +564,11 @@ export class UnifiedPostingService {
         }
       }
 
-      // If we still can't resolve, use the raw input as-is
-      console.error(`[UnifiedPostingService] Failed to auto-create COA for "${accountHead}":`, createErr.message);
-      return { accountHead, accountType: fallbackType };
+      console.error(`[UnifiedPostingService] Critical: Failed to provision COA account "${accountHead}":`, createErr.message);
+      throw new Error(
+        `[UnifiedPostingService Account Provisioning Failure] Cannot post voucher leg to "${accountHead}". ` +
+        `Failed to register master account in Chart of Accounts: ${createErr.message}`
+      );
     }
   }
 

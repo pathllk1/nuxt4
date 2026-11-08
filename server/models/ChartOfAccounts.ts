@@ -20,6 +20,7 @@ export interface IChartOfAccounts extends Document {
   ifsc_code?: string | null;
   branch_name?: string | null;
   account_type_code?: string | null;
+  account_code?: string | null;
   is_system: boolean;
   is_active: boolean;
   created_by?: mongoose.Types.ObjectId | null;
@@ -117,6 +118,12 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
       default: '10',
       trim: true,
     },
+    account_code: {
+      type: String,
+      default: null,
+      trim: true,
+      index: true,
+    },
     is_system: {
       type: Boolean,
       default: false,
@@ -139,6 +146,16 @@ const chartOfAccountsSchema = new Schema<IChartOfAccounts>(
   { timestamps: true }
 );
 
-chartOfAccountsSchema.index({ firm_id: 1, account_name: 1 }, { unique: true });
+chartOfAccountsSchema.pre('save', function (next) {
+  if (this.firmId && !this.firm_id) this.firm_id = this.firmId;
+  if (this.firm_id && !this.firmId) this.firmId = this.firm_id;
+  next();
+});
+
+chartOfAccountsSchema.index(
+  { firm_id: 1, account_name: 1 },
+  { unique: true, collation: { locale: 'en', strength: 2 } }
+);
+chartOfAccountsSchema.index({ firmId: 1, account_name: 1 });
 
 export default (mongoose.models.ChartOfAccounts as mongoose.Model<IChartOfAccounts>) || mongoose.model<IChartOfAccounts>('ChartOfAccounts', chartOfAccountsSchema);

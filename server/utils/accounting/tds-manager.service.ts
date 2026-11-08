@@ -293,11 +293,13 @@ export class TdsManagerService {
       const primaryTdsLeg = tdsLegs[0];
 
       // Check if Gross-Up applies (company bears the TDS u/s 195A)
-      const isGrossUp = siblingLegs.some(l => 
-        (l.accountHead || '').toLowerCase().includes('tds borne by company') ||
-        (l.narration || '').toLowerCase().includes('grossed-up') ||
-        (l.narration || '').toLowerCase().includes('195a')
-      );
+      const isGrossUp = (primaryTdsLeg as any)?.statutory?.isGrossUp !== undefined
+        ? Boolean((primaryTdsLeg as any).statutory.isGrossUp)
+        : siblingLegs.some(l => 
+            (l.accountHead || '').toLowerCase().includes('tds borne by company') ||
+            (l.narration || '').toLowerCase().includes('grossed-up') ||
+            (l.narration || '').toLowerCase().includes('195a')
+          );
 
       // Debit legs (Expense, Party, Labor Leader)
       const debitLegs = siblingLegs.filter(l => (Number(l.debitAmount) || 0) > 0);
@@ -339,8 +341,9 @@ export class TdsManagerService {
         }
       }
 
-      // Detect Section
-      const section = this.inferTdsSection(primaryTdsLeg.accountHead || '', primaryTdsLeg.narration || '');
+      // Detect Section: Prioritize first-class statutory metadata over regex inference
+      const statutorySection = (primaryTdsLeg as any)?.statutory?.tdsSection;
+      const section = statutorySection || this.inferTdsSection(primaryTdsLeg.accountHead || '', primaryTdsLeg.narration || '');
 
       // Payee Resolution
       const payeeLeg = debitLegs.find(l => !(l.accountHead || '').toLowerCase().includes('tds')) || debitLegs[0];

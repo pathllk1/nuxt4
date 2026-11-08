@@ -21,6 +21,7 @@ export interface ILedger extends Document {
   isWageEntry?: boolean;
   masterRollId?: mongoose.Types.ObjectId;
   isReversed?: boolean;
+  statutory?: Record<string, any> | null;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -122,6 +123,10 @@ const LedgerSchema = new Schema<ILedger>(
       type: Boolean,
       default: false,
       index: true,
+    },
+    statutory: {
+      type: Schema.Types.Mixed,
+      default: null,
     },
     createdBy: {
       type: String,

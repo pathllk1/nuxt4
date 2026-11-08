@@ -70,19 +70,33 @@ export default defineEventHandler(async (event) => {
       `;
     } catch (_) {}
 
-    // 2. Insert into PostgreSQL labor_advances
-    const [advance] = await sql`
-      INSERT INTO labor_advances (
-        firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
-        tds_mode, tds_rate, tds_amount, gross_amount
-      )
-      VALUES (
-        ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date},
-        ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
-        ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
-      )
-      RETURNING *
-    `;
+    // 2. Insert into PostgreSQL labor_advances (with compensating rollback on failure)
+    let advance: any = null;
+    try {
+      [advance] = await sql`
+        INSERT INTO labor_advances (
+          firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
+          tds_mode, tds_rate, tds_amount, gross_amount
+        )
+        VALUES (
+          ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date},
+          ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
+          ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
+        )
+        RETURNING *
+      `;
+    } catch (pgError: any) {
+      // Compensating transaction: roll back dangling MongoDB voucher to maintain cross-DB parity
+      if (voucherGroupId) {
+        try {
+          const Ledger = (await import('../../../models/Ledger')).default;
+          await Ledger.deleteMany({ voucherGroupId });
+        } catch (compErr: any) {
+          console.error('[Dual-DB Compensation Failure] Could not delete orphaned MongoDB voucher:', compErr.message);
+        }
+      }
+      throw pgError;
+    }
 
     return { success: true, data: advance };
   } catch (error: any) {

@@ -176,6 +176,27 @@ export class SLGLReconcilerService {
       leaderMap.set(l.account_name.trim().toLowerCase(), l.account_name);
     }
 
+    // Cross-Database: Query registered Labor Leaders from PostgreSQL
+    try {
+      const { getSql, isPgReady } = await import('../pg.config');
+      const sql = getSql();
+      if (sql && isPgReady()) {
+        const pgLeaders = await sql`
+          SELECT id, name
+          FROM labor_leaders
+          WHERE firm_id = ${String(firmId)}
+        `;
+        for (const pl of pgLeaders) {
+          const lowerName = String(pl.name).trim().toLowerCase();
+          if (!leaderMap.has(lowerName)) {
+            leaderMap.set(lowerName, String(pl.name));
+          }
+        }
+      }
+    } catch (pgErr: any) {
+      console.warn('[SL-GL Reconciler] Postgres labor leader sync notice:', pgErr.message);
+    }
+
     let slGrandTotal = 0;
     const variances: IReconciliationVariance[] = [];
 

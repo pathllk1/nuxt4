@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IAdvance extends Document {
   firm_id: mongoose.Types.ObjectId;
+  firmId?: mongoose.Types.ObjectId;
   master_roll_id: mongoose.Types.ObjectId;
   type: 'ADVANCE' | 'REPAYMENT';
   amount: number;
@@ -25,6 +26,11 @@ const advanceSchema = new Schema<IAdvance>(
       type: Schema.Types.ObjectId,
       ref: 'Firm',
       required: true,
+      index: true,
+    },
+    firmId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Firm',
       index: true,
     },
     master_roll_id: {
@@ -88,6 +94,12 @@ const advanceSchema = new Schema<IAdvance>(
   },
   { timestamps: true }
 );
+
+advanceSchema.pre('save', function (next) {
+  if (this.firmId && !this.firm_id) this.firm_id = this.firmId;
+  if (this.firm_id && !this.firmId) this.firmId = this.firm_id;
+  next();
+});
 
 const Advance = (mongoose.models.Advance as mongoose.Model<IAdvance>) || mongoose.model<IAdvance>('Advance', advanceSchema);
 

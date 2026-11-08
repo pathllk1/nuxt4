@@ -40,6 +40,17 @@ export const VOUCHER_PREFIX_MAP: Record<VoucherType, string> = {
   CLOSING_ENTRY: 'CL',
 };
 
+export interface IStatutoryMetadata {
+  tdsSection?: '194C' | '194J' | '194I' | '194H' | '194A' | '194Q' | '192' | '195' | string;
+  tdsRate?: number;
+  isGrossUp?: boolean;
+  deducteePan?: string;
+  deducteeType?: '01' | '02'; // 01 = Company, 02 = Non-Company
+  gstin?: string;
+  hsnSac?: string;
+  gstRate?: number;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // VOUCHER LEG — One line within a double-entry voucher
 // ─────────────────────────────────────────────────────────────────────────
@@ -74,6 +85,9 @@ export interface IVoucherLeg {
 
   /** Payment mode on this specific leg (CASH, NEFT, RTGS, UPI, etc.) */
   paymentMode?: string | null;
+
+  /** Structured Statutory Tax Metadata (TDS / GST) for Form 26Q & GSTR */
+  statutory?: IStatutoryMetadata;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

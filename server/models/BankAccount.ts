@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IBankAccount extends Document {
   firm_id: mongoose.Types.ObjectId;
+  firmId?: mongoose.Types.ObjectId;
   account_name: string;
   account_holder_name: string | null;
   bank_name: string;
@@ -23,6 +24,11 @@ const bankAccountSchema = new Schema<IBankAccount>(
       type: Schema.Types.ObjectId,
       ref: 'Firm',
       required: true,
+      index: true,
+    },
+    firmId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Firm',
       index: true,
     },
     account_name: {
@@ -84,8 +90,15 @@ const bankAccountSchema = new Schema<IBankAccount>(
   { timestamps: true }
 );
 
+bankAccountSchema.pre('save', function (next) {
+  if (this.firmId && !this.firm_id) this.firm_id = this.firmId;
+  if (this.firm_id && !this.firmId) this.firmId = this.firm_id;
+  next();
+});
+
 bankAccountSchema.index({ firm_id: 1, account_number: 1 }, { unique: true });
 bankAccountSchema.index({ firm_id: 1, account_name: 1 });
+bankAccountSchema.index({ firmId: 1, account_name: 1 });
 bankAccountSchema.index(
   { firm_id: 1, is_default: 1 },
   { unique: true, partialFilterExpression: { is_default: true } }
