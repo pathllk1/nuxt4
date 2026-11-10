@@ -153,6 +153,17 @@ export default defineEventHandler(async (event) => {
         const timestamp = parsed.date ? new Date(parsed.date).getTime() : (existing?.timestamp || Date.now());
         const messageId = parsed.messageId || existing?.messageId || `<${msg.uid}.${timestamp}@mail>`;
 
+        let rawRef: string | undefined = undefined;
+        if (parsed.references) {
+          if (Array.isArray(parsed.references)) {
+            rawRef = parsed.references[0];
+          } else {
+            rawRef = String(parsed.references).split(/\s+/)[0];
+          }
+        }
+        const threadRootCandidate = existing?.threadId || rawRef || parsed.inReplyTo || messageId;
+        const rootThreadId = (threadRootCandidate || '').replace(/[<>]/g, '');
+
         updatedDoc = {
           ...(existing || {}),
           id: docId,
@@ -163,7 +174,7 @@ export default defineEventHandler(async (event) => {
           userId,
           uid: msg.uid,
           messageId,
-          threadId: messageId.replace(/[<>]/g, ''),
+          threadId: rootThreadId,
           subject,
           from: { name: fromName, address: fromAddress },
           to: toAddrs,

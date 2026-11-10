@@ -127,7 +127,7 @@ export default defineEventHandler(async (event) => {
       userId,
       uid: Math.floor(nowMs / 1000),
       messageId: info.messageId || `<${nowMs}@local>`,
-      threadId: (body.inReplyTo || info.messageId || String(nowMs)).replace(/[<>]/g, ''),
+      threadId: (body.threadId || body.inReplyTo || info.messageId || String(nowMs)).replace(/[<>]/g, ''),
       subject: body.subject || '(No Subject)',
       from: { name: body.displayName || body.username, address: body.username },
       to: toAddresses.map((t: any) => typeof t === 'string' ? { name: t, address: t } : t),

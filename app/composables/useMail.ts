@@ -277,8 +277,10 @@ export function useMail() {
     cc?: string[];
     subject?: string;
     bodyHtml?: string;
+    bodyText?: string;
     inReplyTo?: string;
     references?: string;
+    threadId?: string;
   } = {}) {
     composerData.value = initialData;
     isComposerOpen.value = true;
@@ -304,6 +306,9 @@ export function useMail() {
       size: number;
       content: string; // Base64
     }>;
+    inReplyTo?: string;
+    references?: string;
+    threadId?: string;
   }) {
     if (!activeAccount.value) throw new Error('No active mail account');
     if (!isVaultUnlocked.value) throw new Error('Vault is locked. Unlock with PIN.');
@@ -323,13 +328,20 @@ export function useMail() {
         bodyText: payload.bodyText,
         importance: payload.importance,
         attachments: payload.attachments,
-        displayName: activeAccount.value.displayName
+        displayName: activeAccount.value.displayName,
+        inReplyTo: payload.inReplyTo,
+        references: payload.references,
+        threadId: payload.threadId
       }
     });
 
     if (res?.success) {
       toast.add({ title: 'Email Sent', description: `Message delivered to ${payload.to.join(', ')}`, color: 'success' });
       closeComposer();
+      // If we replied/forwarded within a thread, immediately refresh thread so the reply appears in continuous view
+      if (selectedMessage.value) {
+        selectMessage(selectedMessage.value).catch(() => {});
+      }
       // If we are currently in Sent folder, refresh list
       if (activeFolderId.value === 'Sent') {
         fetchMessages();

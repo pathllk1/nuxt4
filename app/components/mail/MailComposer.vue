@@ -29,7 +29,10 @@ const form = reactive({
     contentType: string;
     size: number;
     content: string; // Base64
-  }>
+  }>,
+  inReplyTo: undefined as string | undefined,
+  references: undefined as string | undefined,
+  threadId: undefined as string | undefined
 });
 
 const isSending = ref(false);
@@ -41,8 +44,11 @@ watch(isComposerOpen, (open) => {
     form.toList = composerData.value.to ? [...composerData.value.to] : [];
     form.ccList = composerData.value.cc ? [...composerData.value.cc] : [];
     form.subject = composerData.value.subject || '';
-    form.bodyText = composerData.value.bodyHtml?.replace(/<br>/g, '\n').replace(/<[^>]*>/g, '') || '';
+    form.bodyText = composerData.value.bodyText || composerData.value.bodyHtml?.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '') || '';
     form.attachments = [];
+    form.inReplyTo = composerData.value.inReplyTo;
+    form.references = composerData.value.references;
+    form.threadId = composerData.value.threadId;
   }
 });
 
@@ -143,7 +149,10 @@ const onSubmit = async () => {
       bodyHtml: form.bodyText.replace(/\n/g, '<br>'),
       bodyText: form.bodyText,
       importance: form.importance,
-      attachments: form.attachments
+      attachments: form.attachments,
+      inReplyTo: form.inReplyTo,
+      references: form.references,
+      threadId: form.threadId
     });
   } catch (err: any) {
     toast.add({
