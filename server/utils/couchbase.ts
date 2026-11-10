@@ -22,7 +22,7 @@ export class CouchbaseService {
     const rawUrl = process.env.COUCHBASE_URL;
     const username = process.env.COUCHBASE_USERNAME;
     const password = process.env.COUCHBASE_PASSWORD;
-    const bucket = process.env.COUCHBASE_BUCKET || 'businesspro';
+    const bucket = process.env.COUCHBASE_BUCKET || 'anjan';
     const scope = process.env.COUCHBASE_SCOPE || '_default';
     const collection = process.env.COUCHBASE_COLLECTION || 'messages';
 
@@ -49,7 +49,7 @@ export class CouchbaseService {
       return { requestID: '', status: 'fatal', errors: [{ code: 0, msg: 'Couchbase credentials not configured' }] };
     }
 
-    const postData = JSON.stringify({ statement, ...params });
+    const postData = JSON.stringify({ statement, scan_consistency: 'request_plus', ...params });
 
     return new Promise((resolve) => {
       const req = https.request(cfg.url, {

@@ -420,8 +420,10 @@ const enterpriseGroups: NavGroup[] = [
     ]
   },
   {
-    title: 'Tools & Utilities',
+    title: 'Communication & Tools',
     items: [
+      { label: 'Mail (Outlook)', to: '/mail', icon: '✉️', restricted: true },
+      { label: 'People (Contacts)', to: '/mail/contacts', icon: '👥', restricted: true },
       { label: '1-on-1 Chat', to: '/chat', icon: '💬', restricted: true },
       { label: 'AI Assistant', to: '/ai-chat', icon: '✨', restricted: true },
       { label: 'Global Tools', action: 'openTools', icon: '🛠️', restricted: false }
