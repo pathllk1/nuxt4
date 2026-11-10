@@ -145,6 +145,30 @@ export function useMail() {
         selectedMessage.value = res.data;
         selectedThread.value = res.thread || [res.data];
       }
+
+      // Phase 2: On-Demand Lazy Body Hydration (if body not yet downloaded from IMAP)
+      const current = selectedMessage.value;
+      if (current && (!current.bodyHtml || !current.isHydrated) && activeAccount.value) {
+        const ephemeral = await buildEphemeralPayload(activeAccount.value);
+        if (ephemeral) {
+          const hydRes: any = await apiFetch('/api/mail/hydrate', {
+            method: 'POST',
+            body: {
+              ...ephemeral,
+              folder: current.folderId || activeFolderId.value,
+              uid: current.uid,
+              messageId: current.id
+            }
+          });
+          if (hydRes?.success && hydRes.data) {
+            selectedMessage.value = { ...selectedMessage.value, ...hydRes.data };
+            const idx = messages.value.findIndex(m => m.id === current.id);
+            if (idx !== -1) {
+              messages.value[idx] = { ...messages.value[idx], ...hydRes.data };
+            }
+          }
+        }
+      }
     } catch (err: any) {
       console.warn('[useMail] Fetch message detail notice:', err.message);
     } finally {

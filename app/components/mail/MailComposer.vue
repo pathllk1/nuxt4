@@ -183,7 +183,7 @@ const toggleMinimize = () => {
       @click="composerState === 'minimized' ? (composerState = 'docked') : null"
     >
       <div class="flex items-center gap-2 text-xs font-bold truncate">
-        <UIcon name="i-heroicons-envelope-plus" class="w-4 h-4 text-primary-400 shrink-0" />
+        <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-primary-400 shrink-0" />
         <span class="truncate">{{ form.subject ? form.subject : 'New Message' }}</span>
       </div>
 

@@ -91,6 +91,7 @@ export interface MailMessage {
   bodyText?: string;
   hasAttachments: boolean;
   attachments?: MailAttachment[];
+  isHydrated?: boolean; // True if body & attachments have been fully fetched
   flags: string[]; // ["\\Seen", "\\Flagged", "\\Answered"]
   isRead: boolean;
   isFlagged: boolean;

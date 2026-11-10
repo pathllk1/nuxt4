@@ -26,7 +26,7 @@ const emit = defineEmits<{
       <!-- New Mail Primary Button -->
       <UButton
         color="primary"
-        icon="i-heroicons-envelope-plus"
+        icon="i-heroicons-pencil-square"
         size="sm"
         label="New Mail"
         class="font-bold px-3 shadow-xs"

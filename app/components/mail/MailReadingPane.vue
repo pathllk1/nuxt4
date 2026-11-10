@@ -247,9 +247,23 @@ const downloadAttachment = (att: any) => {
           </button>
         </div>
 
+        <!-- On-Demand Loading State (Phase 2 Hydration) -->
+        <div
+          v-if="loadingDetail && !selectedMessage.bodyHtml"
+          class="w-full py-16 px-4 flex flex-col items-center justify-center text-center space-y-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800"
+        >
+          <div class="w-10 h-10 rounded-full bg-primary-50 dark:bg-primary-950/60 flex items-center justify-center text-primary-500 animate-spin">
+            <UIcon name="i-heroicons-arrow-path" class="w-5 h-5" />
+          </div>
+          <div>
+            <p class="text-xs font-bold text-slate-800 dark:text-slate-200">Loading message content...</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">Fetching email body and attachments from mail server</p>
+          </div>
+        </div>
+
         <!-- Secure Isolated Shadow DOM for Pixel-Perfect HTML Email -->
         <div
-          v-if="viewMode === 'html' && selectedMessage.bodyHtml"
+          v-else-if="viewMode === 'html' && selectedMessage.bodyHtml"
           class="w-full bg-white dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-xs"
         >
           <ClientOnly>
