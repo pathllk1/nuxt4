@@ -1,12 +1,16 @@
 import { defineEventHandler, readBody, createError } from 'h3';
 import { requireAuthSession } from '../../../../utils/auth';
 import { MailCouchbaseService } from '../../../../utils/mail-couchbase.service';
+import { assertMessageAccess } from '../../../../utils/mail-auth';
 
 export default defineEventHandler(async (event) => {
   try {
-    await requireAuthSession(event);
+    const session = await requireAuthSession(event);
     const id = event.context.params?.id;
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Message ID is required' });
+
+    // Strict User Isolation: verify that the requesting user owns this message
+    await assertMessageAccess(id, session);
 
     const body = await readBody(event);
     const ok = await MailCouchbaseService.updateMessageFlags(id, {

@@ -14,6 +14,13 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Email and server configuration required' });
     }
 
+    if (body.id) {
+      const existing = await MailCouchbaseService.getAccountById(body.id);
+      if (existing && (String(existing.firmId) !== firmId || String(existing.userId) !== userId)) {
+        throw createError({ statusCode: 403, statusMessage: 'Forbidden: You cannot modify another user\'s mail account' });
+      }
+    }
+
     const accountId = body.id || `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const accountDoc: MailAccount = {
       id: accountId,

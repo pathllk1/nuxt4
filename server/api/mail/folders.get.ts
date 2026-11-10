@@ -1,6 +1,7 @@
 import { defineEventHandler, getQuery, createError } from 'h3';
 import { requireAuthSession } from '../../utils/auth';
 import { MailCouchbaseService } from '../../utils/mail-couchbase.service';
+import { assertAccountAccess } from '../../utils/mail-auth';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -12,6 +13,9 @@ export default defineEventHandler(async (event) => {
     if (!accountId) {
       throw createError({ statusCode: 400, statusMessage: 'accountId query parameter is required' });
     }
+
+    // Strict User Isolation: verify that the requesting user owns this account
+    await assertAccountAccess(accountId, session);
 
     const folders = await MailCouchbaseService.getFolders(accountId, firmId);
     return { success: true, data: folders };

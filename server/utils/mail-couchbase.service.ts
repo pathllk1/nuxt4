@@ -26,12 +26,12 @@ export class MailCouchbaseService {
       await CouchbaseService.query(`CREATE PRIMARY INDEX IF NOT EXISTS ON ${table}`);
       await CouchbaseService.query(`
         CREATE INDEX IF NOT EXISTS idx_mail_messages_listing 
-        ON ${table} (firmId, accountId, folderId, tab, timestamp DESC)
+        ON ${table} (firmId, userId, accountId, folderId, tab, timestamp DESC)
         WHERE type = 'message'
       `);
       await CouchbaseService.query(`
         CREATE INDEX IF NOT EXISTS idx_mail_threads_lookup 
-        ON ${table} (firmId, accountId, threadId, timestamp ASC)
+        ON ${table} (firmId, userId, accountId, threadId, timestamp ASC)
         WHERE type = 'message'
       `);
       await CouchbaseService.query(`
@@ -54,11 +54,25 @@ export class MailCouchbaseService {
 
     const stmt = `
       SELECT m.* FROM \`${bucket}\`.\`${scope}\`.\`${collection}\` m
-      WHERE m.type = 'account' AND m.firmId = $firmId AND (m.userId = $userId OR m.userId = 'GLOBAL')
+      WHERE m.type = 'account' AND m.firmId = $firmId AND m.userId = $userId
       ORDER BY m.emailAddress ASC
     `;
     const res = await CouchbaseService.query(stmt, { $firmId: firmId, $userId: userId });
     return (res.status === 'success' && res.results) ? res.results : [];
+  }
+
+  static async getAccountById(accountId: string): Promise<MailAccount | null> {
+    const { bucket, scope, collection } = this.getCfg();
+    const stmt = `
+      SELECT m.* FROM \`${bucket}\`.\`${scope}\`.\`${collection}\` m
+      WHERE m.type = 'account' AND m.id = $accountId
+      LIMIT 1
+    `;
+    const res = await CouchbaseService.query(stmt, { $accountId: accountId });
+    if (res.status === 'success' && res.results && res.results.length > 0) {
+      return res.results[0];
+    }
+    return null;
   }
 
   static async saveAccount(account: MailAccount): Promise<boolean> {
@@ -106,6 +120,7 @@ export class MailCouchbaseService {
   // -------------------------------------------------------------
   static async getMessages(params: {
     firmId: string;
+    userId: string;
     accountId: string;
     folderId?: string;
     tab?: 'focused' | 'other';
@@ -119,9 +134,15 @@ export class MailCouchbaseService {
 
     const limit = params.limit || 50;
     const offset = params.offset || 0;
-    const conds: string[] = ["m.type = 'message'", "m.firmId = $firmId", "m.accountId = $accountId"];
+    const conds: string[] = [
+      "m.type = 'message'",
+      "m.firmId = $firmId",
+      "m.userId = $userId",
+      "m.accountId = $accountId"
+    ];
     const queryParams: Record<string, any> = {
       $firmId: params.firmId,
+      $userId: params.userId,
       $accountId: params.accountId,
       $limit: limit,
       $offset: offset
@@ -233,14 +254,24 @@ export class MailCouchbaseService {
     return res.status === 'success';
   }
 
-  static async getThreadMessages(accountId: string, threadId: string): Promise<MailMessage[]> {
+  static async getThreadMessages(accountId: string, threadId: string, firmId?: string, userId?: string): Promise<MailMessage[]> {
     const { bucket, scope, collection } = this.getCfg();
+    const conds: string[] = ["m.type = 'message'", "m.accountId = $accountId", "m.threadId = $threadId"];
+    const params: Record<string, any> = { $accountId: accountId, $threadId: threadId };
+    if (firmId) {
+      conds.push("m.firmId = $firmId");
+      params.$firmId = firmId;
+    }
+    if (userId) {
+      conds.push("m.userId = $userId");
+      params.$userId = userId;
+    }
     const stmt = `
       SELECT m.* FROM \`${bucket}\`.\`${scope}\`.\`${collection}\` m
-      WHERE m.type = 'message' AND m.accountId = $accountId AND m.threadId = $threadId
+      WHERE ${conds.join(' AND ')}
       ORDER BY m.timestamp ASC
     `;
-    const res = await CouchbaseService.query(stmt, { $accountId: accountId, $threadId: threadId });
+    const res = await CouchbaseService.query(stmt, params);
     return (res.status === 'success' && res.results) ? res.results : [];
   }
 

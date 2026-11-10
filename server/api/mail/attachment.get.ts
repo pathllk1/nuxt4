@@ -2,11 +2,13 @@ import { defineEventHandler, getQuery, createError, setHeader } from 'h3';
 import { requireAuthSession } from '../../utils/auth';
 import { downloadFromBackblazeB2 } from '../../utils/b2';
 import { MailCouchbaseService } from '../../utils/mail-couchbase.service';
+import { assertMessageAccess, assertAccountAccess } from '../../utils/mail-auth';
 
 export default defineEventHandler(async (event) => {
   try {
     const session = await requireAuthSession(event);
     const firmId = String(session.firm_id);
+    const userId = String(session._id);
     const query = getQuery(event);
 
     let targetB2Path: string | null = null;
@@ -18,15 +20,8 @@ export default defineEventHandler(async (event) => {
       const messageId = String(query.messageId).trim();
       const attachmentId = String(query.attachmentId).trim();
 
-      const msg = await MailCouchbaseService.getMessage(messageId);
-      if (!msg) {
-        throw createError({ statusCode: 404, statusMessage: 'Message not found' });
-      }
-
-      // Security check: tenant isolation
-      if (String(msg.firmId) !== firmId) {
-        throw createError({ statusCode: 403, statusMessage: 'Unauthorized access to message attachment' });
-      }
+      // Strict User Isolation: verify that the requesting user owns this message
+      const msg = await assertMessageAccess(messageId, session);
 
       const att = msg.attachments?.find(a => a.id === attachmentId || a.filename === attachmentId);
       if (!att || !att.b2Key) {
@@ -37,7 +32,7 @@ export default defineEventHandler(async (event) => {
       fileName = att.filename || fileName;
       contentType = att.contentType || contentType;
     }
-    // Mode 2: Direct path with strict firm prefix enforcement
+    // Mode 2: Direct path with strict firm & user prefix enforcement
     else if (query.path) {
       let rawPath = String(query.path).trim();
 
@@ -47,13 +42,24 @@ export default defineEventHandler(async (event) => {
       }
 
       const cleanPath = rawPath.replace(/^\/+/, '');
-      const expectedFirmPrefix = `mail-attachments/${firmId}/`;
+      const expectedUserPrefix = `mail-attachments/${firmId}/${userId}/`;
 
-      if (!cleanPath.startsWith(expectedFirmPrefix)) {
-        throw createError({ statusCode: 403, statusMessage: 'Forbidden: Cannot access attachments outside your firm scope' });
+      if (cleanPath.startsWith(expectedUserPrefix)) {
+        targetB2Path = cleanPath;
+      } else if (cleanPath.startsWith(`mail-attachments/${firmId}/`)) {
+        // Fallback for paths with structure: mail-attachments/<firmId>/<accountId>/<uid>/<file>
+        const parts = cleanPath.split('/');
+        const accountId = parts[2];
+        if (accountId) {
+          await assertAccountAccess(accountId, session);
+          targetB2Path = cleanPath;
+        } else {
+          throw createError({ statusCode: 403, statusMessage: 'Forbidden: Cannot access attachments outside your user scope' });
+        }
+      } else {
+        throw createError({ statusCode: 403, statusMessage: 'Forbidden: Cannot access attachments outside your user scope' });
       }
 
-      targetB2Path = cleanPath;
       const parts = cleanPath.split('/');
       fileName = parts[parts.length - 1] || fileName;
     } else {

@@ -3,6 +3,7 @@ import { requireAuthSession } from '../../utils/auth';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { MailCouchbaseService } from '../../utils/mail-couchbase.service';
+import { assertAccountAccess } from '../../utils/mail-auth';
 import { uploadToBackblazeB2 } from '../../utils/b2';
 import type { MailMessage, MailAttachment } from '../../../app/types/mail';
 
@@ -47,6 +48,9 @@ export default defineEventHandler(async (event) => {
     if (!body.accountId || !body.imapHost || !body.username || !body.password) {
       throw createError({ statusCode: 400, statusMessage: 'Ephemeral credentials required for sync' });
     }
+
+    // Strict User Isolation: verify that the requesting user owns this account
+    await assertAccountAccess(body.accountId, session);
 
     const folderName = (typeof body.folder === 'string' && body.folder.trim()) ? body.folder.trim() : 'INBOX';
     const limit = Number(body.limit) || 50;

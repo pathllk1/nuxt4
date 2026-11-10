@@ -2,6 +2,7 @@ import { defineEventHandler, readBody, createError } from 'h3';
 import { requireAuthSession } from '../../utils/auth';
 import nodemailer from 'nodemailer';
 import { MailCouchbaseService } from '../../utils/mail-couchbase.service';
+import { assertAccountAccess } from '../../utils/mail-auth';
 import { uploadToBackblazeB2 } from '../../utils/b2';
 import type { MailMessage, MailAttachment } from '../../../app/types/mail';
 
@@ -14,6 +15,11 @@ export default defineEventHandler(async (event) => {
 
     if (!body.smtpHost || !body.username || !body.password || !body.to || !body.to.length) {
       throw createError({ statusCode: 400, statusMessage: 'Recipient and SMTP credentials are required' });
+    }
+
+    // Strict User Isolation: if accountId provided, verify requesting user owns this account
+    if (body.accountId) {
+      await assertAccountAccess(body.accountId, session);
     }
 
     const transporter = nodemailer.createTransport({
@@ -79,7 +85,7 @@ export default defineEventHandler(async (event) => {
           let b2Key: string | undefined = undefined;
 
           try {
-            const b2Prefix = `mail-attachments/${firmId}/${body.accountId || 'default'}/sent_${nowMs}`;
+            const b2Prefix = `mail-attachments/${firmId}/${userId}/${body.accountId || 'default'}/sent_${nowMs}`;
             const uploadResult = await uploadToBackblazeB2(buffer, filename, b2Prefix);
             b2Key = uploadResult.targetPath;
           } catch (b2Err: any) {

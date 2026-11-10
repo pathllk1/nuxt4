@@ -3,6 +3,7 @@ import { requireAuthSession } from '../../utils/auth';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { MailCouchbaseService } from '../../utils/mail-couchbase.service';
+import { assertAccountAccess } from '../../utils/mail-auth';
 import { uploadToBackblazeB2 } from '../../utils/b2';
 import type { MailMessage, MailAttachment } from '../../../app/types/mail';
 
@@ -18,17 +19,25 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Account ID, credentials, and UID are required' });
     }
 
+    // Strict User Isolation: verify that the requesting user owns this account
+    await assertAccountAccess(body.accountId, session);
+
     const docId = body.messageId || `msg::${body.accountId}::${body.uid}`;
     const folderName = (typeof body.folder === 'string' && body.folder.trim()) ? body.folder.trim() : 'INBOX';
 
-    // 1. Fast Cache Check: If already hydrated in Couchbase, return immediately (0ms)
+    // 1. Fast Cache Check: If already hydrated in Couchbase, verify ownership and return immediately (0ms)
     const existing = await MailCouchbaseService.getMessage(docId);
-    if (existing && existing.isHydrated && existing.bodyHtml) {
-      return {
-        success: true,
-        data: existing,
-        cached: true
-      };
+    if (existing) {
+      if (String(existing.firmId) !== firmId || String(existing.userId) !== userId) {
+        throw createError({ statusCode: 403, statusMessage: 'Forbidden: You do not have permission to access this message' });
+      }
+      if (existing.isHydrated && existing.bodyHtml) {
+        return {
+          success: true,
+          data: existing,
+          cached: true
+        };
+      }
     }
 
     // 2. Connect to IMAP to fetch only this single email's full body
@@ -96,7 +105,7 @@ export default defineEventHandler(async (event) => {
             if (att.content && (Buffer.isBuffer(att.content) || (att.content as any) instanceof Uint8Array)) {
               try {
                 const buf = Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content as any);
-                const b2Prefix = `mail-attachments/${firmId}/${body.accountId}/${msg.uid}`;
+                const b2Prefix = `mail-attachments/${firmId}/${userId}/${body.accountId}/${msg.uid}`;
                 const uploadResult = await uploadToBackblazeB2(buf, filename, b2Prefix);
                 b2Key = uploadResult.targetPath;
               } catch (b2Err: any) {
