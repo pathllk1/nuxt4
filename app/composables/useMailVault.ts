@@ -57,6 +57,7 @@ export function useMailVault() {
       sessionMasterPin.value = pin;
       if (typeof window !== 'undefined') {
         window.sessionStorage.setItem('mail_vault_session_pin', pin);
+        window.sessionStorage.removeItem('mail_vault_manually_locked');
       }
       return true;
     } catch (err) {
@@ -69,6 +70,11 @@ export function useMailVault() {
    * Automatically unlock vault if session PIN exists or default PIN 1234 matches
    */
   async function autoUnlockIfPossible(testCipher?: string): Promise<boolean> {
+    // If user explicitly locked the vault, do not auto-unlock
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem('mail_vault_manually_locked') === 'true') {
+      return false;
+    }
+
     if (sessionMasterKey.value) {
       // If we already have a key and testCipher is provided, check if it decrypts
       if (testCipher) {
@@ -111,6 +117,7 @@ export function useMailVault() {
     sessionMasterPin.value = null;
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem('mail_vault_session_pin');
+      window.sessionStorage.setItem('mail_vault_manually_locked', 'true');
     }
   }
 
@@ -185,6 +192,11 @@ export function useMailVault() {
     }
     if (!cipher) return null;
 
+    // If vault was manually locked by the user, never attempt auto-unlock
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem('mail_vault_manually_locked') === 'true') {
+      return null;
+    }
+
     // If key not present or invalid, attempt auto-unlock
     if (!sessionMasterKey.value) {
       await autoUnlockIfPossible(cipher);
@@ -195,6 +207,10 @@ export function useMailVault() {
       const raw = await decryptData(cipher);
       return JSON.parse(raw);
     } catch {
+      // If vault was manually locked, do not retry auto-unlock
+      if (typeof window !== 'undefined' && window.sessionStorage.getItem('mail_vault_manually_locked') === 'true') {
+        return null;
+      }
       // If current key failed to decrypt, try autoUnlock with default PIN 1234
       const retried = await autoUnlockIfPossible(cipher);
       if (retried && sessionMasterKey.value) {

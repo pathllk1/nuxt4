@@ -236,7 +236,7 @@ export function useMail() {
       if (!ephemeralPayload) {
         toast.add({
           title: 'Vault PIN Needed',
-          description: 'Could not decrypt email credentials. Click Vault Ready to enter PIN (Default: 1234)',
+          description: 'Could not decrypt email credentials. Click Unlock Vault to enter your PIN (Default: 1234)',
           color: 'warning'
         });
         return;
