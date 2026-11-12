@@ -11,6 +11,7 @@ import { requireWageRole } from '../../utils/wage-authz';
 const EDITABLE_FIELDS = [
   'project',
   'site',
+  'p_day_wage',
   'gross_salary',
   'wage_days',
   'epf_deduction',
@@ -42,9 +43,13 @@ export default defineEventHandler(async (event) => {
 
   // Bug #13: validate the incoming values BEFORE they're ever applied to the
   // document, and return 400 (not a 500 surfaced from ledger posting).
+  const pDayWage = body.p_day_wage !== undefined ? Number(body.p_day_wage) : undefined;
   const grossSalary = body.gross_salary !== undefined ? Number(body.gross_salary) : undefined;
   const wageDays = body.wage_days !== undefined ? Number(body.wage_days) : undefined;
 
+  if (pDayWage !== undefined && (!Number.isFinite(pDayWage) || pDayWage <= 0)) {
+    throw createError({ statusCode: 400, message: 'p_day_wage must be a positive number' });
+  }
   if (grossSalary !== undefined && (!Number.isFinite(grossSalary) || grossSalary <= 0)) {
     throw createError({ statusCode: 400, message: 'gross_salary must be a positive number' });
   }
@@ -102,7 +107,17 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    wage.p_day_wage = calculatePerDayWage(wage.gross_salary, wage.wage_days);
+    if (body.p_day_wage !== undefined && body.gross_salary === undefined) {
+      wage.gross_salary = parseFloat(((wage.p_day_wage || 0) * (wage.wage_days || 0)).toFixed(2));
+    } else if (body.gross_salary !== undefined && body.p_day_wage === undefined) {
+      wage.p_day_wage = calculatePerDayWage(wage.gross_salary, wage.wage_days);
+    } else if (body.p_day_wage !== undefined && body.gross_salary !== undefined) {
+      wage.p_day_wage = Number(body.p_day_wage);
+      wage.gross_salary = Number(body.gross_salary);
+    } else {
+      wage.p_day_wage = calculatePerDayWage(wage.gross_salary, wage.wage_days);
+    }
+
     wage.net_salary = calculateNetSalary(wage.gross_salary, wage.epf_deduction, wage.esic_deduction, wage.other_deduction, wage.other_benefit, wage.advance_deduction);
     wage.updated_by = user._id as any;
 
