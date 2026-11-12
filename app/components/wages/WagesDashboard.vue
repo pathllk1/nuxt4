@@ -135,6 +135,7 @@ const currentTotals = computed(() => {
     gross: w.reduce((s, x) => s + (x.gross_salary || 0), 0),
     epf: w.reduce((s, x) => s + (x.epf_deduction || 0), 0),
     esic: w.reduce((s, x) => s + (x.esic_deduction || 0), 0),
+    pt: w.reduce((s, x) => s + (x.professional_tax || 0), 0),
     otherDed: w.reduce((s, x) => s + (x.other_deduction || 0), 0),
     otherBen: w.reduce((s, x) => s + (x.other_benefit || 0), 0),
     advance: w.reduce((s, x) => s + (x.advance_deduction || 0), 0),
@@ -150,12 +151,14 @@ const previousTotals = computed(() => {
     net: w.reduce((s, x) => s + (x.net_salary || 0), 0),
     epf: w.reduce((s, x) => s + (x.epf_deduction || 0), 0),
     esic: w.reduce((s, x) => s + (x.esic_deduction || 0), 0),
+    pt: w.reduce((s, x) => s + (x.professional_tax || 0), 0),
+    otherDed: w.reduce((s, x) => s + (x.other_deduction || 0), 0),
     advance: w.reduce((s, x) => s + (x.advance_deduction || 0), 0),
   }
 })
 
 const totalDeductions = computed(() =>
-  currentTotals.value.epf + currentTotals.value.esic + currentTotals.value.otherDed + currentTotals.value.advance
+  currentTotals.value.epf + currentTotals.value.esic + currentTotals.value.pt + currentTotals.value.otherDed + currentTotals.value.advance
 )
 
 const employerStatutory = computed(() => {
@@ -173,7 +176,7 @@ const prevEmployerStatutory = computed(() => {
 })
 
 const prevTotalDeductions = computed(() =>
-  previousTotals.value.epf + previousTotals.value.esic + previousTotals.value.advance
+  previousTotals.value.epf + previousTotals.value.esic + previousTotals.value.pt + previousTotals.value.otherDed + previousTotals.value.advance
 )
 
 const delta = (curr: number, prev: number) => {

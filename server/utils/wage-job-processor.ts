@@ -102,6 +102,7 @@ export async function processWageJob(jobId: mongoose.Types.ObjectId) {
         const netSalary = wage.gross_salary -
           ((wage.epf_deduction || 0) +
            (wage.esic_deduction || 0) +
+           (wage.professional_tax || 0) +
            (wage.other_deduction || 0) +
            (wage.advance_deduction || 0)) +
           (wage.other_benefit || 0);
@@ -116,6 +117,7 @@ export async function processWageJob(jobId: mongoose.Types.ObjectId) {
           gross_salary: wage.gross_salary,
           epf_deduction: wage.epf_deduction ?? 0,
           esic_deduction: wage.esic_deduction ?? 0,
+          professional_tax: wage.professional_tax ?? 0,
           other_deduction: wage.other_deduction ?? 0,
           other_benefit: wage.other_benefit ?? 0,
           advance_deduction: wage.advance_deduction ?? 0,

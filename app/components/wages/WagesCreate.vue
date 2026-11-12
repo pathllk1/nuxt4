@@ -169,6 +169,7 @@ const loadEmployees = async () => {
             gross_salary: 0,
             epf_deduction: 0,
             esic_deduction: 0,
+            professional_tax: 0,
             other_deduction: 0,
             other_benefit: 0,
             advance_deduction: 0,
@@ -217,10 +218,8 @@ const calculateEmployeeWages = (empId: string, data?: any, empRecord?: any) => {
   // ESIC: 0.75% of gross, rounded up
   wage.esic_deduction = computeEsicDeduction(gross, month.value, dateOfExit)
   
-  // Professional Tax (West Bengal Slab) -> mapped to other_deduction when toggle is enabled
-  if (calculatePT.value) {
-    wage.other_deduction = calculateWBProfessionalTax(gross, month.value)
-  }
+  // Professional Tax (West Bengal Slab)
+  wage.professional_tax = calculatePT.value ? calculateWBProfessionalTax(gross, month.value) : 0
 
   updateNetSalary(empId, data)
 }
@@ -231,6 +230,7 @@ const updateNetSalary = (empId: string, data?: any) => {
 
   const totalDeductions = (wage.epf_deduction || 0) + 
                          (wage.esic_deduction || 0) + 
+                         (wage.professional_tax || 0) + 
                          (wage.other_deduction || 0) + 
                          (wage.advance_deduction || 0)
   
@@ -261,19 +261,20 @@ const isAllSelected = computed(() => {
 })
 
 const totals = computed(() => {
-  let gross = 0, epf = 0, esic = 0, otherDed = 0, adv = 0, net = 0
+  let gross = 0, epf = 0, esic = 0, pt = 0, otherDed = 0, adv = 0, net = 0
   selectedEmployeeIds.value.forEach(id => {
     const w = wageData.value[id]
     if (w) {
       gross += w.gross_salary
       epf += w.epf_deduction
       esic += w.esic_deduction
+      pt += (w.professional_tax || 0)
       otherDed += (w.other_deduction || 0)
       adv += w.advance_deduction
       net += w.net_salary
     }
   })
-  return { gross, epf, esic, otherDed, adv, net }
+  return { gross, epf, esic, pt, otherDed, adv, net }
 })
 
 const finalizeSave = async () => {
@@ -361,7 +362,7 @@ const totalDeductedAdvances = computed(() => {
 const applySingleAdvance = (empId: string, balance: number) => {
   const wage = wageData.value[empId]
   if (!wage) return
-  const otherDeds = (wage.epf_deduction || 0) + (wage.esic_deduction || 0) + (wage.other_deduction || 0)
+  const otherDeds = (wage.epf_deduction || 0) + (wage.esic_deduction || 0) + (wage.professional_tax || 0) + (wage.other_deduction || 0)
   const maxDeductible = Math.max(0, (wage.gross_salary || 0) - otherDeds + (wage.other_benefit || 0))
   const amountToApply = Math.min(balance, maxDeductible)
   wage.advance_deduction = amountToApply
@@ -381,7 +382,7 @@ const applyAllAdvances = () => {
     if (bal > 0) {
       const wage = wageData.value[emp.master_roll_id]
       if (wage) {
-        const otherDeds = (wage.epf_deduction || 0) + (wage.esic_deduction || 0) + (wage.other_deduction || 0)
+        const otherDeds = (wage.epf_deduction || 0) + (wage.esic_deduction || 0) + (wage.professional_tax || 0) + (wage.other_deduction || 0)
         const maxDeductible = Math.max(0, (wage.gross_salary || 0) - otherDeds + (wage.other_benefit || 0))
         const amount = Math.min(bal, maxDeductible)
         wage.advance_deduction = amount
@@ -503,6 +504,7 @@ const onExportExcel = async () => {
       gross_salary: Number(wage.gross_salary ?? 0),
       epf_deduction: Number(wage.epf_deduction ?? 0),
       esic_deduction: Number(wage.esic_deduction ?? 0),
+      professional_tax: Number(wage.professional_tax ?? 0),
       other_deduction: Number(wage.other_deduction ?? 0),
       other_benefit: Number(wage.other_benefit ?? 0),
       advance_deduction: Number(wage.advance_deduction ?? 0),
@@ -654,7 +656,7 @@ onMounted(() => {
       <!-- Totals Bar -->
       <div class="bg-gray-900 dark:bg-black p-2 rounded-lg text-white border border-gray-800 flex items-center justify-between md:justify-end gap-3 sm:gap-4 px-4 overflow-x-auto scrollbar-none">
         <div class="flex flex-col"><span class="text-[8px] text-gray-400 uppercase">Gross</span><span class="text-[11px] font-mono font-bold">{{ formatCurrency(totals.gross) }}</span></div>
-        <div class="flex flex-col"><span class="text-[8px] text-amber-500 uppercase">Ded.</span><span class="text-[11px] font-mono font-bold text-amber-500">{{ formatCurrency(totals.epf + totals.esic + totals.otherDed + totals.adv) }}</span></div>
+        <div class="flex flex-col"><span class="text-[8px] text-amber-500 uppercase">Ded.</span><span class="text-[11px] font-mono font-bold text-amber-500">{{ formatCurrency(totals.epf + totals.esic + totals.pt + totals.otherDed + totals.adv) }}</span></div>
         <div class="w-px h-4 bg-gray-700 hidden sm:block"></div>
         <div class="flex flex-col items-end"><span class="text-[8px] text-emerald-500 uppercase font-black">Net Total</span><span class="text-sm font-mono font-black text-emerald-400 italic">{{ formatCurrency(totals.net) }}</span></div>
       </div>
@@ -777,15 +779,23 @@ onMounted(() => {
               <div class="mt-2 flex flex-wrap gap-2 pt-2 border-t border-dashed border-gray-100 dark:border-gray-800">
                 <div class="flex flex-col gap-0.5">
                   <span class="text-[8px] text-amber-500 uppercase font-bold">EPF</span>
-                  <input type="number" v-model.number="wageData[emp.master_roll_id].epf_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-12 bg-transparent border-none text-[10px] font-black text-amber-600 p-0 focus:ring-0" />
+                  <input type="number" v-model.number="wageData[emp.master_roll_id].epf_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-11 bg-transparent border-none text-[10px] font-black text-amber-600 p-0 focus:ring-0" />
                 </div>
                 <div class="flex flex-col gap-0.5">
                   <span class="text-[8px] text-amber-500 uppercase font-bold">ESIC</span>
-                  <input type="number" v-model.number="wageData[emp.master_roll_id].esic_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-12 bg-transparent border-none text-[10px] font-black text-amber-600 p-0 focus:ring-0" />
+                  <input type="number" v-model.number="wageData[emp.master_roll_id].esic_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-11 bg-transparent border-none text-[10px] font-black text-amber-600 p-0 focus:ring-0" />
+                </div>
+                <div class="flex flex-col gap-0.5" :class="{'bg-amber-500/10 dark:bg-amber-500/20 px-1 rounded': calculatePT}">
+                  <span class="text-[8px] text-amber-600 dark:text-amber-400 uppercase font-bold">P.Tax</span>
+                  <input type="number" v-model.number="wageData[emp.master_roll_id].professional_tax" @input="updateNetSalary(emp.master_roll_id)" class="w-10 bg-transparent border-none text-[10px] font-black text-amber-600 dark:text-amber-400 p-0 focus:ring-0" placeholder="0" />
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[8px] text-orange-500 uppercase font-bold">Other</span>
+                  <input type="number" v-model.number="wageData[emp.master_roll_id].other_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-10 bg-transparent border-none text-[10px] font-black text-orange-600 p-0 focus:ring-0" placeholder="0" />
                 </div>
                 <div class="flex flex-col gap-0.5" :class="{'bg-rose-50/20 dark:bg-rose-950/10 px-1 rounded': emp.advance_balance > 0}">
                   <span class="text-[8px] text-rose-500 uppercase font-bold">Adv.</span>
-                  <input type="number" v-model.number="wageData[emp.master_roll_id].advance_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-12 bg-transparent border-none text-[10px] font-black text-rose-600 p-0 focus:ring-0" :placeholder="emp.advance_balance ? 'Bal: ' + emp.advance_balance : '0'" />
+                  <input type="number" v-model.number="wageData[emp.master_roll_id].advance_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-11 bg-transparent border-none text-[10px] font-black text-rose-600 p-0 focus:ring-0" :placeholder="emp.advance_balance ? 'Bal: ' + emp.advance_balance : '0'" />
                 </div>
                 <div class="ml-auto flex flex-col items-end gap-0.5">
                   <span class="text-[8px] text-gray-400 uppercase font-bold">Gross</span>
@@ -814,7 +824,8 @@ onMounted(() => {
               <th class="p-2 w-20 text-right">Gross</th>
               <th class="p-2 w-16 text-center">EPF</th>
               <th class="p-2 w-16 text-center">ESIC</th>
-              <th class="p-2 w-16 text-center" :class="{'text-amber-400 font-bold': calculatePT}">{{ calculatePT ? 'PT / Other' : 'Other Ded' }}</th>
+              <th class="p-2 w-14 text-center" :class="calculatePT ? 'text-amber-400 font-bold' : ''">P.Tax</th>
+              <th class="p-2 w-14 text-center">Other Ded</th>
               <th class="p-2 w-16 text-center">Benefit</th>
               <th class="p-2 w-16 text-center text-rose-400">Advance</th>
               <th class="p-2 w-24 text-right bg-primary/10 text-primary-400 italic">Net Salary</th>
@@ -859,7 +870,10 @@ onMounted(() => {
                 <input type="number" v-model.number="wageData[emp.master_roll_id].esic_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black text-amber-600 focus:ring-0" />
               </td>
               <td class="p-1 border-r border-gray-50 dark:border-gray-800" :class="{'bg-amber-500/10 dark:bg-amber-500/20': calculatePT}">
-                <input type="number" v-model.number="wageData[emp.master_roll_id].other_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black focus:ring-0" :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-orange-600'" :placeholder="calculatePT ? 'PT' : '0'" />
+                <input type="number" v-model.number="wageData[emp.master_roll_id].professional_tax" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black focus:ring-0" :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-gray-700 dark:text-gray-300'" placeholder="0" />
+              </td>
+              <td class="p-1 border-r border-gray-50 dark:border-gray-800">
+                <input type="number" v-model.number="wageData[emp.master_roll_id].other_deduction" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black text-orange-600 focus:ring-0" placeholder="0" />
               </td>
               <td class="p-1 border-r border-gray-50 dark:border-gray-800">
                 <input type="number" v-model.number="wageData[emp.master_roll_id].other_benefit" @input="updateNetSalary(emp.master_roll_id)" class="w-full bg-transparent border-none text-center text-[10px] font-black text-emerald-600 focus:ring-0" />

@@ -77,6 +77,7 @@ const loadWages = async () => {
         edited[wage._id] = {
           ...wage,
           p_day_wage: pDay,
+          professional_tax: wage.professional_tax || 0,
           master_roll_id: wage.master_roll_id?._id || wage.master_roll_id,
           _master_roll_raw: wage.master_roll_id
         }
@@ -127,16 +128,17 @@ const calculateWageNet = (wageId: string) => {
   const gross = item.gross_salary || 0
   
   if (calculatePT.value) {
-    item.other_deduction = calculateWBProfessionalTax(gross, month.value)
+    item.professional_tax = calculateWBProfessionalTax(gross, month.value)
   }
 
   const epf = item.epf_deduction || 0
   const esic = item.esic_deduction || 0
+  const pt = item.professional_tax || 0
   const otherDed = item.other_deduction || 0
   const advDed = item.advance_deduction || 0
   const otherBen = item.other_benefit || 0
   
-  item.net_salary = parseFloat((gross - (epf + esic + otherDed + advDed) + otherBen).toFixed(2))
+  item.net_salary = parseFloat((gross - (epf + esic + pt + otherDed + advDed) + otherBen).toFixed(2))
 }
 
 watch(calculatePT, () => {
@@ -302,7 +304,8 @@ onMounted(() => {
               <th class="p-2 w-24 text-right">Gross Salary</th>
               <th class="p-2 w-16 text-center">EPF</th>
               <th class="p-2 w-16 text-center">ESIC</th>
-              <th class="p-2 w-20 text-center" :class="{'text-amber-400 font-bold': calculatePT}">{{ calculatePT ? 'PT / Other' : 'Other Ded' }}</th>
+              <th class="p-2 w-14 text-center" :class="calculatePT ? 'text-amber-400 font-bold' : ''">P.Tax</th>
+              <th class="p-2 w-16 text-center">Other Ded</th>
               <th class="p-2 w-24 text-center text-rose-400">Adv. Deduction</th>
               <th class="p-2 w-28 text-right text-emerald-400 font-black">Net Salary</th>
               <th class="p-2 w-36 text-center">Actions</th>
@@ -385,11 +388,20 @@ onMounted(() => {
               <td class="p-1.5 border-r border-gray-50 dark:border-gray-800 text-center" :class="{'bg-amber-500/10 dark:bg-amber-500/20': calculatePT}">
                 <input 
                   type="number" 
+                  v-model.number="editedWages[wage._id].professional_tax" 
+                  @input="calculateWageNet(wage._id)" 
+                  class="w-14 px-1 py-0.5 text-center bg-gray-50 dark:bg-gray-800 border rounded text-xs" 
+                  :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold border-amber-300' : 'text-gray-700 dark:text-gray-300'" 
+                  placeholder="0" 
+                />
+              </td>
+              <td class="p-1.5 border-r border-gray-50 dark:border-gray-800 text-center">
+                <input 
+                  type="number" 
                   v-model.number="editedWages[wage._id].other_deduction" 
                   @input="calculateWageNet(wage._id)" 
-                  class="w-16 px-1 py-0.5 text-center bg-gray-50 dark:bg-gray-800 border rounded text-xs" 
-                  :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold border-amber-300' : 'text-orange-600'" 
-                  :placeholder="calculatePT ? 'PT' : '0'" 
+                  class="w-14 px-1 py-0.5 text-center bg-gray-50 dark:bg-gray-800 border rounded text-xs text-orange-600" 
+                  placeholder="0" 
                 />
               </td>
               <td class="p-1.5 border-r border-gray-50 dark:border-gray-800 text-center" :class="{'bg-rose-50/20 dark:bg-rose-950/10': ((wage.advance_balance || 0) + (wage.advance_deduction || 0)) > 0}">

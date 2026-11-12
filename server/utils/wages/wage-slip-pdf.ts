@@ -349,28 +349,31 @@ export async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer>
 
     const epfDeduction = Number(wage.epf_deduction) || 0;
     const esicDeduction = Number(wage.esic_deduction) || 0;
+    const ptDeduction = Number(wage.professional_tax) || 0;
     const advanceDeduction = Number(wage.advance_deduction) || 0;
     const otherDeduction = Number(wage.other_deduction) || 0;
-    const totalDeductions = epfDeduction + esicDeduction + advanceDeduction + otherDeduction;
+    const totalDeductions = epfDeduction + esicDeduction + ptDeduction + advanceDeduction + otherDeduction;
 
     const earningsList = [
       { label: 'Basic & Earned Wages', amount: grossBasic },
-      { label: 'Other Allowances & Benefits', amount: otherBenefit },
+      { label: 'Staff Benefits & Arrears', amount: otherBenefit },
       { label: 'Overtime / Special Allowance', amount: 0 },
       { label: 'Site / Production Incentive', amount: 0 },
+      { label: 'Other Allowances', amount: 0 },
     ];
 
     const deductionsList = [
       { label: 'Provident Fund (EPF)', amount: epfDeduction },
       { label: 'ESI Contribution (ESIC)', amount: esicDeduction },
+      { label: 'Professional Tax (P-Tax)', amount: ptDeduction },
       { label: 'Staff Advance Recovery', amount: advanceDeduction },
-      { label: 'Other Deductions / TDS', amount: otherDeduction },
+      { label: 'Other Deductions / Misc', amount: otherDeduction },
     ];
 
     let rowY = tableY + headerH + 6;
     const rowGap = 19;
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const earn = earningsList[i]!;
       const ded = deductionsList[i]!;
 
@@ -387,7 +390,7 @@ export async function generateWageSlipPDF(wage: any, firm: any): Promise<Buffer>
       doc.text(formatCurrency(ded.amount), tableX + tableW - 85, rowY, { width: 77, align: 'right' });
 
       // Subtle horizontal hairline between rows (0.25pt Slate-200)
-      if (i < 3) {
+      if (i < 4) {
         doc.lineWidth(0.25).strokeColor('#E2E8F0');
         doc.moveTo(tableX + 4, rowY + 13.5).lineTo(midX - 4, rowY + 13.5).stroke();
         doc.moveTo(midX + 4, rowY + 13.5).lineTo(tableX + tableW - 4, rowY + 13.5).stroke();

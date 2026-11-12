@@ -10,6 +10,7 @@ export interface IWage extends Document {
   gross_salary: number;
   epf_deduction: number;
   esic_deduction: number;
+  professional_tax: number;
   other_deduction: number;
   other_benefit: number;
   advance_deduction: number;
@@ -56,6 +57,7 @@ const wageSchema = new Schema<IWage>(
     gross_salary:     { type: Number, required: true },
     epf_deduction:    { type: Number, default: 0 },
     esic_deduction:   { type: Number, default: 0 },
+    professional_tax: { type: Number, default: 0 },
     other_deduction:  { type: Number, default: 0 },
     other_benefit:    { type: Number, default: 0 },
     advance_deduction: { type: Number, default: 0 },

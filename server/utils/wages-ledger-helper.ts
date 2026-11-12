@@ -27,6 +27,7 @@ export async function validateWageForPosting(wage: IWage) {
 
   const totalDeductions = (wage.epf_deduction || 0) +
                          (wage.esic_deduction || 0) +
+                         (wage.professional_tax || 0) +
                          (wage.other_deduction || 0) +
                          (wage.advance_deduction || 0);
 
@@ -296,7 +297,19 @@ export async function buildWageAccrualLegs(
     });
   }
 
-  // 6. CR: Other Deductions
+  // 6. CR: Professional Tax Payable (Statutory Liability)
+  if ((wage.professional_tax || 0) > 0) {
+    const ptAccount = await resolveAccountHead(firmId, 'Professional Tax Payable', 'PAYABLE', userId, session || null);
+    legs.push({
+      accountHead: ptAccount.account_name,
+      accountType: ptAccount.account_type,
+      debitAmount: 0,
+      creditAmount: toCurrency(wage.professional_tax),
+      narration: `Professional Tax for ${empName} - ${salaryMonth}`,
+    });
+  }
+
+  // 7. CR: Other Deductions (Non-statutory Miscellaneous Deductions)
   if ((wage.other_deduction || 0) > 0) {
     const otherAccount = await resolveAccountHead(firmId, 'Other Deductions', 'PAYABLE', userId, session || null);
     legs.push({

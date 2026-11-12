@@ -55,6 +55,7 @@ export default defineEventHandler(async (event) => {
       const netSalary = item.gross_salary -
         ((item.epf_deduction || 0) +
          (item.esic_deduction || 0) +
+         (item.professional_tax || 0) +
          (item.other_deduction || 0) +
          (item.advance_deduction || 0)) +
         (item.other_benefit || 0);
@@ -79,6 +80,7 @@ export default defineEventHandler(async (event) => {
         gross_salary: item.gross_salary,
         epf_deduction: item.epf_deduction || 0,
         esic_deduction: item.esic_deduction || 0,
+        professional_tax: item.professional_tax || 0,
         other_deduction: item.other_deduction || 0,
         other_benefit: item.other_benefit || 0,
         advance_deduction: item.advance_deduction || 0,

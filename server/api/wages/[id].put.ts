@@ -16,6 +16,7 @@ const EDITABLE_FIELDS = [
   'wage_days',
   'epf_deduction',
   'esic_deduction',
+  'professional_tax',
   'other_deduction',
   'other_benefit',
   'advance_deduction',
@@ -26,8 +27,8 @@ const EDITABLE_FIELDS = [
   'remarks',
 ] as const;
 
-function calculateNetSalary(gross: number, epf: number, esic: number, otherDeduction: number, otherBenefit: number, advanceDeduction: number = 0) {
-  return gross - ((epf ?? 0) + (esic ?? 0) + (otherDeduction ?? 0) + (advanceDeduction ?? 0)) + (otherBenefit ?? 0);
+function calculateNetSalary(gross: number, epf: number, esic: number, pt: number, otherDeduction: number, otherBenefit: number, advanceDeduction: number = 0) {
+  return gross - ((epf ?? 0) + (esic ?? 0) + (pt ?? 0) + (otherDeduction ?? 0) + (advanceDeduction ?? 0)) + (otherBenefit ?? 0);
 }
 
 function calculatePerDayWage(gross: number, wageDays: number) {
@@ -56,7 +57,7 @@ export default defineEventHandler(async (event) => {
   if (wageDays !== undefined && (!Number.isFinite(wageDays) || wageDays <= 0)) {
     throw createError({ statusCode: 400, message: 'wage_days must be a positive number' });
   }
-  for (const field of ['epf_deduction', 'esic_deduction', 'other_deduction', 'other_benefit', 'advance_deduction'] as const) {
+  for (const field of ['epf_deduction', 'esic_deduction', 'professional_tax', 'other_deduction', 'other_benefit', 'advance_deduction'] as const) {
     if (body[field] !== undefined && (!Number.isFinite(Number(body[field])) || Number(body[field]) < 0)) {
       throw createError({ statusCode: 400, message: `${field} must be a non-negative number` });
     }
@@ -84,11 +85,12 @@ export default defineEventHandler(async (event) => {
     const effectiveGross = grossSalary ?? wage.gross_salary;
     const effectiveEpf = body.epf_deduction ?? wage.epf_deduction;
     const effectiveEsic = body.esic_deduction ?? wage.esic_deduction;
+    const effectivePT = body.professional_tax ?? wage.professional_tax;
     const effectiveOtherDed = body.other_deduction ?? wage.other_deduction;
     const effectiveOtherBen = body.other_benefit ?? wage.other_benefit;
     const effectiveAdvance = body.advance_deduction ?? wage.advance_deduction;
 
-    const totalDeductions = (effectiveEpf || 0) + (effectiveEsic || 0) + (effectiveOtherDed || 0) + (effectiveAdvance || 0);
+    const totalDeductions = (effectiveEpf || 0) + (effectiveEsic || 0) + (effectivePT || 0) + (effectiveOtherDed || 0) + (effectiveAdvance || 0);
     if (totalDeductions > effectiveGross) {
       throw createError({
         statusCode: 400,
@@ -118,7 +120,7 @@ export default defineEventHandler(async (event) => {
       wage.p_day_wage = calculatePerDayWage(wage.gross_salary, wage.wage_days);
     }
 
-    wage.net_salary = calculateNetSalary(wage.gross_salary, wage.epf_deduction, wage.esic_deduction, wage.other_deduction, wage.other_benefit, wage.advance_deduction);
+    wage.net_salary = calculateNetSalary(wage.gross_salary, wage.epf_deduction, wage.esic_deduction, wage.professional_tax, wage.other_deduction, wage.other_benefit, wage.advance_deduction);
     wage.updated_by = user._id as any;
 
     // Check existing actual disbursements from GL to decouple Accrual from Payment

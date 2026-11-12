@@ -48,6 +48,7 @@ export default defineEventHandler(async (event) => {
     { key: 'gross', width: 16 },
     { key: 'epf', width: 14 },
     { key: 'esic', width: 14 },
+    { key: 'pt', width: 12 },
     { key: 'other_ded', width: 14 },
     { key: 'other_ben', width: 14 },
     { key: 'adv', width: 14 },
@@ -89,10 +90,10 @@ export default defineEventHandler(async (event) => {
   // Row 1: Company Name Banner
   const companyName = ((firm as any)?.name || 'PRAKASH ENTERPRISE').toUpperCase();
   worksheet.insertRow(1, [companyName]);
-  worksheet.mergeCells('A1:P1');
+  worksheet.mergeCells('A1:Q1');
   const titleRow = worksheet.getRow(1);
   titleRow.height = 34;
-  for (let c = 1; c <= 16; c++) {
+  for (let c = 1; c <= 17; c++) {
     titleRow.getCell(c).fill = bannerGradient;
   }
   const titleCell = worksheet.getCell('A1');
@@ -101,10 +102,10 @@ export default defineEventHandler(async (event) => {
 
   // Row 2: Payroll Statement Subtitle Banner
   worksheet.insertRow(2, [`PAYROLL STATEMENT FOR ${month || ''}`]);
-  worksheet.mergeCells('A2:P2');
+  worksheet.mergeCells('A2:Q2');
   const subtitleRow = worksheet.getRow(2);
   subtitleRow.height = 24;
-  for (let c = 1; c <= 16; c++) {
+  for (let c = 1; c <= 17; c++) {
     subtitleRow.getCell(c).fill = bannerGradient;
   }
   const subtitleCell = worksheet.getCell('A2');
@@ -121,7 +122,7 @@ export default defineEventHandler(async (event) => {
   const headers = [
     'S.NO', 'EMPLOYEE NAME', 'PROJECT', 'SITE', 'DATE OF JOINING', 'DATE OF EXIT',
     'BANK ACCOUNT', 'RATE', 'DAYS', 'GROSS SALARY', 'EPF (12%)', 'ESIC (0.75%)',
-    'OTHER DED', 'OTHER BEN', 'ADVANCE', 'NET SALARY'
+    'P.TAX', 'OTHER DED', 'OTHER BEN', 'ADVANCE', 'NET SALARY'
   ];
   headers.forEach((h, idx) => {
     const cell = tableHeaderRow.getCell(idx + 1);
@@ -142,6 +143,7 @@ export default defineEventHandler(async (event) => {
   let sumGross = 0;
   let sumEpf = 0;
   let sumEsic = 0;
+  let sumPt = 0;
   let sumOtherDed = 0;
   let sumOtherBen = 0;
   let sumAdv = 0;
@@ -180,14 +182,16 @@ export default defineEventHandler(async (event) => {
     const gross = Number(item.gross_salary ?? (rate * days));
     const epf = Number(item.epf_deduction ?? 0);
     const esic = Number(item.esic_deduction ?? 0);
+    const pt = Number(item.professional_tax ?? 0);
     const otherDed = Number(item.other_deduction ?? 0);
     const otherBen = Number(item.other_benefit ?? 0);
     const adv = Number(item.advance_deduction ?? 0);
-    const net = Number(item.net_salary ?? (gross - (epf + esic + otherDed + adv) + otherBen));
+    const net = Number(item.net_salary ?? (gross - (epf + esic + pt + otherDed + adv) + otherBen));
 
     sumGross += gross;
     sumEpf += epf;
     sumEsic += esic;
+    sumPt += pt;
     sumOtherDed += otherDed;
     sumOtherBen += otherBen;
     sumAdv += adv;
@@ -206,11 +210,12 @@ export default defineEventHandler(async (event) => {
       gross: { formula: `H${currentRowIndex}*I${currentRowIndex}`, result: gross },
       epf: epf,
       esic: esic,
+      pt: pt,
       other_ded: otherDed,
       other_ben: otherBen,
       adv: adv,
       net: {
-        formula: `J${currentRowIndex}-(K${currentRowIndex}+L${currentRowIndex}+M${currentRowIndex}+O${currentRowIndex})+N${currentRowIndex}`,
+        formula: `J${currentRowIndex}-(K${currentRowIndex}+L${currentRowIndex}+M${currentRowIndex}+N${currentRowIndex}+P${currentRowIndex})+O${currentRowIndex}`,
         result: net
       }
     });
@@ -249,10 +254,11 @@ export default defineEventHandler(async (event) => {
     gross: hasRows ? { formula: `SUM(J5:J${lastDataRow})`, result: sumGross } : 0,
     epf: hasRows ? { formula: `SUM(K5:K${lastDataRow})`, result: sumEpf } : 0,
     esic: hasRows ? { formula: `SUM(L5:L${lastDataRow})`, result: sumEsic } : 0,
-    other_ded: hasRows ? { formula: `SUM(M5:M${lastDataRow})`, result: sumOtherDed } : 0,
-    other_ben: hasRows ? { formula: `SUM(N5:N${lastDataRow})`, result: sumOtherBen } : 0,
-    adv: hasRows ? { formula: `SUM(O5:O${lastDataRow})`, result: sumAdv } : 0,
-    net: hasRows ? { formula: `SUM(P5:P${lastDataRow})`, result: sumNet } : 0
+    pt: hasRows ? { formula: `SUM(M5:M${lastDataRow})`, result: sumPt } : 0,
+    other_ded: hasRows ? { formula: `SUM(N5:N${lastDataRow})`, result: sumOtherDed } : 0,
+    other_ben: hasRows ? { formula: `SUM(O5:O${lastDataRow})`, result: sumOtherBen } : 0,
+    adv: hasRows ? { formula: `SUM(P5:P${lastDataRow})`, result: sumAdv } : 0,
+    net: hasRows ? { formula: `SUM(Q5:Q${lastDataRow})`, result: sumNet } : 0
   });
 
   totalRow.height = 24;
