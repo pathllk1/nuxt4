@@ -662,55 +662,52 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Advance Outstanding Alert Banner -->
-    <div v-if="employeesWithAdvances.length > 0" class="bg-gradient-to-r from-rose-50 to-orange-50 dark:from-rose-950/30 dark:to-orange-950/20 border border-rose-200 dark:border-rose-900/50 rounded-lg p-2.5 px-3 flex flex-wrap items-center justify-between gap-2 shadow-xs shrink-0">
-      <div class="flex items-center gap-2">
-        <span class="flex h-6 w-6 rounded-full bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 items-center justify-center text-xs font-black">
-          ₹
+    <!-- Combined Payroll Dues & Advances Single-Line Toolbar -->
+    <div 
+      v-if="employeesWithAdvances.length > 0 || employeesWithPastDues.length > 0" 
+      class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 shadow-xs text-xs shrink-0"
+    >
+      <!-- Left / Advances Segment -->
+      <div v-if="employeesWithAdvances.length > 0" class="flex items-center gap-2 min-w-0">
+        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 shrink-0">
+          <UIcon name="i-heroicons-arrow-down-circle" class="w-3.5 h-3.5" />
+          <span>Advances</span>
         </span>
-        <div class="text-xs">
-          <span class="font-bold text-rose-900 dark:text-rose-200">Advance Balance Alert:</span>
-          <span class="text-rose-700 dark:text-rose-300 ml-1">
-            <strong>{{ employeesWithAdvances.length }}</strong> employee{{ employeesWithAdvances.length > 1 ? 's have' : ' has' }} outstanding advances totaling <strong>₹{{ totalOutstandingAdvance.toLocaleString() }}</strong>.
-          </span>
-          <span v-if="totalDeductedAdvances > 0" class="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-            ✓ ₹{{ totalDeductedAdvances.toLocaleString() }} applied to batch
-          </span>
+        <span class="text-xs text-gray-700 dark:text-gray-300 truncate">
+          <strong>{{ employeesWithAdvances.length }}</strong> staff owe <strong class="text-rose-600 dark:text-rose-400 font-mono">₹{{ totalOutstandingAdvance.toLocaleString() }}</strong>
+        </span>
+        <span v-if="totalDeductedAdvances > 0" class="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800 shrink-0">
+          ✓ ₹{{ totalDeductedAdvances.toLocaleString() }} applied
+        </span>
+        <div class="flex items-center gap-1 shrink-0 ml-1">
+          <UButton size="2xs" color="rose" variant="soft" icon="i-heroicons-arrow-down-circle" @click="applyAllAdvances()">
+            Auto-apply
+          </UButton>
+          <UButton v-if="totalDeductedAdvances > 0" size="2xs" color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="clearAllAdvances()" title="Clear advance deductions" />
         </div>
       </div>
-      <div class="flex items-center gap-1.5 ml-auto">
-        <UButton size="xs" color="rose" variant="solid" icon="i-heroicons-arrow-down-circle" @click="applyAllAdvances()">
-          Auto-apply All (₹{{ totalOutstandingAdvance.toLocaleString() }})
-        </UButton>
-        <UButton v-if="totalDeductedAdvances > 0" size="xs" color="gray" variant="ghost" icon="i-heroicons-arrow-path" @click="clearAllAdvances()">
-          Clear
-        </UButton>
-      </div>
-    </div>
 
-    <!-- Previous Dues / Arrears Alert Banner -->
-    <div v-if="employeesWithPastDues.length > 0" class="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-lg p-2.5 px-3 flex flex-wrap items-center justify-between gap-2 shadow-xs shrink-0">
-      <div class="flex items-center gap-2">
-        <span class="flex h-6 w-6 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 items-center justify-center text-xs font-black">
-          +
+      <!-- Center Divider if both exist -->
+      <div v-if="employeesWithAdvances.length > 0 && employeesWithPastDues.length > 0" class="h-4 w-px bg-gray-200 dark:bg-gray-800 hidden xl:block"></div>
+
+      <!-- Right / Arrears Dues Segment -->
+      <div v-if="employeesWithPastDues.length > 0" class="flex items-center gap-2 min-w-0" :class="{'ml-auto': employeesWithAdvances.length === 0}">
+        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+          <UIcon name="i-heroicons-plus-circle" class="w-3.5 h-3.5" />
+          <span>Past Dues</span>
         </span>
-        <div class="text-xs">
-          <span class="font-bold text-emerald-900 dark:text-emerald-200">Previous Wage Dues (Arrears):</span>
-          <span class="text-emerald-700 dark:text-emerald-300 ml-1">
-            <strong>{{ employeesWithPastDues.length }}</strong> employee{{ employeesWithPastDues.length > 1 ? 's have' : ' has' }} unpaid salary balances from prior months totaling <strong>₹{{ totalPastDues.toLocaleString() }}</strong>.
-          </span>
-          <span v-if="totalAppliedArrears > 0" class="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-700">
-            ✓ ₹{{ totalAppliedArrears.toLocaleString() }} added to Benefit / Arrears
-          </span>
+        <span class="text-xs text-gray-700 dark:text-gray-300 truncate">
+          <strong>{{ employeesWithPastDues.length }}</strong> staff due <strong class="text-emerald-600 dark:text-emerald-400 font-mono">₹{{ totalPastDues.toLocaleString() }}</strong>
+        </span>
+        <span v-if="totalAppliedArrears > 0" class="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.2 rounded border border-emerald-300 dark:border-emerald-700 shrink-0">
+          ✓ ₹{{ totalAppliedArrears.toLocaleString() }} added
+        </span>
+        <div class="flex items-center gap-1 shrink-0 ml-1">
+          <UButton size="2xs" color="primary" variant="soft" icon="i-heroicons-plus-circle" @click="applyAllArrears()">
+            Auto-add
+          </UButton>
+          <UButton v-if="totalAppliedArrears > 0" size="2xs" color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="clearAllArrears()" title="Clear arrears" />
         </div>
-      </div>
-      <div class="flex items-center gap-1.5 ml-auto">
-        <UButton size="xs" color="primary" variant="solid" icon="i-heroicons-plus-circle" @click="applyAllArrears()">
-          Auto-add All to Benefit (₹{{ totalPastDues.toLocaleString() }})
-        </UButton>
-        <UButton v-if="totalAppliedArrears > 0" size="xs" color="gray" variant="ghost" icon="i-heroicons-arrow-path" @click="clearAllArrears()">
-          Clear
-        </UButton>
       </div>
     </div>
 
