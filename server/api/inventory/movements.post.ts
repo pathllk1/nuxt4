@@ -6,23 +6,32 @@ import Stock from '../../models/Stock';
 
 export default defineEventHandler(async (event) => {
   let firmId: mongoose.Types.ObjectId;
+  let userName = 'System';
   try {
     const session = await requireAuthSession(event);
     firmId = session.firm_id;
+    userName = session.username || session.email || 'System';
   } catch {
     const firstFirm = await mongoose.model('Firm').findOne({});
     firmId = firstFirm ? firstFirm._id : new mongoose.Types.ObjectId();
   }
 
   const body = await readBody(event);
-  if (!body || !body.item || !body.type || body.qty === undefined) {
+  if (!body || !body.item || !body.type) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Item, movement type, and quantity are required'
+      statusMessage: 'Item and movement type are required'
     });
   }
 
-  const qty = parseFloat(body.qty) || 0;
+  let qty = body.qty !== undefined ? (parseFloat(body.qty) || 0) : undefined;
+  if (qty === undefined && Array.isArray(body.batches)) {
+    qty = body.batches.reduce((sum: number, b: any) => sum + (parseFloat(b.qty) || 0), 0);
+  }
+  if (qty === undefined) {
+    qty = 0;
+  }
+
   const rate = parseFloat(body.rate) || 0;
 
   const movement = new StockReg({
@@ -42,7 +51,8 @@ export default defineEventHandler(async (event) => {
     total: parseFloat(body.total) || (qty * rate),
     stock_id: body.stockId && mongoose.Types.ObjectId.isValid(body.stockId) ? new mongoose.Types.ObjectId(body.stockId) : null,
     stockId: body.stockId && mongoose.Types.ObjectId.isValid(body.stockId) ? new mongoose.Types.ObjectId(body.stockId) : null,
-    qtyh: parseFloat(body.qtyh) || 0
+    qtyh: parseFloat(body.qtyh) || 0,
+    user: userName
   });
 
   await movement.save();
@@ -55,6 +65,8 @@ export default defineEventHandler(async (event) => {
         stock.qty += qty;
       } else if (body.type === 'OUTWARD' || body.type === 'SALES') {
         stock.qty = Math.max(0, stock.qty - qty);
+      } else if (body.type === 'ADJUSTMENT') {
+        stock.qty += qty;
       }
       stock.total = stock.qty * stock.rate;
       await stock.save();

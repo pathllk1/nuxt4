@@ -83,6 +83,20 @@ export const useInventory = () => {
     }
   };
 
+  const createStock = async (data: any) => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await api.post('/inventory/stock', data);
+      return response;
+    } catch (err: any) {
+      error.value = err.message || 'Failed to create stock item';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const createMovement = async (data: any) => {
     loading.value = true;
     error.value = null;
@@ -148,6 +162,7 @@ export const useInventory = () => {
     fetchStocks,
     fetchMovements,
     fetchServiceSuggestions,
+    createStock,
     createMovement,
     updateStock,
     fetchStockValuation,

@@ -112,6 +112,7 @@
                   v-model="form.uom" 
                   class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   @change="syncUomToBatches"
+                  @keydown.enter.prevent="onInputEnter($event)"
                 >
                   <option value="PCS">PCS (Pieces)</option>
                   <option value="NOS">NOS (Numbers)</option>
@@ -134,6 +135,7 @@
                   v-model.number="form.grate" 
                   class="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   @change="syncGrateToBatches"
+                  @keydown.enter.prevent="onInputEnter($event)"
                 >
                   <option :value="0">0% (Nil / Exempt)</option>
                   <option :value="5">5% GST</option>
@@ -233,6 +235,7 @@
                       <select 
                         v-model="batch.uom"
                         class="px-1.5 py-1 bg-transparent border-b border-transparent focus:border-indigo-500 font-bold text-[11px] outline-none"
+                        @keydown.enter.prevent="onInputEnter($event)"
                       >
                         <option value="PCS">PCS</option>
                         <option value="NOS">NOS</option>
@@ -374,7 +377,7 @@ const emit = defineEmits<{
 
 const api = useApi();
 const toast = useToast();
-const { createMovement, updateStock } = useInventory();
+const { createStock, updateStock } = useInventory();
 
 const modalContainerRef = ref<HTMLElement | null>(null);
 const isSaving = ref(false);
@@ -555,6 +558,9 @@ function onInputEnter(e: KeyboardEvent) {
   const nextEl = idx > -1 ? focusable[idx + 1] : undefined;
   if (nextEl) {
     nextEl.focus();
+    if (nextEl instanceof HTMLInputElement && nextEl.type !== 'date') {
+      nextEl.select();
+    }
   } else {
     saveStockItem();
   }
@@ -613,7 +619,7 @@ async function saveStockItem() {
     if (isEditing.value) {
       res = await updateStock(form.value._id, payload);
     } else {
-      res = await createMovement(payload);
+      res = await createStock(payload);
     }
 
     if (res && (res.success || res.data)) {

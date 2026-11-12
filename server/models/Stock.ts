@@ -6,6 +6,7 @@ export interface IBatch {
   qty: number;
   uom: string;
   rate: number;
+  sale_rate?: number;
   grate: number;
   expiry?: Date;
   mrp?: number;
@@ -24,6 +25,7 @@ export interface IStock extends Document {
   grate: number;
   total: number;
   mrp?: number;
+  minLevel?: number;
   batches: IBatch[];
   user?: string;
   createdAt?: Date;
@@ -32,12 +34,13 @@ export interface IStock extends Document {
 
 const batchSchema = new Schema({
   batch: { type: String },
-  qty: { type: Number, required: true },
+  qty: { type: Number, required: true, default: 0 },
   uom: { type: String, required: true, default: 'PCS' },
-  rate: { type: Number, required: true },
+  rate: { type: Number, required: true, default: 0 },
+  sale_rate: { type: Number, default: 0 },
   grate: { type: Number, required: true, default: 18 },
   expiry: { type: Date },
-  mrp: { type: Number },
+  mrp: { type: Number, default: 0 },
 }, { _id: true });
 
 const stockSchema = new Schema(
@@ -54,6 +57,7 @@ const stockSchema = new Schema(
     grate: { type: Number, required: true, default: 0 },
     total: { type: Number, required: true, default: 0 },
     mrp: { type: Number },
+    minLevel: { type: Number, default: 0 },
     batches: [batchSchema],
     user: { type: String },
   },
