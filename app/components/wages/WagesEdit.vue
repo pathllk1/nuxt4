@@ -5,7 +5,7 @@ import { wagePersistence } from '~/utils/wagePersistence'
 import { calculateWBProfessionalTax } from '~/utils/taxCalculations'
 import { computeEpfDeduction, computeEsicDeduction } from '~~/shared/utils/statutory-rates'
 
-const { loading, fetchWagesByMonth, updateWage, deleteWage, downloadWageSlip, fetchBankAccounts, fetchAvailableMonths } = useWages()
+const { loading, fetchWagesByMonth, updateWage, deleteWage, downloadWageSlip, fetchBankAccounts, fetchAvailableMonths, disburseWages } = useWages()
 const toast = useToast()
 
 const getInitialMonth = () => {
@@ -186,6 +186,45 @@ const onDownloadSlip = async (wage: any) => {
 const formatCurrency = (val: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0)
 
+const partiallyPaidWages = computed(() => {
+  return existingWages.value.filter(w => w.payment_status === 'PARTIALLY_PAID' || (w.balance_due && w.balance_due > 0))
+})
+
+const totalBalanceDue = computed(() => {
+  return partiallyPaidWages.value.reduce((sum, w) => sum + (w.balance_due || 0), 0)
+})
+
+const handleDisburseSingle = async (wage: any) => {
+  const name = wage.master_roll_id?.employee_name || 'this employee'
+  const due = wage.balance_due || (wage.net_salary - (wage.paid_amount || 0)) || 0
+  if (!confirm(`Disburse remaining balance of ₹${due.toLocaleString()} for ${name}?\n\nThis will post a Payment Voucher and record the payment in Unified Accounting and Banking.`)) return
+  try {
+    const res = await disburseWages({ wageId: wage._id })
+    if (res && res.success) {
+      toast.add({ title: 'Success', description: `Disbursed balance of ₹${due.toLocaleString()} for ${name}`, color: 'success' })
+      await loadWages()
+    }
+  } catch (err: any) {
+    toast.add({ title: 'Disbursement Error', description: err.message, color: 'error' })
+  }
+}
+
+const handleDisburseAll = async () => {
+  const count = partiallyPaidWages.value.length
+  const total = totalBalanceDue.value
+  if (!confirm(`Disburse remaining balance for all ${count} partially paid employee(s) totalling ₹${total.toLocaleString()}?\n\nThis will generate Payment Vouchers and settle their balances.`)) return
+  try {
+    const ids = partiallyPaidWages.value.map(w => w._id)
+    const res = await disburseWages({ wageIds: ids })
+    if (res && res.success) {
+      toast.add({ title: 'Success', description: `Disbursed ₹${total.toLocaleString()} across ${count} employee(s)`, color: 'success' })
+      await loadWages()
+    }
+  } catch (err: any) {
+    toast.add({ title: 'Disbursement Error', description: err.message, color: 'error' })
+  }
+}
+
 onMounted(() => {
   loadData()
 })
@@ -227,6 +266,26 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Partially Paid / Dues Alert Banner -->
+    <div v-if="partiallyPaidWages.length > 0" class="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 flex items-center justify-between gap-3 text-xs shrink-0">
+      <div class="flex items-center gap-2">
+        <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5 text-amber-500 shrink-0" />
+        <div>
+          <span class="font-bold text-amber-700 dark:text-amber-300">
+            {{ partiallyPaidWages.length }} employee(s) have unpaid salary balance (total ₹{{ totalBalanceDue.toLocaleString() }})
+          </span>
+          <span class="text-gray-500 dark:text-gray-400 ml-1">
+            due to wage rate/attendance edits after initial disbursement.
+          </span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <UButton size="xs" color="amber" variant="solid" icon="i-heroicons-banknotes" @click="handleDisburseAll">
+          Disburse All Dues (₹{{ totalBalanceDue.toLocaleString() }})
+        </UButton>
+      </div>
+    </div>
+
     <!-- Table -->
     <div class="flex-1 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden min-h-0 relative">
       <div v-if="loading" class="absolute inset-0 z-20 flex items-center justify-center bg-white/60 dark:bg-gray-950/60 backdrop-blur-[2px]">
@@ -245,8 +304,8 @@ onMounted(() => {
               <th class="p-2 w-16 text-center">ESIC</th>
               <th class="p-2 w-20 text-center" :class="{'text-amber-400 font-bold': calculatePT}">{{ calculatePT ? 'PT / Other' : 'Other Ded' }}</th>
               <th class="p-2 w-24 text-center text-rose-400">Adv. Deduction</th>
-              <th class="p-2 w-24 text-right text-emerald-400 font-black">Net Salary</th>
-              <th class="p-2 w-24 text-center">Actions</th>
+              <th class="p-2 w-28 text-right text-emerald-400 font-black">Net Salary</th>
+              <th class="p-2 w-36 text-center">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-800 font-mono">
@@ -254,8 +313,27 @@ onMounted(() => {
               <td class="p-2 font-sans border-r border-gray-50 dark:border-gray-800">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <div class="font-bold text-gray-900 dark:text-gray-100 truncate">{{ wage.master_roll_id?.employee_name || 'N/A' }}</div>
+                  
+                  <!-- Advance available badge -->
                   <span v-if="((wage.advance_balance || 0) + (wage.advance_deduction || 0)) > 0" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shrink-0" :title="'Max allowable advance repayment: ₹' + ((wage.advance_balance || 0) + (wage.advance_deduction || 0))">
                     Adv Avail: ₹{{ (wage.advance_balance || 0) + (wage.advance_deduction || 0) }}
+                  </span>
+
+                  <!-- Partially Paid / Balance Due Badge -->
+                  <span 
+                    v-if="wage.payment_status === 'PARTIALLY_PAID' || (wage.balance_due && wage.balance_due > 0)" 
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40 shrink-0" 
+                    :title="'Partially paid. Paid: ₹' + (wage.paid_amount || 0).toLocaleString() + ', Remaining Due: ₹' + (wage.balance_due || 0).toLocaleString()"
+                  >
+                    <UIcon name="i-heroicons-exclamation-circle" class="w-3 h-3 text-amber-500" />
+                    <span>Due: ₹{{ (wage.balance_due || 0).toLocaleString() }}</span>
+                  </span>
+
+                  <span 
+                    v-else-if="wage.payment_status === 'PAID'" 
+                    class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0"
+                  >
+                    Paid
                   </span>
                 </div>
                 <div class="text-[9px] text-gray-500 uppercase truncate">{{ wage.project }} • {{ wage.site }}</div>
@@ -324,10 +402,28 @@ onMounted(() => {
                   :placeholder="'Max: ' + ((wage.advance_balance || 0) + (wage.advance_deduction || 0))" 
                 />
               </td>
-              <td class="p-2 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs border-r border-gray-50 dark:border-gray-800">
-                ₹{{ Math.round(editedWages[wage._id]?.net_salary || 0).toLocaleString() }}
+              <td class="p-2 text-right font-mono text-xs border-r border-gray-50 dark:border-gray-800">
+                <div class="font-black text-emerald-600 dark:text-emerald-400">
+                  ₹{{ Math.round(editedWages[wage._id]?.net_salary || 0).toLocaleString() }}
+                </div>
+                <div v-if="wage.payment_status === 'PARTIALLY_PAID' || (wage.balance_due && wage.balance_due > 0)" class="text-[8.5px] text-amber-600 dark:text-amber-400 font-sans font-medium whitespace-nowrap">
+                  Paid: ₹{{ (wage.paid_amount || 0).toLocaleString() }} | Due: ₹{{ (wage.balance_due || 0).toLocaleString() }}
+                </div>
               </td>
               <td class="p-2 text-center font-sans flex items-center justify-center gap-1">
+                <!-- 1-Click Disburse Balance Button -->
+                <UButton 
+                  v-if="wage.payment_status === 'PARTIALLY_PAID' || (wage.balance_due && wage.balance_due > 0)" 
+                  size="xs" 
+                  color="amber" 
+                  variant="solid" 
+                  icon="i-heroicons-banknotes" 
+                  :title="'Disburse balance ₹' + (wage.balance_due || 0).toLocaleString()" 
+                  @click="handleDisburseSingle(wage)"
+                >
+                  Pay ₹{{ wage.balance_due }}
+                </UButton>
+
                 <UButton size="xs" color="success" icon="i-heroicons-check" title="Save Changes" @click="handleSaveSingle(wage._id)" />
                 <UButton size="xs" variant="ghost" icon="i-heroicons-arrow-down-tray" title="Download Slip" @click="onDownloadSlip(wage)" />
                 <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" title="Delete Wage" @click="handleDeleteSingle(wage._id)" />

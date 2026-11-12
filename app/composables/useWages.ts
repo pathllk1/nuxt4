@@ -127,6 +127,15 @@ export const useWages = () => {
     return await apiFetch(buildUrl('/wages/available-months'))
   }
 
+  const disburseWages = async (payload: { wageIds?: string[]; wageId?: string; paid_date?: string; payment_mode?: string; bank_account_id?: string; cheque_no?: string; amount?: number }) => {
+    loading.value = true
+    try {
+      return await apiFetch(buildUrl('/wages/disburse'), { method: 'POST', body: payload })
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading,
     wages,
@@ -136,6 +145,7 @@ export const useWages = () => {
     createWagesBulk,
     updateWage,
     deleteWage,
+    disburseWages,
     getJobStatus,
     exportWages,
     downloadBankReport,

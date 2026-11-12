@@ -129,11 +129,34 @@ export default defineEventHandler(async (event) => {
     .lean();
 
   const lastWageByEmployee: Record<string, any> = {};
+  const pastDuesByEmployee: Record<string, number> = {};
+  const pastUnpaidMonthsByEmployee: Record<string, any[]> = {};
+
   for (const w of lastWages) {
     const empId = w.master_roll_id.toString();
     // First one encountered per employee is the most recent, since sorted desc.
     if (!lastWageByEmployee[empId]) {
       lastWageByEmployee[empId] = w;
+    }
+
+    // Check for prior months' unpaid balance due / arrears (e.g. rate edits or partial disbursements)
+    if (w.salary_month && w.salary_month < month) {
+      const due = w.balance_due !== undefined && w.balance_due !== null
+        ? Number(w.balance_due)
+        : (w.payment_status === 'UNPAID' ? Number(w.net_salary || 0) : Math.max(0, (w.net_salary || 0) - (w.paid_amount || 0)));
+
+      if (due > 0) {
+        pastDuesByEmployee[empId] = parseFloat(((pastDuesByEmployee[empId] || 0) + due).toFixed(2));
+        if (!pastUnpaidMonthsByEmployee[empId]) pastUnpaidMonthsByEmployee[empId] = [];
+        pastUnpaidMonthsByEmployee[empId].push({
+          wage_id: w._id,
+          salary_month: w.salary_month,
+          net_salary: w.net_salary,
+          paid_amount: w.paid_amount || 0,
+          balance_due: due,
+          payment_status: w.payment_status || 'PARTIALLY_PAID',
+        });
+      }
     }
   }
 
@@ -206,7 +229,9 @@ export default defineEventHandler(async (event) => {
       last_gross_salary: lastWage?.gross_salary ?? (emp.p_day_wage ?? 0) * 26,
       date_of_joining:  emp.date_of_joining,
       date_of_exit:     emp.date_of_exit,
-      advance_balance:  advanceBalances[emp._id.toString()] || 0,
+      advance_balance:       advanceBalances[emp._id.toString()] || 0,
+      previous_balance_due:  pastDuesByEmployee[emp._id.toString()] || 0,
+      past_unpaid_months:    pastUnpaidMonthsByEmployee[emp._id.toString()] || [],
     };
   });
 

@@ -413,6 +413,71 @@ const clearAllAdvances = () => {
   })
 }
 
+// Previous Months Unpaid Wage Dues (Arrears / Payable)
+const employeesWithPastDues = computed(() => {
+  return employees.value.filter(e => (e.previous_balance_due || 0) > 0)
+})
+
+const totalPastDues = computed(() => {
+  return employeesWithPastDues.value.reduce((sum, e) => sum + (e.previous_balance_due || 0), 0)
+})
+
+const totalAppliedArrears = computed(() => {
+  return employeesWithPastDues.value.reduce((sum: number, emp: any) => {
+    const w = wageData.value[emp.master_roll_id]
+    return sum + (w?.other_benefit || 0)
+  }, 0)
+})
+
+const applySingleArrears = (empId: string, amount: number) => {
+  const wage = wageData.value[empId]
+  if (!wage) return
+  wage.other_benefit = parseFloat(((wage.other_benefit || 0) + amount).toFixed(2))
+  updateNetSalary(empId)
+  toast.add({
+    title: 'Arrears Applied',
+    description: `Added ₹${amount.toLocaleString()} prior dues to Benefit / Arrears for this employee`,
+    color: 'success'
+  })
+}
+
+const applyAllArrears = () => {
+  let count = 0
+  let total = 0
+  employees.value.forEach(emp => {
+    const dues = emp.previous_balance_due || 0
+    if (dues > 0) {
+      const wage = wageData.value[emp.master_roll_id]
+      if (wage) {
+        wage.other_benefit = parseFloat(((wage.other_benefit || 0) + dues).toFixed(2))
+        updateNetSalary(emp.master_roll_id)
+        total += dues
+        count++
+      }
+    }
+  })
+  toast.add({
+    title: 'All Arrears Applied',
+    description: `Added ₹${total.toLocaleString()} prior dues across ${count} employee(s)`,
+    color: 'success'
+  })
+}
+
+const clearAllArrears = () => {
+  employeesWithPastDues.value.forEach(emp => {
+    const wage = wageData.value[emp.master_roll_id]
+    if (wage && wage.other_benefit > 0) {
+      wage.other_benefit = 0
+      updateNetSalary(emp.master_roll_id)
+    }
+  })
+  toast.add({
+    title: 'Arrears Cleared',
+    description: 'Reset benefits / arrears for affected employees to 0',
+    color: 'info'
+  })
+}
+
 const onExportExcel = async () => {
   if (!month.value) return
   
@@ -621,6 +686,32 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Previous Dues / Arrears Alert Banner -->
+    <div v-if="employeesWithPastDues.length > 0" class="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-lg p-2.5 px-3 flex flex-wrap items-center justify-between gap-2 shadow-xs shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="flex h-6 w-6 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 items-center justify-center text-xs font-black">
+          +
+        </span>
+        <div class="text-xs">
+          <span class="font-bold text-emerald-900 dark:text-emerald-200">Previous Wage Dues (Arrears):</span>
+          <span class="text-emerald-700 dark:text-emerald-300 ml-1">
+            <strong>{{ employeesWithPastDues.length }}</strong> employee{{ employeesWithPastDues.length > 1 ? 's have' : ' has' }} unpaid salary balances from prior months totaling <strong>₹{{ totalPastDues.toLocaleString() }}</strong>.
+          </span>
+          <span v-if="totalAppliedArrears > 0" class="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-700">
+            ✓ ₹{{ totalAppliedArrears.toLocaleString() }} added to Benefit / Arrears
+          </span>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 ml-auto">
+        <UButton size="xs" color="primary" variant="solid" icon="i-heroicons-plus-circle" @click="applyAllArrears()">
+          Auto-add All to Benefit (₹{{ totalPastDues.toLocaleString() }})
+        </UButton>
+        <UButton v-if="totalAppliedArrears > 0" size="xs" color="gray" variant="ghost" icon="i-heroicons-arrow-path" @click="clearAllArrears()">
+          Clear
+        </UButton>
+      </div>
+    </div>
+
     <!-- Table / List View -->
     <div class="flex-1 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden min-h-0 relative">
       <!-- Standard Loading Overlay -->
@@ -647,6 +738,10 @@ onMounted(() => {
                 <div class="truncate">
                   <h4 class="text-xs font-black text-gray-900 dark:text-gray-100 leading-none flex items-center gap-1.5 flex-wrap">
                     {{ emp.employee_name }}
+                    <button type="button" v-if="emp.previous_balance_due > 0" @click.stop="applySingleArrears(emp.master_roll_id, emp.previous_balance_due)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 hover:scale-105 transition-all cursor-pointer shrink-0" :title="'Click to add ₹' + emp.previous_balance_due + ' previous dues to Other Benefit as Arrears'">
+                      <span>Due: ₹{{ emp.previous_balance_due }}</span>
+                      <UIcon name="i-heroicons-plus-circle" class="w-2.5 h-2.5" />
+                    </button>
                     <button type="button" v-if="emp.advance_balance > 0" @click.stop="applySingleAdvance(emp.master_roll_id, emp.advance_balance)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 hover:scale-105 transition-all cursor-pointer shrink-0" :title="'Click to auto-deduct advance of ₹' + emp.advance_balance">
                       <span>Adv: ₹{{ emp.advance_balance }}</span>
                       <UIcon name="i-heroicons-arrow-down-circle" class="w-2.5 h-2.5" />
@@ -733,6 +828,10 @@ onMounted(() => {
               <td class="p-2 border-r border-gray-50 dark:border-gray-800">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <div class="text-[11px] font-black text-gray-900 dark:text-gray-100 truncate">{{ emp.employee_name }}</div>
+                  <button type="button" v-if="emp.previous_balance_due > 0" @click.stop="applySingleArrears(emp.master_roll_id, emp.previous_balance_due)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 hover:scale-105 transition-all cursor-pointer shrink-0" :title="'Click to add prior dues of ' + formatCurrency(emp.previous_balance_due) + ' to Other Benefit as Arrears'">
+                    <span>Due: ₹{{ emp.previous_balance_due }}</span>
+                    <UIcon name="i-heroicons-plus-circle" class="w-2.5 h-2.5" />
+                  </button>
                   <button type="button" v-if="emp.advance_balance > 0" @click.stop="applySingleAdvance(emp.master_roll_id, emp.advance_balance)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 hover:scale-105 transition-all cursor-pointer shrink-0" :title="'Click to auto-deduct advance of ' + formatCurrency(emp.advance_balance)">
                     <span>Adv: ₹{{ emp.advance_balance }}</span>
                     <UIcon name="i-heroicons-arrow-down-circle" class="w-2.5 h-2.5" />
