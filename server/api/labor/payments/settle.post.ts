@@ -93,12 +93,27 @@ export default defineEventHandler(async (event) => {
         `;
       });
     } catch (pgError: any) {
-      // If Postgres fails, rollback the dangling MongoDB voucher so it doesn't leave ghost entries
+      // If Postgres fails, reverse the dangling MongoDB voucher with strict tenant scoping
       if (voucherGroupId && !voucherGroupId.startsWith('SETTLED-NO-VOUCHER')) {
         try {
-          const mongoose = await import('mongoose');
+          const mongoose = (await import('mongoose')).default;
           const Ledger = (await import('../../../models/Ledger')).default;
-          await Ledger.deleteMany({ voucherGroupId });
+          const firmOid = mongoose.Types.ObjectId.isValid(String(period.firm_id))
+            ? new mongoose.Types.ObjectId(String(period.firm_id))
+            : period.firm_id;
+          await Ledger.updateMany(
+            {
+              voucherGroupId,
+              $or: [{ firmId: firmOid }, { firm_id: firmOid }]
+            },
+            {
+              $set: {
+                isReversed: true,
+                reversedAt: new Date(),
+                reversalReason: `Compensating cancellation: PostgreSQL labor settlement write failed (${pgError.message || 'Error'})`
+              }
+            }
+          );
         } catch (_) {}
       }
       throw pgError;

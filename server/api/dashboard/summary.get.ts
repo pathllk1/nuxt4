@@ -44,7 +44,8 @@ export default defineEventHandler(async (event) => {
       {
         $match: {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          accountType: { $in: ['SUNDRY_DEBTORS', 'DEBTOR'] }
+          accountType: { $in: ['SUNDRY_DEBTORS', 'DEBTOR'] },
+          isReversed: { $ne: true }
         }
       },
       {
@@ -61,7 +62,8 @@ export default defineEventHandler(async (event) => {
       {
         $match: {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          accountType: { $in: ['SUNDRY_CREDITORS', 'CREDITOR'] }
+          accountType: { $in: ['SUNDRY_CREDITORS', 'CREDITOR'] },
+          isReversed: { $ne: true }
         }
       },
       {
@@ -78,7 +80,8 @@ export default defineEventHandler(async (event) => {
       {
         $match: {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          accountType: 'DUTIES_AND_TAXES'
+          accountType: 'DUTIES_AND_TAXES',
+          isReversed: { $ne: true }
         }
       },
       {
@@ -113,7 +116,8 @@ export default defineEventHandler(async (event) => {
       {
         $match: {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          accountType: { $in: ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'] }
+          accountType: { $in: ['INCOME', 'DIRECT_INCOME', 'INDIRECT_INCOME'] },
+          isReversed: { $ne: true }
         }
       },
       {
@@ -144,7 +148,8 @@ export default defineEventHandler(async (event) => {
     // Recent 8 financial voucher entries
     Ledger.find({
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-      voucherType: { $ne: 'OPENING_BALANCE' }
+      voucherType: { $ne: 'OPENING_BALANCE' },
+      isReversed: { $ne: true }
     })
       .sort({ transactionDate: -1, createdAt: -1 })
       .limit(8)
@@ -161,7 +166,8 @@ export default defineEventHandler(async (event) => {
     Ledger.aggregate([
       {
         $match: {
-          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }]
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+          isReversed: { $ne: true }
         }
       },
       {

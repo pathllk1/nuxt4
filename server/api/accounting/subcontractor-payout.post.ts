@@ -205,12 +205,15 @@ export default defineEventHandler(async (event) => {
         try { await session.abortTransaction(); } catch (_) {}
       }
 
+      const isDev = process.env.NODE_ENV !== 'production';
       if (
-        postError.message?.includes('ClientSession must be from the same MongoClient') ||
-        postError.message?.includes('replica set') ||
-        postError.message?.includes('Transaction numbers')
+        isDev && (
+          postError.message?.includes('ClientSession must be from the same MongoClient') ||
+          postError.message?.includes('replica set') ||
+          postError.message?.includes('Transaction numbers')
+        )
       ) {
-        console.warn('[Subcontractor Payout] Retrying without transaction session:', postError.message);
+        console.warn('[Subcontractor Payout] DEV ONLY: Local MongoDB lacks replica set. Retrying without transaction:', postError.message);
         postResult = await executePost(undefined);
       } else {
         throw postError;

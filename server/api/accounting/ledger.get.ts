@@ -21,7 +21,10 @@ export default defineEventHandler(async (event) => {
     };
   }
 
-  const filter: any = { firmId: firmIdObj };
+  const filter: any = {
+    $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+    isReversed: { $ne: true }
+  };
 
   if (partyId && mongoose.Types.ObjectId.isValid(partyId as string)) {
     filter.partyId = new mongoose.Types.ObjectId(partyId as string);

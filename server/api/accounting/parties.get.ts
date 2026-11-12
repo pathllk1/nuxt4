@@ -29,7 +29,12 @@ export default defineEventHandler(async (event) => {
   const [parties, ledgerByHead, ledgerByPartyId] = await Promise.all([
     Party.find(filter).sort({ name: 1 }).lean(),
     Ledger.aggregate([
-      { $match: { firmId: firmIdObj } },
+      {
+        $match: {
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+          isReversed: { $ne: true }
+        }
+      },
       {
         $group: {
           _id: { $toLower: { $trim: { input: { $ifNull: ['$accountHead', ''] } } } },
@@ -39,7 +44,13 @@ export default defineEventHandler(async (event) => {
       }
     ]),
     Ledger.aggregate([
-      { $match: { firmId: firmIdObj, partyId: { $exists: true, $ne: null } } },
+      {
+        $match: {
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+          partyId: { $exists: true, $ne: null },
+          isReversed: { $ne: true }
+        }
+      },
       {
         $group: {
           _id: {

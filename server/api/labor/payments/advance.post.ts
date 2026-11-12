@@ -86,13 +86,29 @@ export default defineEventHandler(async (event) => {
         RETURNING *
       `;
     } catch (pgError: any) {
-      // Compensating transaction: roll back dangling MongoDB voucher to maintain cross-DB parity
+      // Compensating transaction: roll back dangling MongoDB voucher with strict tenant scoping
       if (voucherGroupId) {
         try {
+          const mongoose = (await import('mongoose')).default;
           const Ledger = (await import('../../../models/Ledger')).default;
-          await Ledger.deleteMany({ voucherGroupId });
+          const firmOid = mongoose.Types.ObjectId.isValid(String(period.firm_id))
+            ? new mongoose.Types.ObjectId(String(period.firm_id))
+            : period.firm_id;
+          await Ledger.updateMany(
+            {
+              voucherGroupId,
+              $or: [{ firmId: firmOid }, { firm_id: firmOid }]
+            },
+            {
+              $set: {
+                isReversed: true,
+                reversedAt: new Date(),
+                reversalReason: `Compensating cancellation: PostgreSQL labor advance write failed (${pgError.message || 'Error'})`
+              }
+            }
+          );
         } catch (compErr: any) {
-          console.error('[Dual-DB Compensation Failure] Could not delete orphaned MongoDB voucher:', compErr.message);
+          console.error('[Dual-DB Compensation Failure] Could not reverse orphaned MongoDB voucher:', compErr.message);
         }
       }
       throw pgError;

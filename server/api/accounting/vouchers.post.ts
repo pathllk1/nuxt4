@@ -76,12 +76,15 @@ export default defineEventHandler(async (event) => {
       try { await session.abortTransaction(); } catch (_) {}
     }
 
+    const isDev = process.env.NODE_ENV !== 'production';
     if (
-      err.message?.includes('ClientSession must be from the same MongoClient') ||
-      err.message?.includes('replica set') ||
-      err.message?.includes('Transaction numbers')
+      isDev && (
+        err.message?.includes('ClientSession must be from the same MongoClient') ||
+        err.message?.includes('replica set') ||
+        err.message?.includes('Transaction numbers')
+      )
     ) {
-      console.warn('[Vouchers Post] Retrying voucher post without transaction session:', err.message);
+      console.warn('[Vouchers Post] DEV ONLY: Local MongoDB lacks replica set. Retrying without transaction session:', err.message);
       try {
         postResult = await executeSave(undefined);
       } catch (retryErr: any) {
@@ -95,7 +98,7 @@ export default defineEventHandler(async (event) => {
       console.error('[Vouchers Post] Error:', err);
       throw createError({
         statusCode: err.statusCode || 500,
-        statusMessage: err.message
+        statusMessage: `Financial voucher posting failed: ${err.message}`
       });
     }
   } finally {

@@ -141,6 +141,7 @@ export class SLGLReconcilerService {
         $match: {
           $or: [{ firmId }, { firm_id: firmId }],
           accountType: 'LABOR_LEADER',
+          isReversed: { $ne: true },
           transactionDate: { $lte: toDate },
         },
       },
@@ -242,19 +243,19 @@ export class SLGLReconcilerService {
     accountType: string,
     category: 'AR' | 'AP' | 'LABOR'
   ) {
-    // GL side: aggregate by partyId for the given accountType
+    // GL side: aggregate by partyId for the given accountType, filtering unreversed rows
     const glBalances = await Ledger.aggregate([
       {
         $match: {
           $or: [{ firmId }, { firm_id: firmId }],
           accountType,
-          partyId: { $ne: null },
+          isReversed: { $ne: true },
           transactionDate: { $lte: toDate },
         },
       },
       {
         $group: {
-          _id: '$partyId',
+          _id: { $ifNull: [{ $toString: '$partyId' }, 'UNTAGGED'] },
           totalDebit: { $sum: '$debitAmount' },
           totalCredit: { $sum: '$creditAmount' },
         },
@@ -286,9 +287,24 @@ export class SLGLReconcilerService {
     const variances: IReconciliationVariance[] = [];
 
     for (const [partyId, glNet] of glMap) {
+      if (partyId === 'UNTAGGED') {
+        variances.push({
+          category,
+          entityName: `Untagged ${accountType} Control Account Entries (Missing partyId)`,
+          entityId: 'UNTAGGED',
+          glBalance: Math.abs(glNet),
+          glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+          slBalance: 0,
+          slBalanceType: 'DR',
+          variance: Math.abs(glNet),
+          status: 'CRITICAL',
+        });
+        continue;
+      }
+
       const partyName = partyMap.get(partyId);
       if (partyName) {
-        // Party is verified in Master Registry: Sub-ledger projection matches GL
+        // Party is verified in Master Registry
         slGrandTotal += glNet;
       } else {
         // Orphan partyId found in Ledger that does not exist in Party registry!
@@ -327,18 +343,26 @@ export class SLGLReconcilerService {
     firmId: mongoose.Types.ObjectId,
     toDate: string
   ) {
-    // GL side: aggregate by bankAccountId
+    // GL side: aggregate by bankAccountId, filtering unreversed rows
     const glBalances = await Ledger.aggregate([
       {
         $match: {
-          $or: [{ firmId }, { firm_id: firmId }],
-          bankAccountId: { $ne: null },
+          $and: [
+            { $or: [{ firmId }, { firm_id: firmId }] },
+            {
+              $or: [
+                { bankAccountId: { $ne: null } },
+                { accountType: 'BANK' }
+              ]
+            }
+          ],
+          isReversed: { $ne: true },
           transactionDate: { $lte: toDate },
         },
       },
       {
         $group: {
-          _id: '$bankAccountId',
+          _id: { $ifNull: [{ $toString: '$bankAccountId' }, 'UNTAGGED'] },
           totalDebit: { $sum: '$debitAmount' },
           totalCredit: { $sum: '$creditAmount' },
         },
@@ -369,9 +393,24 @@ export class SLGLReconcilerService {
     const variances: IReconciliationVariance[] = [];
 
     for (const [bankId, glNet] of glMap) {
+      if (bankId === 'UNTAGGED') {
+        variances.push({
+          category: 'BANK',
+          entityName: 'Untagged Bank Entries (Missing bankAccountId)',
+          entityId: 'UNTAGGED',
+          glBalance: Math.abs(glNet),
+          glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+          slBalance: 0,
+          slBalanceType: 'DR',
+          variance: Math.abs(glNet),
+          status: 'CRITICAL',
+        });
+        continue;
+      }
+
       const bankName = bankMap.get(bankId);
       if (bankName) {
-        // Valid registered bank account: Sub-ledger projection matches GL
+        // Valid registered bank account
         slGrandTotal += glNet;
       } else {
         // Orphan bankAccountId found in Ledger that does not exist in BankAccount registry!

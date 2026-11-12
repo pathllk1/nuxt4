@@ -614,9 +614,17 @@ export class LedgerService {
     return [] as any;
   }
 
+  static getEffectiveLedgerMatch(firmId: mongoose.Types.ObjectId, extra: Record<string, any> = {}) {
+    return {
+      $or: [{ firmId }, { firm_id: firmId }],
+      isReversed: { $ne: true },
+      ...extra
+    };
+  }
+
   static async getAccountBalance(firmId: mongoose.Types.ObjectId, accountHead: string, toDate?: string) {
-    const query: any = { firmId, accountHead };
-    if (toDate) query.transactionDate = { $lte: toDate };
+    const query = this.getEffectiveLedgerMatch(firmId, { accountHead });
+    if (toDate) (query as any).transactionDate = { $lte: toDate };
     const result = await Ledger.aggregate([{ $match: query }, { $group: { _id: null, totalDebit: { $sum: '$debitAmount' }, totalCredit: { $sum: '$creditAmount' } } }]);
     if (result.length === 0) return { totalDebit: 0, totalCredit: 0, balance: 0, balanceType: 'DR' };
     const { totalDebit, totalCredit } = result[0];
@@ -625,11 +633,11 @@ export class LedgerService {
   }
 
   static async getTrialBalance(firmId: mongoose.Types.ObjectId, fromDate?: string, toDate?: string) {
-    const query: any = { firmId };
+    const query = this.getEffectiveLedgerMatch(firmId);
     if (fromDate || toDate) {
-      query.transactionDate = {};
-      if (fromDate) query.transactionDate.$gte = fromDate;
-      if (toDate) query.transactionDate.$lte = toDate;
+      (query as any).transactionDate = {};
+      if (fromDate) (query as any).transactionDate.$gte = fromDate;
+      if (toDate) (query as any).transactionDate.$lte = toDate;
     }
 
     // 1. Fetch COA master registry for the firm — Chart of Accounts is the single source of truth
@@ -677,19 +685,18 @@ export class LedgerService {
     const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
 
     const receipts = await Ledger.aggregate([
-      { $match: { firmId, voucherType: 'RECEIPT' } },
+      { $match: this.getEffectiveLedgerMatch(firmId, { voucherType: 'RECEIPT' }) },
       { $group: { _id: null, total: { $sum: '$debitAmount' } } }
     ]);
 
     const payments = await Ledger.aggregate([
-      { $match: { firmId, voucherType: 'PAYMENT' } },
+      { $match: this.getEffectiveLedgerMatch(firmId, { voucherType: 'PAYMENT' }) },
       { $group: { _id: null, total: { $sum: '$creditAmount' } } }
     ]);
 
-    const recentCount = await Ledger.distinct('voucherGroupId', {
-      firmId,
+    const recentCount = await Ledger.distinct('voucherGroupId', this.getEffectiveLedgerMatch(firmId, {
       transactionDate: { $gte: dateStr }
-    });
+    }));
 
     const netPosition = (receipts[0]?.total || 0) - (payments[0]?.total || 0);
 
@@ -706,12 +713,11 @@ export class LedgerService {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
 
-    const total = await Ledger.countDocuments({ firmId, voucherType: 'JOURNAL' });
-    const recent = await Ledger.countDocuments({
-      firmId,
+    const total = await Ledger.countDocuments(this.getEffectiveLedgerMatch(firmId, { voucherType: 'JOURNAL' }));
+    const recent = await Ledger.countDocuments(this.getEffectiveLedgerMatch(firmId, {
       voucherType: 'JOURNAL',
       transactionDate: { $gte: dateStr }
-    });
+    }));
 
     return {
       total_journal_entries: total,
@@ -720,8 +726,8 @@ export class LedgerService {
   }
 
   static async getAccountTypeSummaries(firmId: mongoose.Types.ObjectId, toDate?: string) {
-    const query: any = { firmId };
-    if (toDate) query.transactionDate = { $lte: toDate };
+    const query = this.getEffectiveLedgerMatch(firmId);
+    if (toDate) (query as any).transactionDate = { $lte: toDate };
 
     const summaries = await Ledger.aggregate([
       { $match: query },
@@ -751,7 +757,10 @@ export class LedgerService {
   static async getLedger(firmId: mongoose.Types.ObjectId, accountHead: string, fromDate?: string, toDate?: string) {
     let rawBal = 0;
     if (fromDate) {
-      const startingBalQuery: any = { firmId, accountHead, transactionDate: { $lt: fromDate } };
+      const startingBalQuery = this.getEffectiveLedgerMatch(firmId, {
+        accountHead,
+        transactionDate: { $lt: fromDate }
+      });
       const startingRes = await Ledger.aggregate([
         { $match: startingBalQuery },
         { $group: { _id: null, totalDr: { $sum: '$debitAmount' }, totalCr: { $sum: '$creditAmount' } } }
@@ -764,11 +773,11 @@ export class LedgerService {
       balanceType: rawBal >= 0 ? 'DR' : 'CR'
     };
 
-    const query: any = { firmId, accountHead };
+    const query = this.getEffectiveLedgerMatch(firmId, { accountHead });
     if (fromDate || toDate) {
-      query.transactionDate = {};
-      if (fromDate) query.transactionDate.$gte = fromDate;
-      if (toDate) query.transactionDate.$lte = toDate;
+      (query as any).transactionDate = {};
+      if (fromDate) (query as any).transactionDate.$gte = fromDate;
+      if (toDate) (query as any).transactionDate.$lte = toDate;
     }
 
     const entries = await Ledger.find(query).sort({ transactionDate: 1, createdAt: 1 }).lean();
@@ -788,11 +797,10 @@ export class LedgerService {
     const byRefId = new Map<string, any[]>();
 
     if (orClauses.length > 0) {
-      const opposingLegs = await Ledger.find({
-        firmId,
+      const opposingLegs = await Ledger.find(this.getEffectiveLedgerMatch(firmId, {
         $or: orClauses,
         accountHead: { $ne: accountHead }
-      }, 'voucherGroupId voucherNo refId accountHead debitAmount creditAmount narration').lean();
+      }), 'voucherGroupId voucherNo refId accountHead debitAmount creditAmount narration').lean();
 
       for (const leg of opposingLegs) {
         if (leg.voucherGroupId) {

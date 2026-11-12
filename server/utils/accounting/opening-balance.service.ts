@@ -94,17 +94,28 @@ export class OpeningBalanceService {
     // 1. Ensure system contra account exists
     await this.ensureContraAccount(firmIdObj, userIdStr, session);
 
-    // 2. Remove any existing Ledger OB voucher entries for this account
-    await (Ledger as any).deleteMany(
+    // 2. Mark existing Ledger OB voucher entries for this account as reversed (preserve audit history)
+    await (Ledger as any).updateMany(
       {
-        firmId: firmIdObj,
-        voucherType: 'OPENING_BALANCE',
-        $or: [
-          { voucherGroupId },
-          { voucherGroupId: legacyVoucherGroupId },
-          { voucherNo },
-          { accountHead, voucherType: 'OPENING_BALANCE', transactionDate: fyStart }
-        ]
+        $and: [
+          { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
+          {
+            $or: [
+              { voucherGroupId },
+              { voucherGroupId: legacyVoucherGroupId },
+              { voucherNo },
+              { accountHead, voucherType: 'OPENING_BALANCE', transactionDate: fyStart }
+            ]
+          }
+        ],
+        voucherType: 'OPENING_BALANCE'
+      },
+      {
+        $set: {
+          isReversed: true,
+          reversedAt: new Date(),
+          reversalReason: `Opening balance updated for ${accountHead} (${financialYear})`
+        }
       },
       session ? { session } : {}
     );
@@ -303,14 +314,25 @@ export class OpeningBalanceService {
       session ? { session } : {}
     );
 
-    await (Ledger as any).deleteMany(
+    await (Ledger as any).updateMany(
       {
-        firmId: firmIdObj,
-        voucherType: 'OPENING_BALANCE',
-        $or: [
-          { voucherGroupId },
-          { accountHead, voucherType: 'OPENING_BALANCE' }
-        ]
+        $and: [
+          { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
+          {
+            $or: [
+              { voucherGroupId },
+              { accountHead, voucherType: 'OPENING_BALANCE' }
+            ]
+          }
+        ],
+        voucherType: 'OPENING_BALANCE'
+      },
+      {
+        $set: {
+          isReversed: true,
+          reversedAt: new Date(),
+          reversalReason: `Opening balance deleted for ${accountHead} (${financialYear})`
+        }
       },
       session ? { session } : {}
     );

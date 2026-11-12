@@ -123,11 +123,15 @@ export default defineEventHandler(async (event) => {
     obMap.set(ob.accountHead, ob);
   });
 
-  // Aggregate Ledger balances per account head
+  // Aggregate Ledger balances per account head (filtering unreversed legs only)
   const ledgerBalances = await Ledger.aggregate([
     {
       $match: {
-        firmId: { $in: [firmIdObj, firmIdStr] }
+        $or: [
+          { firmId: { $in: [firmIdObj, firmIdStr] } },
+          { firm_id: { $in: [firmIdObj, firmIdStr] } }
+        ],
+        isReversed: { $ne: true }
       }
     },
     {

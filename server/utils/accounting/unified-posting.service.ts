@@ -65,6 +65,15 @@ export class UnifiedPostingService {
   ): Promise<IPostingResult> {
     const firmIdObj = this.toObjectId(payload.firmId, 'firmId');
 
+    // ── Step 0: Strict Calendar Date Validation ──
+    if (!payload.transactionDate || !/^\d{4}-\d{2}-\d{2}$/.test(payload.transactionDate)) {
+      throw new Error(`Invalid transactionDate format "${payload.transactionDate}". Expected YYYY-MM-DD.`);
+    }
+    const parsedDate = new Date(`${payload.transactionDate}T00:00:00Z`);
+    if (isNaN(parsedDate.getTime())) {
+      throw new Error(`Invalid calendar date "${payload.transactionDate}".`);
+    }
+
     // ── Step 1: Period Lock Guard ──
     if (!payload._bypassPeriodLock) {
       await enforcePeriodLock(firmIdObj, payload.transactionDate, session);
@@ -124,16 +133,16 @@ export class UnifiedPostingService {
       voucherNo,
       voucherType: payload.voucherType,
       refType: payload.refType || 'VOUCHER',
-      refId: payload.refId ? this.toObjectIdSafe(payload.refId) : null,
+      refId: (leg as any).refId ? this.toObjectIdSafe((leg as any).refId) : (payload.refId ? this.toObjectIdSafe(payload.refId) : null),
       partyId: leg.partyId ? this.toObjectIdSafe(leg.partyId) : null,
       bankAccountId: leg.bankAccountId ? this.toObjectIdSafe(leg.bankAccountId) : null,
       stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
       stockRegId: leg.stockRegId ? this.toObjectIdSafe(leg.stockRegId) : null,
       paymentMode: leg.paymentMode || null,
-      isWageEntry: isWage,
-      masterRollId,
+      isWageEntry: isWage || Boolean((leg as any).isWageEntry),
+      masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
       replacesVoucherGroupId: payload.tags?.replacesVoucherGroupId || null,
-      statutory: leg.statutory || null,
+      statutory: (leg as any).statutory || (payload.tags?.statutory || null),
       createdBy: payload.createdBy,
     }));
 
@@ -205,8 +214,8 @@ export class UnifiedPostingService {
       firstEntry.transactionDate ||
       (new Date().toISOString().split('T')[0] as string);
 
-    // Construct reversed legs — flip DR ↔ CR
-    const reversedLegs: IVoucherLeg[] = originalEntries.map((entry) => ({
+    // Construct reversed legs — flip DR ↔ CR and preserve full dimensional metadata
+    const reversedLegs: IVoucherLeg[] = originalEntries.map((entry: any) => ({
       accountHead: entry.accountHead,
       accountType: entry.accountType,
       debitAmount: entry.creditAmount || 0,    // Flipped
@@ -217,6 +226,10 @@ export class UnifiedPostingService {
       stockRegId: entry.stockRegId || null,
       narration: `REVERSAL: ${reason} | Original: ${originalVoucherGroupId}`,
       paymentMode: entry.paymentMode || undefined,
+      isWageEntry: entry.isWageEntry,
+      masterRollId: entry.masterRollId || null,
+      statutory: entry.statutory || null,
+      refId: entry.refId || null,
     }));
 
     // Post the reversal through the standard pipeline (which will
@@ -230,7 +243,12 @@ export class UnifiedPostingService {
         legs: reversedLegs,
         createdBy,
         refType: 'REVERSAL',
-        tags: { reversedVoucherGroupId: originalVoucherGroupId },
+        tags: {
+          reversedVoucherGroupId: originalVoucherGroupId,
+          isReversalVoucher: true,
+          masterRollId: firstEntry.masterRollId ? String(firstEntry.masterRollId) : undefined,
+          isWageEntry: firstEntry.isWageEntry || undefined
+        },
       },
       session
     );
@@ -414,9 +432,21 @@ export class UnifiedPostingService {
     const resolved: IVoucherLeg[] = [];
 
     for (const leg of legs) {
+      // Validate amount invariants (Finding A-06)
+      const dr = leg.debitAmount !== undefined && leg.debitAmount !== null ? Number(leg.debitAmount) : 0;
+      const cr = leg.creditAmount !== undefined && leg.creditAmount !== null ? Number(leg.creditAmount) : 0;
+
+      if (!Number.isFinite(dr) || !Number.isFinite(cr) || isNaN(dr) || isNaN(cr)) {
+        throw new Error(`Invalid non-finite amount in voucher leg for account "${leg.accountHead}"`);
+      }
+      if (dr < 0 || cr < 0) {
+        throw new Error(`Negative amount prohibited in voucher leg for account "${leg.accountHead}". Use opposite debit/credit polarity.`);
+      }
+      if (dr > 0 && cr > 0) {
+        throw new Error(`Dual-sided leg prohibited for account "${leg.accountHead}". A leg must be strictly Debit or strictly Credit.`);
+      }
+
       // Skip zero-amount legs
-      const dr = Number(leg.debitAmount) || 0;
-      const cr = Number(leg.creditAmount) || 0;
       if (dr === 0 && cr === 0) continue;
 
       // Normalize account head
