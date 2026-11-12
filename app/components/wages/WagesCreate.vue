@@ -346,6 +346,73 @@ const formatCurrency = (val: number) => {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0)
 }
 
+const employeesWithAdvances = computed(() => {
+  return employees.value.filter(e => (e.advance_balance || 0) > 0)
+})
+
+const totalOutstandingAdvance = computed(() => {
+  return employeesWithAdvances.value.reduce((sum, e) => sum + (e.advance_balance || 0), 0)
+})
+
+const totalDeductedAdvances = computed(() => {
+  return Object.values(wageData.value).reduce((sum: number, w: any) => sum + (w.advance_deduction || 0), 0)
+})
+
+const applySingleAdvance = (empId: string, balance: number) => {
+  const wage = wageData.value[empId]
+  if (!wage) return
+  const otherDeds = (wage.epf_deduction || 0) + (wage.esic_deduction || 0) + (wage.other_deduction || 0)
+  const maxDeductible = Math.max(0, (wage.gross_salary || 0) - otherDeds + (wage.other_benefit || 0))
+  const amountToApply = Math.min(balance, maxDeductible)
+  wage.advance_deduction = amountToApply
+  updateNetSalary(empId)
+  toast.add({
+    title: 'Advance Applied',
+    description: `Deducted ₹${amountToApply.toLocaleString()} advance for this employee`,
+    color: 'success'
+  })
+}
+
+const applyAllAdvances = () => {
+  let count = 0
+  let totalApplied = 0
+  employees.value.forEach(emp => {
+    const bal = emp.advance_balance || 0
+    if (bal > 0) {
+      const wage = wageData.value[emp.master_roll_id]
+      if (wage) {
+        const otherDeds = (wage.epf_deduction || 0) + (wage.esic_deduction || 0) + (wage.other_deduction || 0)
+        const maxDeductible = Math.max(0, (wage.gross_salary || 0) - otherDeds + (wage.other_benefit || 0))
+        const amount = Math.min(bal, maxDeductible)
+        wage.advance_deduction = amount
+        totalApplied += amount
+        updateNetSalary(emp.master_roll_id)
+        count++
+      }
+    }
+  })
+  toast.add({
+    title: 'Advances Applied',
+    description: `Applied ₹${totalApplied.toLocaleString()} across ${count} employee(s)`,
+    color: 'success'
+  })
+}
+
+const clearAllAdvances = () => {
+  employees.value.forEach(emp => {
+    const wage = wageData.value[emp.master_roll_id]
+    if (wage && wage.advance_deduction > 0) {
+      wage.advance_deduction = 0
+      updateNetSalary(emp.master_roll_id)
+    }
+  })
+  toast.add({
+    title: 'Advances Cleared',
+    description: 'Reset all advance deductions to 0',
+    color: 'info'
+  })
+}
+
 const onExportExcel = async () => {
   if (!month.value) return
   
@@ -528,6 +595,32 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Advance Outstanding Alert Banner -->
+    <div v-if="employeesWithAdvances.length > 0" class="bg-gradient-to-r from-rose-50 to-orange-50 dark:from-rose-950/30 dark:to-orange-950/20 border border-rose-200 dark:border-rose-900/50 rounded-lg p-2.5 px-3 flex flex-wrap items-center justify-between gap-2 shadow-xs shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="flex h-6 w-6 rounded-full bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 items-center justify-center text-xs font-black">
+          ₹
+        </span>
+        <div class="text-xs">
+          <span class="font-bold text-rose-900 dark:text-rose-200">Advance Balance Alert:</span>
+          <span class="text-rose-700 dark:text-rose-300 ml-1">
+            <strong>{{ employeesWithAdvances.length }}</strong> employee{{ employeesWithAdvances.length > 1 ? 's have' : ' has' }} outstanding advances totaling <strong>₹{{ totalOutstandingAdvance.toLocaleString() }}</strong>.
+          </span>
+          <span v-if="totalDeductedAdvances > 0" class="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+            ✓ ₹{{ totalDeductedAdvances.toLocaleString() }} applied to batch
+          </span>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 ml-auto">
+        <UButton size="xs" color="rose" variant="solid" icon="i-heroicons-arrow-down-circle" @click="applyAllAdvances()">
+          Auto-apply All (₹{{ totalOutstandingAdvance.toLocaleString() }})
+        </UButton>
+        <UButton v-if="totalDeductedAdvances > 0" size="xs" color="gray" variant="ghost" icon="i-heroicons-arrow-path" @click="clearAllAdvances()">
+          Clear
+        </UButton>
+      </div>
+    </div>
+
     <!-- Table / List View -->
     <div class="flex-1 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden min-h-0 relative">
       <!-- Standard Loading Overlay -->
@@ -554,9 +647,10 @@ onMounted(() => {
                 <div class="truncate">
                   <h4 class="text-xs font-black text-gray-900 dark:text-gray-100 leading-none flex items-center gap-1.5 flex-wrap">
                     {{ emp.employee_name }}
-                    <span v-if="emp.advance_balance > 0" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shrink-0">
-                      Adv: ₹{{ emp.advance_balance }}
-                    </span>
+                    <button type="button" v-if="emp.advance_balance > 0" @click.stop="applySingleAdvance(emp.master_roll_id, emp.advance_balance)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 hover:scale-105 transition-all cursor-pointer shrink-0" :title="'Click to auto-deduct advance of ₹' + emp.advance_balance">
+                      <span>Adv: ₹{{ emp.advance_balance }}</span>
+                      <UIcon name="i-heroicons-arrow-down-circle" class="w-2.5 h-2.5" />
+                    </button>
                   </h4>
                   <p class="text-[10px] text-gray-500 font-bold uppercase mt-1">{{ emp.project }} • {{ emp.site }}</p>
                 </div>
@@ -639,9 +733,10 @@ onMounted(() => {
               <td class="p-2 border-r border-gray-50 dark:border-gray-800">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <div class="text-[11px] font-black text-gray-900 dark:text-gray-100 truncate">{{ emp.employee_name }}</div>
-                  <span v-if="emp.advance_balance > 0" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shrink-0" :title="'Outstanding Advance: ' + formatCurrency(emp.advance_balance)">
-                    Adv: ₹{{ emp.advance_balance }}
-                  </span>
+                  <button type="button" v-if="emp.advance_balance > 0" @click.stop="applySingleAdvance(emp.master_roll_id, emp.advance_balance)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 hover:scale-105 transition-all cursor-pointer shrink-0" :title="'Click to auto-deduct advance of ' + formatCurrency(emp.advance_balance)">
+                    <span>Adv: ₹{{ emp.advance_balance }}</span>
+                    <UIcon name="i-heroicons-arrow-down-circle" class="w-2.5 h-2.5" />
+                  </button>
                 </div>
                 <div class="text-[9px] text-gray-500 uppercase font-black truncate opacity-60">{{ emp.project }} • {{ emp.site }}</div>
               </td>

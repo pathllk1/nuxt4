@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Wage from '../../models/Wage';
 import Advance from '../../models/Advance';
-import { deleteWageLedger } from '../../utils/wages-ledger-helper';
+import { deleteWageLedger, getWageDisbursedAmount } from '../../utils/wages-ledger-helper';
 import { requireAuthSession } from '../../utils/auth';
 import { requireWageRole } from '../../utils/wage-authz';
 
@@ -27,6 +27,14 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 403,
         message: 'Cannot delete locked wage'
+      });
+    }
+
+    const disbursed = await getWageDisbursedAmount(wage._id as mongoose.Types.ObjectId, user.firm_id, session);
+    if (disbursed > 0) {
+      throw createError({
+        statusCode: 400,
+        message: `Cannot delete wage with existing payments (Disbursed: ₹${disbursed.toFixed(2)}). Reversal of payment vouchers required.`
       });
     }
 

@@ -14,6 +14,8 @@ export interface IWage extends Document {
   other_benefit: number;
   advance_deduction: number;
   net_salary: number;
+  paid_amount?: number;
+  balance_due?: number;
   remarks?: string;
   salary_month: string;
   paid_date?: string;
@@ -21,9 +23,10 @@ export interface IWage extends Document {
   bank_account_id: mongoose.Types.ObjectId | null;
   payment_mode: 'CASH' | 'CHEQUE' | 'NEFT' | 'RTGS' | 'IMPS' | 'UPI' | null;
   status: 'DRAFT' | 'POSTED' | 'LOCKED';
-  payment_status?: 'UNPAID' | 'PAID';
+  payment_status?: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'OVERPAID';
   voucher_group_id?: string | null;
   payment_voucher_group_id?: string | null;
+  payment_voucher_group_ids?: string[];
   posted_date?: Date | null;
   posted_by?: mongoose.Types.ObjectId | null;
   created_by: mongoose.Types.ObjectId;
@@ -57,6 +60,8 @@ const wageSchema = new Schema<IWage>(
     other_benefit:    { type: Number, default: 0 },
     advance_deduction: { type: Number, default: 0 },
     net_salary:       { type: Number, required: true },
+    paid_amount:      { type: Number, default: 0 },
+    balance_due:      { type: Number, default: 0 },
     remarks:          { type: String },
     salary_month:     { type: String, required: true },
     paid_date:        { type: String },
@@ -81,7 +86,7 @@ const wageSchema = new Schema<IWage>(
     },
     payment_status: {
       type: String,
-      enum: ['UNPAID', 'PAID'],
+      enum: ['UNPAID', 'PARTIALLY_PAID', 'PAID', 'OVERPAID'],
       default: 'UNPAID',
       index: true,
     },
@@ -94,6 +99,10 @@ const wageSchema = new Schema<IWage>(
       type: String,
       default: null,
       index: true,
+    },
+    payment_voucher_group_ids: {
+      type: [String],
+      default: [],
     },
     posted_date: {
       type: Date,

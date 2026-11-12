@@ -1,4 +1,5 @@
 import Wage from '../../models/Wage';
+import Advance from '../../models/Advance';
 import { requireAuthSession } from '../../utils/auth';
 import { requireWageRole } from '../../utils/wage-authz';
 
@@ -28,5 +29,35 @@ export default defineEventHandler(async (event) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  return { success: true, data: wages };
+  // Aggregate current advance balances for all employees in this batch
+  const masterRollIds = wages
+    .map(w => (w.master_roll_id as any)?._id || w.master_roll_id)
+    .filter(Boolean);
+
+  const advances = await Advance.find({
+    firm_id: user.firm_id,
+    master_roll_id: { $in: masterRollIds }
+  }).lean();
+
+  const advanceBalances: Record<string, number> = {};
+  advances.forEach((a: any) => {
+    if (!a.master_roll_id) return;
+    const empId = a.master_roll_id.toString();
+    if (!advanceBalances[empId]) advanceBalances[empId] = 0;
+    if (a.type === 'ADVANCE') {
+      advanceBalances[empId] += (a.amount || 0);
+    } else if (a.type === 'REPAYMENT') {
+      advanceBalances[empId] -= (a.amount || 0);
+    }
+  });
+
+  const enrichedWages = wages.map((w: any) => {
+    const empId = (w.master_roll_id?._id || w.master_roll_id)?.toString();
+    return {
+      ...w,
+      advance_balance: advanceBalances[empId] || 0
+    };
+  });
+
+  return { success: true, data: enrichedWages };
 });

@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
     ] };
 
     const history = await Ledger.find({
-      $and: [firmFilter, accountFilter]
+      $and: [firmFilter, accountFilter, { isReversed: { $ne: true } }]
     })
       .sort({ transactionDate: -1, createdAt: -1 })
       .limit(100)

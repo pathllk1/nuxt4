@@ -40,8 +40,20 @@ export default defineEventHandler(async (event) => {
         continue;
       }
 
+      if (wage.payment_status === 'OVERPAID') {
+        results.push({
+          wageId: id,
+          status: 'ALREADY_PAID',
+          message: 'Wage is overpaid; no disbursement required',
+          voucherGroupId: wage.payment_voucher_group_id,
+        });
+        continue;
+      }
+
       if (wage.net_salary <= 0) {
         wage.payment_status = 'PAID';
+        wage.paid_amount = 0;
+        wage.balance_due = 0;
         await wage.save({ session });
         results.push({
           wageId: id,
@@ -57,11 +69,14 @@ export default defineEventHandler(async (event) => {
       if (body.cheque_no) wage.cheque_no = String(body.cheque_no).trim();
       wage.updated_by = user._id;
 
-      const voucherGroupId = await postWageDisbursement(wage, session);
+      const customAmount = ids.length === 1 && body.amount ? Number(body.amount) : undefined;
+      const voucherGroupId = await postWageDisbursement(wage, session, customAmount);
       results.push({
         wageId: id,
-        status: 'PAID',
+        status: wage.payment_status,
         voucherGroupId,
+        paidAmount: wage.paid_amount,
+        balanceDue: wage.balance_due,
       });
     }
 

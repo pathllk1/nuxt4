@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Wage from '../../models/Wage';
 import Advance from '../../models/Advance';
-import { deleteWageLedger, postWageLedger } from '../../utils/wages-ledger-helper';
+import { getWageDisbursedAmount, postWageLedger, postWageDisbursement, toCurrency } from '../../utils/wages-ledger-helper';
 import { requireAuthSession } from '../../utils/auth';
 import { requireWageRole } from '../../utils/wage-authz';
 
@@ -91,10 +91,7 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    // Cleanup old ledger
-    await deleteWageLedger(wage._id as mongoose.Types.ObjectId, user.firm_id, session);
-
-    // Bug #14: also clean up old advance repayments tied to this wage before
+    // Bug #14: clean up old advance repayments tied to this wage before
     // recreating — otherwise stale repayment records accumulate on every edit.
     await Advance.deleteMany({ wage_id: wage._id, type: 'REPAYMENT' }).session(session);
 
@@ -109,10 +106,58 @@ export default defineEventHandler(async (event) => {
     wage.net_salary = calculateNetSalary(wage.gross_salary, wage.epf_deduction, wage.esic_deduction, wage.other_deduction, wage.other_benefit, wage.advance_deduction);
     wage.updated_by = user._id as any;
 
-    // Repost to ledger
+    // Check existing actual disbursements from GL to decouple Accrual from Payment
+    const disbursedAmount = await getWageDisbursedAmount(wage._id as mongoose.Types.ObjectId, user.firm_id, session);
+    wage.paid_amount = disbursedAmount;
+    wage.balance_due = Math.max(0, toCurrency(wage.net_salary - disbursedAmount));
+
+    if (disbursedAmount === 0) {
+      wage.payment_status = 'UNPAID';
+    } else if (Math.abs(disbursedAmount - wage.net_salary) <= 0.01) {
+      wage.payment_status = 'PAID';
+      wage.balance_due = 0;
+    } else if (disbursedAmount < wage.net_salary) {
+      wage.payment_status = 'PARTIALLY_PAID';
+      wage.balance_due = toCurrency(wage.net_salary - disbursedAmount);
+    } else {
+      // Overpaid scenario: net salary was reduced below what was already disbursed
+      wage.payment_status = 'OVERPAID';
+      wage.balance_due = 0;
+      const excessAmount = toCurrency(disbursedAmount - wage.net_salary);
+
+      // Clean up previous overpayment advance records for idempotency
+      await Advance.deleteMany({
+        wage_id: wage._id,
+        type: 'ADVANCE',
+        remarks: { $regex: /Excess wage adjustment/ }
+      }).session(session);
+
+      if (excessAmount > 0) {
+        await Advance.create([{
+          firm_id: user.firm_id,
+          master_roll_id: wage.master_roll_id,
+          type: 'ADVANCE',
+          amount: excessAmount,
+          date: wage.paid_date || new Date().toISOString().split('T')[0],
+          payment_mode: wage.payment_mode === 'CASH' ? 'CASH' : 'BANK',
+          bank_account_id: wage.bank_account_id || null,
+          wage_id: wage._id,
+          remarks: `Excess wage adjustment for ${wage.salary_month} (Overpaid by ${excessAmount})`,
+          created_by: user._id,
+          updated_by: user._id,
+        }], { session });
+      }
+    }
+
+    // Repost/update Accrual JV in ledger (in-place modification via UnifiedPostingService.updateVoucher)
     const voucherId = await postWageLedger(wage, session);
     wage.voucher_group_id = voucherId;
     wage.status = 'POSTED';
+
+    // If this wage was previously unpaid and payment details were supplied for the first time on edit:
+    if (wage.paid_amount === 0 && wage.paid_date && wage.net_salary > 0) {
+      await postWageDisbursement(wage, session);
+    }
 
     // Bug #18: schema has optimisticConcurrency enabled, so a concurrent
     // update to this same wage between our findOne and this save will throw

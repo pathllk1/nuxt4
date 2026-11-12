@@ -212,7 +212,12 @@ onMounted(() => {
           <tbody class="divide-y divide-gray-100 dark:divide-gray-800 font-mono">
             <tr v-for="wage in filteredWages" :key="wage._id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
               <td class="p-2 font-sans border-r border-gray-50 dark:border-gray-800">
-                <div class="font-bold text-gray-900 dark:text-gray-100 truncate">{{ wage.master_roll_id?.employee_name || 'N/A' }}</div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <div class="font-bold text-gray-900 dark:text-gray-100 truncate">{{ wage.master_roll_id?.employee_name || 'N/A' }}</div>
+                  <span v-if="((wage.advance_balance || 0) + (wage.advance_deduction || 0)) > 0" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shrink-0" :title="'Max allowable advance repayment: ₹' + ((wage.advance_balance || 0) + (wage.advance_deduction || 0))">
+                    Adv Avail: ₹{{ (wage.advance_balance || 0) + (wage.advance_deduction || 0) }}
+                  </span>
+                </div>
                 <div class="text-[9px] text-gray-500 uppercase truncate">{{ wage.project }} • {{ wage.site }}</div>
               </td>
               <td class="p-2 text-right">
@@ -230,8 +235,8 @@ onMounted(() => {
               <td class="p-2 text-right" :class="{'bg-amber-500/10 dark:bg-amber-500/20': calculatePT}">
                 <input type="number" v-model.number="editedWages[wage._id].other_deduction" @input="calculateWageNet(wage._id)" class="w-16 px-1 text-right bg-gray-50 dark:bg-gray-800 border rounded" :class="calculatePT ? 'text-amber-600 dark:text-amber-400 font-bold border-amber-300' : 'text-orange-600'" :placeholder="calculatePT ? 'PT' : '0'" />
               </td>
-              <td class="p-2 text-right">
-                <input type="number" v-model.number="editedWages[wage._id].advance_deduction" @input="calculateWageNet(wage._id)" class="w-18 px-1 text-right bg-gray-50 dark:bg-gray-800 border border-rose-200 dark:border-rose-800 rounded font-bold text-rose-600" />
+              <td class="p-2 text-right" :class="{'bg-rose-50/20 dark:bg-rose-950/10': ((wage.advance_balance || 0) + (wage.advance_deduction || 0)) > 0}">
+                <input type="number" v-model.number="editedWages[wage._id].advance_deduction" @input="calculateWageNet(wage._id)" class="w-18 px-1 text-right bg-gray-50 dark:bg-gray-800 border rounded font-bold text-rose-600" :class="editedWages[wage._id]?.advance_deduction > ((wage.advance_balance || 0) + (wage.advance_deduction || 0)) ? 'border-red-500 ring-1 ring-red-500' : 'border-rose-200 dark:border-rose-800'" :placeholder="'Max: ' + ((wage.advance_balance || 0) + (wage.advance_deduction || 0))" />
               </td>
               <td class="p-2 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs border-r border-gray-50 dark:border-gray-800">
                 ₹{{ (editedWages[wage._id]?.net_salary || 0).toLocaleString() }}

@@ -170,10 +170,41 @@ export async function getDefaultCashAccount(firmId: mongoose.Types.ObjectId, use
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   LEDGER POSTING
+   DISBURSEMENT QUERY HELPER
 ───────────────────────────────────────────────────────────────────────── */
 
-export async function postWageLedger(wage: IWage, session: mongoose.ClientSession): Promise<string> {
+export async function getWageDisbursedAmount(
+  wageId: mongoose.Types.ObjectId | string,
+  firmId: mongoose.Types.ObjectId | string,
+  session?: mongoose.ClientSession | null
+): Promise<number> {
+  const wageIdObj = typeof wageId === 'string' ? new mongoose.Types.ObjectId(wageId) : wageId;
+  const firmIdObj = typeof firmId === 'string' ? new mongoose.Types.ObjectId(firmId) : firmId;
+
+  const payoutEntries = await Ledger.find(
+    {
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      refType: 'WAGE_PAYOUT',
+      refId: wageIdObj,
+      accountHead: 'Salaries & Wages Payable',
+      isReversed: { $ne: true },
+    },
+    null,
+    session ? { session } : {}
+  ).lean();
+
+  const totalDisbursed = payoutEntries.reduce((sum, e) => sum + (e.debitAmount || 0), 0);
+  return toCurrency(totalDisbursed);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   ACCRUAL LEGS BUILDER
+───────────────────────────────────────────────────────────────────────── */
+
+export async function buildWageAccrualLegs(
+  wage: IWage,
+  session?: mongoose.ClientSession | null
+): Promise<{ legs: IVoucherLeg[]; accrualDate: string; empName: string }> {
   await validateWageForPosting(wage);
 
   const firmId = wage.firm_id;
@@ -185,124 +216,170 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
   const lastDay = new Date(y!, m!, 0).getDate();
   const accrualDate = `${salaryMonth}-${String(lastDay).padStart(2, '0')}`;
 
-  try {
-    const employee = await MasterRoll.findById(wage.master_roll_id).session(session).lean();
-    const empName = employee?.employee_name || 'Employee';
+  const employee = await MasterRoll.findById(wage.master_roll_id).session(session || null).lean();
+  const empName = employee?.employee_name || 'Employee';
 
-    const legs: IVoucherLeg[] = [];
+  const legs: IVoucherLeg[] = [];
 
-    // 1. DR: Gross Salaries & Wages Expense
-    const expenseAccount = await resolveAccountHead(firmId, 'Salaries & Wages', 'EXPENSE', userId, session);
+  // 1. DR: Gross Salaries & Wages Expense
+  const expenseAccount = await resolveAccountHead(firmId, 'Salaries & Wages', 'EXPENSE', userId, session || null);
+  legs.push({
+    accountHead: expenseAccount.account_name,
+    accountType: expenseAccount.account_type,
+    debitAmount: toCurrency(wage.gross_salary),
+    creditAmount: 0,
+    narration: `Salaries & Wages for ${salaryMonth} - ${empName}`,
+  });
+
+  // 2. DR: Employer Statutory Contributions (EPF & ESIC)
+  const employerEpf = (wage.epf_deduction || 0) > 0 ? (wage.epf_deduction || 0) : 0; // Matching 12%
+  if (employerEpf > 0) {
+    const employerEpfAcc = await resolveAccountHead(firmId, 'Employer EPF Contribution', 'EXPENSE', userId, session || null);
     legs.push({
-      accountHead: expenseAccount.account_name,
-      accountType: expenseAccount.account_type,
-      debitAmount: toCurrency(wage.gross_salary),
+      accountHead: employerEpfAcc.account_name,
+      accountType: employerEpfAcc.account_type,
+      debitAmount: toCurrency(employerEpf),
       creditAmount: 0,
-      narration: `Salaries & Wages for ${salaryMonth} - ${empName}`,
+      narration: `Employer EPF Contribution for ${empName} - ${salaryMonth}`,
     });
+  }
 
-    // 2. DR: Employer Statutory Contributions (EPF & ESIC)
-    const employerEpf = (wage.epf_deduction || 0) > 0 ? (wage.epf_deduction || 0) : 0; // Matching 12%
-    if (employerEpf > 0) {
-      const employerEpfAcc = await resolveAccountHead(firmId, 'Employer EPF Contribution', 'EXPENSE', userId, session);
-      legs.push({
-        accountHead: employerEpfAcc.account_name,
-        accountType: employerEpfAcc.account_type,
-        debitAmount: toCurrency(employerEpf),
-        creditAmount: 0,
-        narration: `Employer EPF Contribution for ${empName} - ${salaryMonth}`,
-      });
-    }
+  const employerEsic = (wage.esic_deduction || 0) > 0
+    ? computeEmployerEsic(wage.gross_salary, salaryMonth, employee?.date_of_exit)
+    : 0;
+  if (employerEsic > 0) {
+    const employerEsicAcc = await resolveAccountHead(firmId, 'Employer ESIC Contribution', 'EXPENSE', userId, session || null);
+    legs.push({
+      accountHead: employerEsicAcc.account_name,
+      accountType: employerEsicAcc.account_type,
+      debitAmount: toCurrency(employerEsic),
+      creditAmount: 0,
+      narration: `Employer ESIC Contribution for ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    const employerEsic = (wage.esic_deduction || 0) > 0
-      ? computeEmployerEsic(wage.gross_salary, salaryMonth, employee?.date_of_exit)
-      : 0;
-    if (employerEsic > 0) {
-      const employerEsicAcc = await resolveAccountHead(firmId, 'Employer ESIC Contribution', 'EXPENSE', userId, session);
-      legs.push({
-        accountHead: employerEsicAcc.account_name,
-        accountType: employerEsicAcc.account_type,
-        debitAmount: toCurrency(employerEsic),
-        creditAmount: 0,
-        narration: `Employer ESIC Contribution for ${empName} - ${salaryMonth}`,
-      });
-    }
+  // 3. DR: Other Benefits (if any)
+  if ((wage.other_benefit || 0) > 0) {
+    const benefitAccount = await resolveAccountHead(firmId, 'Staff Benefits', 'EXPENSE', userId, session || null);
+    legs.push({
+      accountHead: benefitAccount.account_name,
+      accountType: benefitAccount.account_type,
+      debitAmount: toCurrency(wage.other_benefit),
+      creditAmount: 0,
+      narration: `Staff Benefits for ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    // 3. DR: Other Benefits (if any)
-    if ((wage.other_benefit || 0) > 0) {
-      const benefitAccount = await resolveAccountHead(firmId, 'Staff Benefits', 'EXPENSE', userId, session);
-      legs.push({
-        accountHead: benefitAccount.account_name,
-        accountType: benefitAccount.account_type,
-        debitAmount: toCurrency(wage.other_benefit),
-        creditAmount: 0,
-        narration: `Staff Benefits for ${empName} - ${salaryMonth}`,
-      });
-    }
+  // 4. CR: Total EPF Payable (Employee 12% + Employer 12% = 24%)
+  const totalEpf = (wage.epf_deduction || 0) + employerEpf;
+  if (totalEpf > 0) {
+    const epfAccount = await resolveAccountHead(firmId, 'EPF Payable', 'PAYABLE', userId, session || null);
+    legs.push({
+      accountHead: epfAccount.account_name,
+      accountType: epfAccount.account_type,
+      debitAmount: 0,
+      creditAmount: toCurrency(totalEpf),
+      narration: `EPF Payable (Emp + Empr) for ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    // 4. CR: Total EPF Payable (Employee 12% + Employer 12% = 24%)
-    const totalEpf = (wage.epf_deduction || 0) + employerEpf;
-    if (totalEpf > 0) {
-      const epfAccount = await resolveAccountHead(firmId, 'EPF Payable', 'PAYABLE', userId, session);
-      legs.push({
-        accountHead: epfAccount.account_name,
-        accountType: epfAccount.account_type,
-        debitAmount: 0,
-        creditAmount: toCurrency(totalEpf),
-        narration: `EPF Payable (Emp + Empr) for ${empName} - ${salaryMonth}`,
-      });
-    }
+  // 5. CR: Total ESIC Payable (Employee 0.75% + Employer 3.25% = 4%)
+  const totalEsic = (wage.esic_deduction || 0) + employerEsic;
+  if (totalEsic > 0) {
+    const esicAccount = await resolveAccountHead(firmId, 'ESIC Payable', 'PAYABLE', userId, session || null);
+    legs.push({
+      accountHead: esicAccount.account_name,
+      accountType: esicAccount.account_type,
+      debitAmount: 0,
+      creditAmount: toCurrency(totalEsic),
+      narration: `ESIC Payable (Emp + Empr) for ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    // 5. CR: Total ESIC Payable (Employee 0.75% + Employer 3.25% = 4%)
-    const totalEsic = (wage.esic_deduction || 0) + employerEsic;
-    if (totalEsic > 0) {
-      const esicAccount = await resolveAccountHead(firmId, 'ESIC Payable', 'PAYABLE', userId, session);
-      legs.push({
-        accountHead: esicAccount.account_name,
-        accountType: esicAccount.account_type,
-        debitAmount: 0,
-        creditAmount: toCurrency(totalEsic),
-        narration: `ESIC Payable (Emp + Empr) for ${empName} - ${salaryMonth}`,
-      });
-    }
+  // 6. CR: Other Deductions
+  if ((wage.other_deduction || 0) > 0) {
+    const otherAccount = await resolveAccountHead(firmId, 'Other Deductions', 'PAYABLE', userId, session || null);
+    legs.push({
+      accountHead: otherAccount.account_name,
+      accountType: otherAccount.account_type,
+      debitAmount: 0,
+      creditAmount: toCurrency(wage.other_deduction),
+      narration: `Other Deductions for ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    // 6. CR: Other Deductions
-    if ((wage.other_deduction || 0) > 0) {
-      const otherAccount = await resolveAccountHead(firmId, 'Other Deductions', 'PAYABLE', userId, session);
-      legs.push({
-        accountHead: otherAccount.account_name,
-        accountType: otherAccount.account_type,
-        debitAmount: 0,
-        creditAmount: toCurrency(wage.other_deduction),
-        narration: `Other Deductions for ${empName} - ${salaryMonth}`,
-      });
-    }
+  // 7. CR: Advance to Employees (Recovery)
+  if ((wage.advance_deduction || 0) > 0) {
+    const advanceAccount = await resolveAccountHead(firmId, 'Advance to Employees', 'ASSET', userId, session || null);
+    legs.push({
+      accountHead: advanceAccount.account_name,
+      accountType: advanceAccount.account_type,
+      debitAmount: 0,
+      creditAmount: toCurrency(wage.advance_deduction),
+      narration: `Advance Recovery from ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    // 7. CR: Advance to Employees (Recovery)
-    if ((wage.advance_deduction || 0) > 0) {
-      const advanceAccount = await resolveAccountHead(firmId, 'Advance to Employees', 'ASSET', userId, session);
-      legs.push({
-        accountHead: advanceAccount.account_name,
-        accountType: advanceAccount.account_type,
-        debitAmount: 0,
-        creditAmount: toCurrency(wage.advance_deduction),
-        narration: `Advance Recovery from ${empName} - ${salaryMonth}`,
-      });
-    }
+  // 8. CR: Salaries & Wages Payable (Net Take-Home Liability)
+  if (wage.net_salary > 0) {
+    const payableAccount = await resolveAccountHead(firmId, 'Salaries & Wages Payable', 'PAYABLE', userId, session || null);
+    legs.push({
+      accountHead: payableAccount.account_name,
+      accountType: payableAccount.account_type,
+      debitAmount: 0,
+      creditAmount: toCurrency(wage.net_salary),
+      narration: `Salary Payable to ${empName} - ${salaryMonth}`,
+    });
+  }
 
-    // 8. CR: Salaries & Wages Payable (Net Take-Home Liability)
-    if (wage.net_salary > 0) {
-      const payableAccount = await resolveAccountHead(firmId, 'Salaries & Wages Payable', 'PAYABLE', userId, session);
-      legs.push({
-        accountHead: payableAccount.account_name,
-        accountType: payableAccount.account_type,
-        debitAmount: 0,
-        creditAmount: toCurrency(wage.net_salary),
-        narration: `Salary Payable to ${empName} - ${salaryMonth}`,
-      });
-    }
+  await validateLedgerEntries(legs, firmId, session || null);
 
+  return { legs, accrualDate, empName };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   LEDGER POSTING
+───────────────────────────────────────────────────────────────────────── */
+
+export async function postWageLedger(wage: IWage, session: mongoose.ClientSession): Promise<string> {
+  const firmId = wage.firm_id;
+  const userId = wage.created_by || wage.updated_by;
+  const salaryMonth = wage.salary_month;
+
+  try {
+    const { legs, accrualDate, empName } = await buildWageAccrualLegs(wage, session);
     const { UnifiedPostingService } = await import('./accounting/unified-posting.service');
+
+    // If wage already has an accrual voucher posted, update it in-place
+    if (wage.voucher_group_id) {
+      const existingEntries = await Ledger.find({
+        $or: [{ firmId }, { firm_id: firmId }],
+        voucherGroupId: wage.voucher_group_id,
+        isReversed: { $ne: true },
+      }, null, { session }).lean();
+
+      if (existingEntries && existingEntries.length > 0) {
+        await UnifiedPostingService.updateVoucher({
+          firmId,
+          voucherGroupId: wage.voucher_group_id,
+          payload: {
+            firmId,
+            voucherType: 'JOURNAL',
+            transactionDate: accrualDate,
+            narration: `Payroll Accrual for ${salaryMonth} - ${empName}`,
+            legs,
+            createdBy: String(userId || 'system'),
+            refType: 'WAGE',
+            refId: wage._id,
+            tags: { masterRollId: wage.master_roll_id, salaryMonth: wage.salary_month, isWageEntry: true },
+          },
+          session,
+        });
+
+        return wage.voucher_group_id;
+      }
+    }
+
     const postResult = await UnifiedPostingService.postVoucher({
       firmId,
       voucherType: 'JOURNAL',
@@ -315,11 +392,17 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
       tags: { masterRollId: wage.master_roll_id, salaryMonth: wage.salary_month, isWageEntry: true },
     }, session);
 
-    // If wage already contains payment details, immediately post the Settlement Payment Voucher
-    if (wage.paid_date && wage.net_salary > 0) {
+    wage.voucher_group_id = postResult.voucherGroupId;
+
+    // If wage already contains payment details on INITIAL creation, immediately post the Settlement Payment Voucher
+    if (wage.paid_date && wage.net_salary > 0 && (wage.paid_amount || 0) === 0) {
       await postWageDisbursement(wage, session);
     } else {
-      wage.payment_status = 'UNPAID';
+      if (!wage.payment_status) {
+        wage.payment_status = 'UNPAID';
+      }
+      wage.paid_amount = wage.paid_amount || 0;
+      wage.balance_due = wage.balance_due !== undefined ? wage.balance_due : wage.net_salary;
     }
 
     return postResult.voucherGroupId;
@@ -328,10 +411,24 @@ export async function postWageLedger(wage: IWage, session: mongoose.ClientSessio
   }
 }
 
-export async function postWageDisbursement(wage: IWage, session: mongoose.ClientSession): Promise<string> {
+export async function postWageDisbursement(
+  wage: IWage,
+  session: mongoose.ClientSession,
+  amountToDisburse?: number
+): Promise<string> {
   const firmId = wage.firm_id;
   const userId = wage.created_by || wage.updated_by;
   const transactionDate = wage.paid_date || (new Date().toISOString().split('T')[0] as string);
+
+  const disburseAmt = toCurrency(
+    amountToDisburse !== undefined
+      ? amountToDisburse
+      : (wage.balance_due && wage.balance_due > 0 ? wage.balance_due : wage.net_salary)
+  );
+
+  if (disburseAmt <= 0) {
+    return wage.payment_voucher_group_id || '';
+  }
 
   const employee = await MasterRoll.findById(wage.master_roll_id).session(session).lean();
   const empName = employee?.employee_name || 'Employee';
@@ -349,7 +446,7 @@ export async function postWageDisbursement(wage: IWage, session: mongoose.Client
     {
       accountHead: payableAcc.account_name,
       accountType: payableAcc.account_type,
-      debitAmount: toCurrency(wage.net_salary),
+      debitAmount: disburseAmt,
       creditAmount: 0,
       narration: `Salary Disbursement to ${empName} for ${wage.salary_month}`,
     },
@@ -357,12 +454,14 @@ export async function postWageDisbursement(wage: IWage, session: mongoose.Client
       accountHead: payoutAcc.account_name,
       accountType: payoutAcc.account_type,
       debitAmount: 0,
-      creditAmount: toCurrency(wage.net_salary),
+      creditAmount: disburseAmt,
       bankAccountId: wage.bank_account_id || null,
       paymentMode: wage.payment_mode || 'CASH',
       narration: `Salary payout to ${empName} (${wage.payment_mode || 'CASH'})${wage.cheque_no ? ` - Chq: ${wage.cheque_no}` : ''}`,
     }
   ];
+
+  await validateLedgerEntries(legs, firmId, session);
 
   const { UnifiedPostingService } = await import('./accounting/unified-posting.service');
   const postResult = await UnifiedPostingService.postVoucher({
@@ -378,26 +477,57 @@ export async function postWageDisbursement(wage: IWage, session: mongoose.Client
     tags: { masterRollId: wage.master_roll_id, salaryMonth: wage.salary_month, isWageEntry: true },
   }, session);
 
-  wage.payment_status = 'PAID';
+  const totalDisbursed = await getWageDisbursedAmount(wage._id as mongoose.Types.ObjectId, firmId, session);
+  wage.paid_amount = totalDisbursed;
+  wage.balance_due = Math.max(0, toCurrency(wage.net_salary - totalDisbursed));
+
+  if (Math.abs(totalDisbursed - wage.net_salary) <= 0.01) {
+    wage.payment_status = 'PAID';
+  } else if (totalDisbursed > wage.net_salary) {
+    wage.payment_status = 'OVERPAID';
+  } else {
+    wage.payment_status = 'PARTIALLY_PAID';
+  }
+
   wage.payment_voucher_group_id = postResult.voucherGroupId;
+  if (!wage.payment_voucher_group_ids) {
+    wage.payment_voucher_group_ids = [];
+  }
+  if (!wage.payment_voucher_group_ids.includes(postResult.voucherGroupId)) {
+    wage.payment_voucher_group_ids.push(postResult.voucherGroupId);
+  }
   await wage.save({ session });
 
   return postResult.voucherGroupId;
 }
 
-export async function deleteWageLedger(wageId: mongoose.Types.ObjectId, firmId: mongoose.Types.ObjectId, session: mongoose.ClientSession) {
+export async function deleteWageLedger(
+  wageId: mongoose.Types.ObjectId,
+  firmId: mongoose.Types.ObjectId,
+  session: mongoose.ClientSession,
+  includeDisbursements = false
+) {
   try {
-    const origEntries = await Ledger.find(
-      {
-        $or: [
-          { refType: 'WAGE', refId: wageId },
-          { refType: 'WAGE_PAYOUT', refId: wageId },
-        ],
-        firmId
-      },
-      null,
-      { session }
-    ).lean();
+    const filter: any = {
+      $or: [{ firmId }, { firm_id: firmId }],
+      isReversed: { $ne: true },
+    };
+
+    if (includeDisbursements) {
+      filter.$and = [
+        {
+          $or: [
+            { refType: 'WAGE', refId: wageId },
+            { refType: 'WAGE_PAYOUT', refId: wageId },
+          ]
+        }
+      ];
+    } else {
+      filter.refType = 'WAGE';
+      filter.refId = wageId;
+    }
+
+    const origEntries = await Ledger.find(filter, null, { session }).lean();
 
     const voucherGroupIds = Array.from(new Set(
       origEntries
@@ -418,7 +548,7 @@ export async function deleteWageLedger(wageId: mongoose.Types.ObjectId, firmId: 
 
     if (voucherGroupIds.length > 0) {
       await Ledger.updateMany(
-        { voucherGroupId: { $in: voucherGroupIds }, firmId },
+        { voucherGroupId: { $in: voucherGroupIds }, $or: [{ firmId }, { firm_id: firmId }] },
         { $set: { isReversed: true } },
         { session }
       );
@@ -432,7 +562,6 @@ export async function deleteWageLedger(wageId: mongoose.Types.ObjectId, firmId: 
 
 export async function recalculateWageLedger(wage: IWage, session: mongoose.ClientSession) {
   try {
-    await deleteWageLedger(wage._id as mongoose.Types.ObjectId, wage.firm_id, session);
     return await postWageLedger(wage, session);
   } catch (error: any) {
     throw new Error(`Ledger recalculation failed: ${error.message}`);
