@@ -141,9 +141,18 @@ export default defineEventHandler(async (event) => {
 
     // Check for prior months' unpaid balance due / arrears (e.g. rate edits or partial disbursements)
     if (w.salary_month && w.salary_month < month) {
-      const due = w.balance_due !== undefined && w.balance_due !== null
-        ? Number(w.balance_due)
-        : (w.payment_status === 'UNPAID' ? Number(w.net_salary || 0) : Math.max(0, (w.net_salary || 0) - (w.paid_amount || 0)));
+      let due = 0;
+      if (w.balance_due !== undefined && w.balance_due !== null) {
+        due = Math.max(0, Number(w.balance_due));
+      } else if (w.payment_status === 'PARTIALLY_PAID') {
+        due = Math.max(0, Number(w.net_salary || 0) - Number(w.paid_amount || 0));
+      } else if (w.payment_status === 'UNPAID' && w.status !== 'POSTED') {
+        due = Math.max(0, Number(w.net_salary || 0));
+      } else {
+        // Historical posted records (payment_status undefined or PAID, or status POSTED without balance_due)
+        // are already fully settled in legacy vouchers; balance due is 0.
+        due = 0;
+      }
 
       if (due > 0) {
         pastDuesByEmployee[empId] = parseFloat(((pastDuesByEmployee[empId] || 0) + due).toFixed(2));
