@@ -139,21 +139,33 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
       ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
     `;
 
-    // ── Preflight and Repair Legacy Duplicate Rows before Indexing (F-06) ──
-    // 1. Repair duplicate advance rows by assigning unique sequential leg_index
+    // ── Preflight and Conflict Detection before Indexing (F-06, F-09) ──
+    // 1. Classify and Detect Duplicate Advance Rows before Indexing (F-06)
+    // Never silently turn duplicate retry rows into distinct legs by assigning sequential indexes!
+    const duplicateAdvances = await clientSql`
+      SELECT firm_id, period_id, ledger_voucher_group_id, COUNT(*) as count, ARRAY_AGG(id) as advance_ids, ARRAY_AGG(amount) as amounts
+      FROM labor_advances
+      WHERE ledger_voucher_group_id IS NOT NULL
+      GROUP BY firm_id, period_id, ledger_voucher_group_id
+      HAVING COUNT(*) > 1;
+    `;
+
+    if (duplicateAdvances && duplicateAdvances.length > 0) {
+      const conflictSummary = duplicateAdvances
+        .map((r: any) => `Group "${r.ledger_voucher_group_id}" in Period #${r.period_id} (${r.count} duplicate rows: IDs [${(r.advance_ids || []).join(', ')}], amounts [${(r.amounts || []).join(', ')}])`)
+        .join('; ');
+      console.error(`🚨 [Labor Schema Critical] Conflicting duplicate labor advance rows detected: ${conflictSummary}`);
+      throw new Error(
+        `[Labor Schema Conflict - F-06] Duplicate advance records detected: ${conflictSummary}. ` +
+        `Startup readiness blocked to prevent duplicate financial effects. Reconcile duplicate rows before initialization.`
+      );
+    }
+
+    // Assign default leg_index = 0 for single-leg advances where leg_index is not yet set
     await clientSql`
-      WITH numbered_advances AS (
-        SELECT id, ROW_NUMBER() OVER (
-          PARTITION BY firm_id, period_id, ledger_voucher_group_id 
-          ORDER BY created_at ASC, id ASC
-        ) - 1 AS new_leg_index
-        FROM labor_advances
-        WHERE ledger_voucher_group_id IS NOT NULL
-      )
-      UPDATE labor_advances a
-      SET leg_index = n.new_leg_index
-      FROM numbered_advances n
-      WHERE a.id = n.id AND (a.leg_index IS NULL OR a.leg_index IS DISTINCT FROM n.new_leg_index);
+      UPDATE labor_advances
+      SET leg_index = 0
+      WHERE leg_index IS NULL;
     `;
 
     // 2. Non-Destructive Duplicate Settlement Detection (F-09)

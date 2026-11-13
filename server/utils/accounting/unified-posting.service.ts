@@ -71,17 +71,20 @@ export class UnifiedPostingService {
       const barrierToken = !payload._bypassPeriodLock && !payload._bypassBarrier
         ? await acquirePostingBarrier(firmIdObj, payload.transactionDate, null)
         : null;
-      const internalSession = await mongoose.startSession();
-      internalSession.startTransaction();
+      let internalSession: mongoose.ClientSession | null = null;
       try {
+        internalSession = await mongoose.startSession();
+        internalSession.startTransaction();
         const result = await this.postVoucher({ ...payload, _bypassBarrier: true }, internalSession);
         await internalSession.commitTransaction();
         return result;
       } catch (internalErr) {
-        await internalSession.abortTransaction();
+        if (internalSession && (internalSession as any).inTransaction()) {
+          await internalSession.abortTransaction().catch(() => {});
+        }
         throw internalErr;
       } finally {
-        internalSession.endSession();
+        if (internalSession) internalSession.endSession();
         barrierToken?.release();
       }
     }
@@ -176,6 +179,52 @@ export class UnifiedPostingService {
             );
           }
           if (!existing.isReversed) {
+            // F-06: Check if this is an idempotent retry of the existing active voucher
+            const allExisting = await Ledger.find({
+              voucherGroupId: payload.externalVoucherGroupId,
+              $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+              isReversed: { $ne: true }
+            }).session(session || null).lean();
+
+            if (allExisting && allExisting.length > 0) {
+              const sortedExisting = [...allExisting].sort((a, b) => (Number(a.legIndex) || 0) - (Number(b.legIndex) || 0));
+              const isWage = Boolean(payload.tags?.isWageEntry || payload.refType === 'WAGE' || payload.refType === 'WAGE_PAYOUT');
+              const masterRollId = payload.tags?.masterRollId ? this.toObjectIdSafe(payload.tags.masterRollId) : null;
+              const tempDocs = payload.legs.map((leg, index) => {
+                const isTaxLiabilityLeg = leg.accountType === 'DUTIES_AND_TAXES' && (leg.creditAmount || 0) > 0;
+                const statutory = (leg as any).statutory || (isTaxLiabilityLeg && payload.tags?.statutory?.isTds ? payload.tags.statutory : null);
+                return {
+                  accountHead: leg.accountHead,
+                  accountType: leg.accountType,
+                  accountCode: (leg as any).accountCode || ACCOUNT_CODE_MAP[leg.accountType || ''] || null,
+                  debitAmount: leg.debitAmount || 0,
+                  creditAmount: leg.creditAmount || 0,
+                  partyId: leg.partyId ? this.toObjectIdSafe(leg.partyId) : null,
+                  bankAccountId: leg.bankAccountId ? this.toObjectIdSafe(leg.bankAccountId) : null,
+                  stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
+                  stockRegId: leg.stockRegId ? this.toObjectIdSafe(leg.stockRegId) : null,
+                  paymentMode: leg.paymentMode || null,
+                  isWageEntry: isWage || Boolean((leg as any).isWageEntry),
+                  masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
+                  narration: leg.narration || payload.narration,
+                  refId: (leg as any).refId ? this.toObjectIdSafe((leg as any).refId) : (payload.refId ? this.toObjectIdSafe(payload.refId) : null),
+                  statutory
+                };
+              });
+              this.assertReplayEquivalence(sortedExisting, tempDocs, payload, payload.externalVoucherGroupId!);
+              const drTotal = sortedExisting.reduce((s, d) => s + (d.debitAmount || 0), 0);
+              const crTotal = sortedExisting.reduce((s, d) => s + (d.creditAmount || 0), 0);
+              return {
+                success: true,
+                voucherGroupId: payload.externalVoucherGroupId!,
+                voucherNo: existing.voucherNo || '',
+                entryCount: sortedExisting.length,
+                totalDebit: drTotal,
+                totalCredit: crTotal,
+                isIdempotentReplay: true
+              };
+            }
+
             throw new Error(
               `[ERP Accounting Invariant] Active voucher group "${payload.externalVoucherGroupId}" already exists for this firm. Use updateVoucher or reverseVoucher instead of duplicate posting.`
             );
@@ -241,7 +290,7 @@ export class UnifiedPostingService {
           paymentMode: leg.paymentMode || null,
           isWageEntry: isWage || Boolean((leg as any).isWageEntry),
           masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
-          replacesVoucherGroupId: payload.tags?.replacesVoucherGroupId || null,
+          replacesVoucherGroupId: payload.replacesVoucherGroupId || payload.tags?.replacesVoucherGroupId || null,
           statutory,
           isReversed: false,
           createdBy: payload.createdBy,
@@ -284,203 +333,8 @@ export class UnifiedPostingService {
             // Sort existing documents strictly by legIndex
             const sortedExisting = [...existingDocs].sort((a, b) => (Number(a.legIndex) || 0) - (Number(b.legIndex) || 0));
 
-            // 1. Verify exact leg count match
-            if (sortedExisting.length !== ledgerDocs.length) {
-              throw new Error(
-                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg count mismatch. Existing committed: ${sortedExisting.length} legs, Retry requested: ${ledgerDocs.length} legs.`
-              );
-            }
-
-            // 2. Verify voucher-level header identity (F-08)
-            const firstEx = sortedExisting[0]!;
-            if (firstEx.voucherType !== payload.voucherType) {
-              throw new Error(
-                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": voucherType mismatch. Existing: "${firstEx.voucherType}", Requested: "${payload.voucherType}".`
-              );
-            }
-            if (firstEx.transactionDate !== payload.transactionDate) {
-              throw new Error(
-                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": transactionDate mismatch. Existing: "${firstEx.transactionDate}", Requested: "${payload.transactionDate}".`
-              );
-            }
-            if ((firstEx.refType || 'VOUCHER') !== (payload.refType || 'VOUCHER')) {
-              throw new Error(
-                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refType mismatch. Existing: "${firstEx.refType}", Requested: "${payload.refType}".`
-              );
-            }
-            const exRefId = firstEx.refId ? String(firstEx.refId) : '';
-            const reqRefId = payload.refId ? String(payload.refId) : '';
-            if (exRefId !== reqRefId) {
-              throw new Error(
-                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refId mismatch. Existing: "${exRefId}", Requested: "${reqRefId}".`
-              );
-            }
-
-            const exReplaces = (firstEx.replacesVoucherGroupId || (firstEx as any).tags?.replacesVoucherGroupId || '').trim();
-            const reqReplaces = (payload.replacesVoucherGroupId || payload.tags?.replacesVoucherGroupId || '').trim();
-            if (exReplaces !== reqReplaces) {
-              throw new Error(
-                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": replacesVoucherGroupId mismatch. Existing: "${exReplaces}", Requested: "${reqReplaces}".`
-              );
-            }
-
-            // 3. Verify complete canonical per-leg payload identity (F-08)
-            for (let i = 0; i < ledgerDocs.length; i++) {
-              const exLeg = sortedExisting[i]!;
-              const reqLeg = ledgerDocs[i]!;
-
-              // Per-leg accounting identity & reference IDs (F-08)
-              const exLegRef = (exLeg.refId ? String(exLeg.refId) : '').trim();
-              const reqLegRef = (reqLeg.refId ? String(reqLeg.refId) : '').trim();
-              if (exLegRef !== reqLegRef) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} refId mismatch. Existing: "${exLegRef}", Requested: "${reqLegRef}".`
-                );
-              }
-
-              const exCode = (exLeg.accountCode || '').trim();
-              const reqCode = (reqLeg.accountCode || '').trim();
-              if (exCode !== reqCode) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountCode mismatch. Existing: "${exCode}", Requested: "${reqCode}".`
-                );
-              }
-
-              const exHead = (exLeg.accountHead || '').trim().toLowerCase();
-              const reqHead = (reqLeg.accountHead || '').trim().toLowerCase();
-              if (exHead !== reqHead) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountHead mismatch. Existing: "${exLeg.accountHead}", Requested: "${reqLeg.accountHead}".`
-                );
-              }
-
-              if (exLeg.accountType !== reqLeg.accountType) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountType mismatch. Existing: "${exLeg.accountType}", Requested: "${reqLeg.accountType}".`
-                );
-              }
-
-              const drDiff = Math.abs((Number(exLeg.debitAmount) || 0) - (Number(reqLeg.debitAmount) || 0));
-              const crDiff = Math.abs((Number(exLeg.creditAmount) || 0) - (Number(reqLeg.creditAmount) || 0));
-              if (drDiff > 0.01 || crDiff > 0.01) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} amount mismatch. Existing: DR ${exLeg.debitAmount}/CR ${exLeg.creditAmount}, Requested: DR ${reqLeg.debitAmount}/CR ${reqLeg.creditAmount}.`
-                );
-              }
-
-              const exParty = exLeg.partyId ? String(exLeg.partyId) : '';
-              const reqParty = reqLeg.partyId ? String(reqLeg.partyId) : '';
-              if (exParty !== reqParty) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} partyId mismatch. Existing: "${exParty}", Requested: "${reqParty}".`
-                );
-              }
-
-              const exBank = exLeg.bankAccountId ? String(exLeg.bankAccountId) : '';
-              const reqBank = reqLeg.bankAccountId ? String(reqLeg.bankAccountId) : '';
-              if (exBank !== reqBank) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} bankAccountId mismatch. Existing: "${exBank}", Requested: "${reqBank}".`
-                );
-              }
-
-              const exStock = exLeg.stockId ? String(exLeg.stockId) : '';
-              const reqStock = reqLeg.stockId ? String(reqLeg.stockId) : '';
-              if (exStock !== reqStock) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} stockId mismatch. Existing: "${exStock}", Requested: "${reqStock}".`
-                );
-              }
-
-              const exStockReg = exLeg.stockRegId ? String(exLeg.stockRegId) : '';
-              const reqStockReg = reqLeg.stockRegId ? String(reqLeg.stockRegId) : '';
-              if (exStockReg !== reqStockReg) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} stockRegId mismatch. Existing: "${exStockReg}", Requested: "${reqStockReg}".`
-                );
-              }
-
-              const exPayMode = exLeg.paymentMode || '';
-              const reqPayMode = reqLeg.paymentMode || '';
-              if (exPayMode !== reqPayMode) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} paymentMode mismatch. Existing: "${exPayMode}", Requested: "${reqPayMode}".`
-                );
-              }
-
-              if (Boolean(exLeg.isWageEntry) !== Boolean(reqLeg.isWageEntry)) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} isWageEntry mismatch.`
-                );
-              }
-
-              const exRoll = exLeg.masterRollId ? String(exLeg.masterRollId) : '';
-              const reqRoll = reqLeg.masterRollId ? String(reqLeg.masterRollId) : '';
-              if (exRoll !== reqRoll) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} masterRollId mismatch. Existing: "${exRoll}", Requested: "${reqRoll}".`
-                );
-              }
-
-              const exNarr = (exLeg.narration || '').trim();
-              const reqNarr = (reqLeg.narration || '').trim();
-              if (exNarr !== reqNarr) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} narration mismatch. Existing: "${exNarr}", Requested: "${reqNarr}".`
-                );
-              }
-
-              // Deep Statutory Metadata Equivalence (F-08)
-              const exStat = exLeg.statutory;
-              const reqStat = reqLeg.statutory;
-              if (Boolean(exStat) !== Boolean(reqStat)) {
-                throw new Error(
-                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory metadata presence mismatch.`
-                );
-              }
-              if (exStat && reqStat) {
-                if ((exStat.tdsSection || '') !== (reqStat.tdsSection || '')) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsSection mismatch.`
-                  );
-                }
-                if ((exStat.pan || '').toUpperCase() !== (reqStat.pan || '').toUpperCase()) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory PAN mismatch.`
-                  );
-                }
-                if (Number(exStat.tdsRate || 0) !== Number(reqStat.tdsRate || 0)) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsRate mismatch.`
-                  );
-                }
-                if (Math.abs((Number(exStat.tdsAmount) || 0) - (Number(reqStat.tdsAmount) || 0)) > 0.01) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsAmount mismatch.`
-                  );
-                }
-                if (Math.abs((Number(exStat.taxableAmount) || 0) - (Number(reqStat.taxableAmount) || 0)) > 0.01) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory taxableAmount mismatch.`
-                  );
-                }
-                if (String(exStat.deducteeId || '') !== String(reqStat.deducteeId || '')) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory deducteeId mismatch.`
-                  );
-                }
-                if ((exStat.deducteeName || '').trim().toLowerCase() !== (reqStat.deducteeName || '').trim().toLowerCase()) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory deducteeName mismatch.`
-                  );
-                }
-                if (Boolean(exStat.isGrossUp) !== Boolean(reqStat.isGrossUp)) {
-                  throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory isGrossUp mismatch.`
-                  );
-                }
-              }
-            }
+            // Deep Canonical Replay Equivalence Check (F-06, F-08)
+            this.assertReplayEquivalence(sortedExisting, ledgerDocs, payload, targetVoucherGroupId);
 
             const drTotal = sortedExisting.reduce((s, d) => s + (d.debitAmount || 0), 0);
             const crTotal = sortedExisting.reduce((s, d) => s + (d.creditAmount || 0), 0);
@@ -1077,6 +931,249 @@ export class UnifiedPostingService {
     }
 
     return seq.lastNo;
+  }
+
+  /**
+   * Asserts exact canonical equivalence between committed ledger records and retry candidate legs (F-06, F-08).
+   * Validates header identity, dimensional leg mappings, amounts, and complete statutory metadata.
+   */
+  private static assertReplayEquivalence(
+    sortedExisting: any[],
+    candidateLegs: any[],
+    payload: IVoucherPayload,
+    targetVoucherGroupId: string
+  ): void {
+    // 1. Verify exact leg count match
+    if (sortedExisting.length !== candidateLegs.length) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg count mismatch. Existing committed: ${sortedExisting.length} legs, Retry requested: ${candidateLegs.length} legs.`
+      );
+    }
+
+    // 2. Verify voucher-level header identity (F-08)
+    const firstEx = sortedExisting[0]!;
+    if (firstEx.voucherType !== payload.voucherType) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": voucherType mismatch. Existing: "${firstEx.voucherType}", Requested: "${payload.voucherType}".`
+      );
+    }
+    if (firstEx.transactionDate !== payload.transactionDate) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": transactionDate mismatch. Existing: "${firstEx.transactionDate}", Requested: "${payload.transactionDate}".`
+      );
+    }
+    if ((firstEx.refType || 'VOUCHER') !== (payload.refType || 'VOUCHER')) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refType mismatch. Existing: "${firstEx.refType}", Requested: "${payload.refType}".`
+      );
+    }
+    const exRefId = firstEx.refId ? String(firstEx.refId) : '';
+    const reqRefId = payload.refId ? String(payload.refId) : '';
+    if (exRefId !== reqRefId) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refId mismatch. Existing: "${exRefId}", Requested: "${reqRefId}".`
+      );
+    }
+
+    const exReplaces = (firstEx.replacesVoucherGroupId || (firstEx as any).tags?.replacesVoucherGroupId || '').trim();
+    const reqReplaces = (payload.replacesVoucherGroupId || payload.tags?.replacesVoucherGroupId || '').trim();
+    if (exReplaces !== reqReplaces) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": replacesVoucherGroupId mismatch. Existing: "${exReplaces}", Requested: "${reqReplaces}".`
+      );
+    }
+
+    // 3. Verify complete canonical per-leg payload identity (F-08)
+    for (let i = 0; i < candidateLegs.length; i++) {
+      const exLeg = sortedExisting[i]!;
+      const reqLeg = candidateLegs[i]!;
+
+      // Per-leg accounting identity & reference IDs (F-08)
+      const exLegRef = (exLeg.refId ? String(exLeg.refId) : '').trim();
+      const reqLegRef = (reqLeg.refId ? String(reqLeg.refId) : '').trim();
+      if (exLegRef !== reqLegRef) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} refId mismatch. Existing: "${exLegRef}", Requested: "${reqLegRef}".`
+        );
+      }
+
+      const exCode = (exLeg.accountCode || '').trim();
+      const reqCode = (reqLeg.accountCode || '').trim();
+      if (exCode !== reqCode) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountCode mismatch. Existing: "${exCode}", Requested: "${reqCode}".`
+        );
+      }
+
+      const exHead = (exLeg.accountHead || '').trim().toLowerCase();
+      const reqHead = (reqLeg.accountHead || '').trim().toLowerCase();
+      if (exHead !== reqHead) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountHead mismatch. Existing: "${exLeg.accountHead}", Requested: "${reqLeg.accountHead}".`
+        );
+      }
+
+      if (exLeg.accountType !== reqLeg.accountType) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountType mismatch. Existing: "${exLeg.accountType}", Requested: "${reqLeg.accountType}".`
+        );
+      }
+
+      const drDiff = Math.abs((Number(exLeg.debitAmount) || 0) - (Number(reqLeg.debitAmount) || 0));
+      const crDiff = Math.abs((Number(exLeg.creditAmount) || 0) - (Number(reqLeg.creditAmount) || 0));
+      if (drDiff > 0.01 || crDiff > 0.01) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} amount mismatch. Existing: DR ${exLeg.debitAmount}/CR ${exLeg.creditAmount}, Requested: DR ${reqLeg.debitAmount}/CR ${reqLeg.creditAmount}.`
+        );
+      }
+
+      const exParty = exLeg.partyId ? String(exLeg.partyId) : '';
+      const reqParty = reqLeg.partyId ? String(reqLeg.partyId) : '';
+      if (exParty !== reqParty) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} partyId mismatch. Existing: "${exParty}", Requested: "${reqParty}".`
+        );
+      }
+
+      const exBank = exLeg.bankAccountId ? String(exLeg.bankAccountId) : '';
+      const reqBank = reqLeg.bankAccountId ? String(reqLeg.bankAccountId) : '';
+      if (exBank !== reqBank) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} bankAccountId mismatch. Existing: "${exBank}", Requested: "${reqBank}".`
+        );
+      }
+
+      const exStock = exLeg.stockId ? String(exLeg.stockId) : '';
+      const reqStock = reqLeg.stockId ? String(reqLeg.stockId) : '';
+      if (exStock !== reqStock) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} stockId mismatch. Existing: "${exStock}", Requested: "${reqStock}".`
+        );
+      }
+
+      const exStockReg = exLeg.stockRegId ? String(exLeg.stockRegId) : '';
+      const reqStockReg = reqLeg.stockRegId ? String(reqLeg.stockRegId) : '';
+      if (exStockReg !== reqStockReg) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} stockRegId mismatch. Existing: "${exStockReg}", Requested: "${reqStockReg}".`
+        );
+      }
+
+      const exPayMode = exLeg.paymentMode || '';
+      const reqPayMode = reqLeg.paymentMode || '';
+      if (exPayMode !== reqPayMode) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} paymentMode mismatch. Existing: "${exPayMode}", Requested: "${reqPayMode}".`
+        );
+      }
+
+      if (Boolean(exLeg.isWageEntry) !== Boolean(reqLeg.isWageEntry)) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} isWageEntry mismatch.`
+        );
+      }
+
+      const exRoll = exLeg.masterRollId ? String(exLeg.masterRollId) : '';
+      const reqRoll = reqLeg.masterRollId ? String(reqLeg.masterRollId) : '';
+      if (exRoll !== reqRoll) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} masterRollId mismatch. Existing: "${exRoll}", Requested: "${reqRoll}".`
+        );
+      }
+
+      const exNarr = (exLeg.narration || '').trim();
+      const reqNarr = (reqLeg.narration || '').trim();
+      if (exNarr !== reqNarr) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} narration mismatch. Existing: "${exNarr}", Requested: "${reqNarr}".`
+        );
+      }
+
+      // Deep Statutory Metadata Equivalence (F-08)
+      const exStat = exLeg.statutory;
+      const reqStat = reqLeg.statutory;
+      if (Boolean(exStat) !== Boolean(reqStat)) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory metadata presence mismatch.`
+        );
+      }
+      if (exStat && reqStat) {
+        if ((exStat.tdsSection || '') !== (reqStat.tdsSection || '')) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsSection mismatch.`
+          );
+        }
+        if ((exStat.pan || exStat.deducteePan || '').toUpperCase() !== (reqStat.pan || reqStat.deducteePan || '').toUpperCase()) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory PAN mismatch.`
+          );
+        }
+        if (Number(exStat.tdsRate || 0) !== Number(reqStat.tdsRate || 0)) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsRate mismatch.`
+          );
+        }
+        if (Math.abs((Number(exStat.tdsAmount) || 0) - (Number(reqStat.tdsAmount) || 0)) > 0.01) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsAmount mismatch.`
+          );
+        }
+        if (Math.abs((Number(exStat.taxableAmount) || 0) - (Number(reqStat.taxableAmount) || 0)) > 0.01) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory taxableAmount mismatch.`
+          );
+        }
+        if (String(exStat.deducteeId || '') !== String(reqStat.deducteeId || '')) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory deducteeId mismatch.`
+          );
+        }
+        if ((exStat.deducteeName || '').trim().toLowerCase() !== (reqStat.deducteeName || '').trim().toLowerCase()) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory deducteeName mismatch.`
+          );
+        }
+        if (Boolean(exStat.isGrossUp) !== Boolean(reqStat.isGrossUp)) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory isGrossUp mismatch.`
+          );
+        }
+        // Exemption & Certificate metadata equivalence (F-08)
+        const exCert = String(exStat.certificateNumber || '').trim().toUpperCase();
+        const reqCert = String(reqStat.certificateNumber || '').trim().toUpperCase();
+        if (exCert !== reqCert) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory certificateNumber mismatch. Existing: "${exCert}", Requested: "${reqCert}".`
+          );
+        }
+        if (Boolean(exStat.isExempt) !== Boolean(reqStat.isExempt)) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory isExempt mismatch.`
+          );
+        }
+        const exExemptReason = String(exStat.exemptionReason || '').trim();
+        const reqExemptReason = String(reqStat.exemptionReason || '').trim();
+        if (exExemptReason !== reqExemptReason) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory exemptionReason mismatch.`
+          );
+        }
+        const exLowerRateReason = String(exStat.lowerRateReason || '').trim();
+        const reqLowerRateReason = String(reqStat.lowerRateReason || '').trim();
+        if (exLowerRateReason !== reqLowerRateReason) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory lowerRateReason mismatch.`
+          );
+        }
+        const exGstin = String(exStat.gstin || '').trim().toUpperCase();
+        const reqGstin = String(reqStat.gstin || '').trim().toUpperCase();
+        if (exGstin !== reqGstin) {
+          throw new Error(
+            `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory gstin mismatch.`
+          );
+        }
+      }
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════

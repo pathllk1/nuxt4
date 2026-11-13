@@ -114,15 +114,17 @@ export default defineEventHandler(async (event) => {
           // void/reverse the redundant MongoDB voucher so no orphan voucher remains (F-06)
           if (voucherGroupId && voucherGroupId !== settlement.ledger_voucher_group_id && !voucherGroupId.startsWith('SETTLED-NO-VOUCHER')) {
             try {
+              const { UnifiedPostingService } = await import('../../../utils/accounting/unified-posting.service');
               const mongoose = (await import('mongoose')).default;
-              const Ledger = (await import('../../../models/Ledger')).default;
               const firmOid = mongoose.Types.ObjectId.isValid(String(period.firm_id))
                 ? new mongoose.Types.ObjectId(String(period.firm_id))
                 : period.firm_id;
-              await Ledger.updateMany(
-                { voucherGroupId, $or: [{ firmId: firmOid }, { firm_id: firmOid }] },
-                { $set: { isReversed: true, reversedAt: new Date(), reversalReason: 'Voided duplicate voucher from concurrent settlement race' } }
-              );
+              await UnifiedPostingService.reverseVoucher({
+                originalVoucherGroupId: voucherGroupId,
+                firmId: firmOid,
+                reason: 'Voided duplicate voucher from concurrent settlement race',
+                createdBy: String(session._id)
+              });
             } catch (vErr: any) {
               console.error('[Labor Settlement - F-06] Critical: Failed to reverse redundant voucher during settlement race:', vErr?.message);
               throw createError({

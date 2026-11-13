@@ -49,6 +49,16 @@ export interface IStatutoryMetadata {
   gstin?: string;
   hsnSac?: string;
   gstRate?: number;
+  // Statutory Certificate & Exemption Fields (F-04, F-08)
+  certificateNumber?: string | null;
+  isExempt?: boolean;
+  exemptionReason?: string | null;
+  lowerRateReason?: string | null;
+  deducteeId?: string | null;
+  deducteeName?: string | null;
+  taxableAmount?: number;
+  tdsAmount?: number;
+  sourcePaymentRef?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -31,8 +31,11 @@ const getConnectionOptions = (): mongoose.ConnectOptions => {
   };
 };
 
+let isMigrationReady = false;
+
 export const connectDB = async (): Promise<boolean> => {
-  if (mongoose.connection.readyState === 1) {
+  // F-07: Fast return ONLY when both MongoDB connection is open AND startup migration has verified successfully
+  if (mongoose.connection.readyState === 1 && isMigrationReady) {
     cache.conn = mongoose;
     return true;
   }
@@ -49,18 +52,24 @@ export const connectDB = async (): Promise<boolean> => {
 
   cache.promise = (async () => {
     try {
-      await mongoose.connect(connString, getConnectionOptions());
-      console.log(`MongoDB Connected: ${mongoose.connection.host}`);
+      if (mongoose.connection.readyState !== 1) {
+        await mongoose.connect(connString, getConnectionOptions());
+        console.log(`MongoDB Connected: ${mongoose.connection.host}`);
+      }
       cache.conn = mongoose;
 
       // Versioned migration with duplicate detection, parity verification, and index gating (F-07)
       const { runLedgerIsReversedMigration } = await import('../utils/migrations/ledger-isreversed-migration');
       await runLedgerIsReversedMigration();
+      isMigrationReady = true;
 
       return true;
     } catch (error) {
       console.error('MongoDB connection / startup migration error:', (error as Error).message);
+      isMigrationReady = false;
       cache.conn = null;
+      // F-07: Explicitly disconnect Mongoose on failure so readyState drops to 0, preventing bypass
+      await mongoose.disconnect().catch(() => {});
       return false;
     } finally {
       cache.promise = null;
@@ -72,7 +81,7 @@ export const connectDB = async (): Promise<boolean> => {
 
 export const waitForConnection = (timeoutMs: number = 10000): Promise<boolean> => {
   return new Promise((resolve) => {
-    if (mongoose.connection.readyState === 1) {
+    if (mongoose.connection.readyState === 1 && isMigrationReady) {
       return resolve(true);
     }
 
@@ -86,7 +95,7 @@ export const waitForConnection = (timeoutMs: number = 10000): Promise<boolean> =
     const timer = setInterval(() => {
       elapsed += checkInterval;
 
-      if (mongoose.connection.readyState === 1) {
+      if (mongoose.connection.readyState === 1 && isMigrationReady) {
         clearInterval(timer);
         return resolve(true);
       }
@@ -107,6 +116,7 @@ export default defineNitroPlugin(async () => {
     });
 
     mongoose.connection.on('disconnected', () => {
+      isMigrationReady = false;
       console.warn('MongoDB disconnected. Native driver connection pool will automatically reconnect.');
     });
 

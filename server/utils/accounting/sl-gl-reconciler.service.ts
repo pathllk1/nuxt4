@@ -756,22 +756,21 @@ export class SLGLReconcilerService {
     // SL side: query all registered BankAccount documents for this firm
     const bankAccounts = await BankAccount.find(
       { $or: [{ firm_id: firmId }, { firmId: firmId as any }] },
-      'account_name'
+      'account_name statement_balance opening_balance balance'
     ).lean();
 
-    const bankMap = new Map<string, string>();
+    const bankMap = new Map<string, any>();
     for (const b of bankAccounts) {
-      bankMap.set(String(b._id), b.account_name);
+      bankMap.set(String(b._id), b);
     }
 
     let slGrandTotal = 0;
     const variances: IReconciliationVariance[] = [];
 
-    // Derive operational SL total strictly from registered BankAccount entities (F-05)
+    // Derive independent operational SL total strictly from BankAccount records/statements (F-05)
     for (const b of bankAccounts) {
-      const bId = String(b._id);
-      const glNet = glMap.get(bId) || 0;
-      slGrandTotal += glNet;
+      const opBal = Number((b as any).statement_balance ?? (b as any).opening_balance ?? (b as any).balance ?? 0);
+      slGrandTotal += opBal;
     }
 
     for (const [bankId, glNet] of glMap) {
@@ -790,8 +789,8 @@ export class SLGLReconcilerService {
         continue;
       }
 
-      const bankName = bankMap.get(bankId);
-      if (!bankName) {
+      const bankDoc = bankMap.get(bankId);
+      if (!bankDoc) {
         // Orphan bankAccountId found in Ledger that does not exist in BankAccount registry!
         variances.push({
           category: 'BANK',
@@ -804,6 +803,42 @@ export class SLGLReconcilerService {
           variance: Math.abs(glNet),
           status: 'CRITICAL',
         });
+      } else {
+        const slBal = Number((bankDoc as any).statement_balance ?? (bankDoc as any).opening_balance ?? (bankDoc as any).balance ?? 0);
+        const diff = Math.abs(glNet - slBal);
+        const isMatched = diff < 0.01;
+        variances.push({
+          category: 'BANK',
+          entityName: bankDoc.account_name,
+          entityId: bankId,
+          glBalance: Math.abs(glNet),
+          glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+          slBalance: Math.abs(slBal),
+          slBalanceType: slBal >= 0 ? 'DR' : 'CR',
+          variance: Math.round(diff * 100) / 100,
+          status: isMatched ? 'HEALTHY' : (diff > 1000 ? 'CRITICAL' : 'WARNING'),
+        });
+      }
+    }
+
+    // Check registered BankAccounts that have no GL entries at all (F-05)
+    for (const b of bankAccounts) {
+      const bId = String(b._id);
+      if (!glMap.has(bId)) {
+        const slBal = Number((b as any).statement_balance ?? (b as any).opening_balance ?? (b as any).balance ?? 0);
+        if (Math.abs(slBal) > 0.01) {
+          variances.push({
+            category: 'BANK',
+            entityName: b.account_name,
+            entityId: bId,
+            glBalance: 0,
+            glBalanceType: 'DR',
+            slBalance: Math.abs(slBal),
+            slBalanceType: slBal >= 0 ? 'DR' : 'CR',
+            variance: Math.round(Math.abs(slBal) * 100) / 100,
+            status: Math.abs(slBal) > 1000 ? 'CRITICAL' : 'WARNING',
+          });
+        }
       }
     }
 

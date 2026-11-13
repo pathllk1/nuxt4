@@ -379,6 +379,20 @@
                       </div>
                     </div>
 
+                    <!-- Non-Authoritative History Warning (F-04) -->
+                    <div 
+                      v-if="tdsResult && !tdsResult.isAuthoritative"
+                      class="p-2.5 bg-amber-100 dark:bg-amber-950/60 border-2 border-amber-400 dark:border-amber-700 rounded-lg text-amber-900 dark:text-amber-200 flex items-start gap-2"
+                    >
+                      <span class="text-base shrink-0">⚠️</span>
+                      <div>
+                        <span class="font-bold">Non-Authoritative History Detected (F-04 Review Gate)</span>
+                        <p class="text-[11px] mt-0.5">
+                          {{ tdsResult.warning || 'Historical vouchers contain unknown TDS tax rates. Calculations require explicit accounting confirmation before applying.' }}
+                        </p>
+                      </div>
+                    </div>
+
                     <!-- Threshold Notice Alert -->
                     <div 
                       v-if="tdsResult.threshold.requiresCatchUp"
@@ -665,6 +679,15 @@ watch(() => form.vtype, (newType) => {
     ] as any[];
   }
 });
+
+// Automatically keep existing TDS lines in sync whenever payee amount changes
+watch(() => form.entries.map(e => ({ head: e.accountHead, amt: e.amount })), (newEntries) => {
+  if (isInitializing) return;
+  const payeeEntry = newEntries.find(e => e.head && !isTdsRelatedLine(e.head) && Number(e.amt) > 0);
+  if (payeeEntry && hasTdsDeductionLine()) {
+    recalculateExistingTdsLines(Math.abs(Number(payeeEntry.amt)));
+  }
+}, { deep: true });
 
 async function loadDependencies() {
   await Promise.all([
@@ -962,6 +985,16 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
   // If tdsResult is missing or calculated for a different amount, fetch now
   if (!tdsResult.value || tdsResult.value.currentAmount !== baseline || !tdsResult.value.grossUpOption) {
     await fetchTdsForLine(index);
+  }
+
+  // F-04 Review Gate: Explicit confirmation required when prior history is non-authoritative
+  if (tdsResult.value && tdsResult.value.isAuthoritative === false) {
+    const proceed = window.confirm(
+      '⚠️ Review Warning (F-04):\n\n' +
+      'Prior vouchers contain unknown TDS tax rates, so catch-up calculations are non-authoritative.\n\n' +
+      'Do you wish to proceed and apply this calculation with explicit accounting approval?'
+    );
+    if (!proceed) return;
   }
 
   const rate = Number(tdsResult.value?.applicableRate) || 1;

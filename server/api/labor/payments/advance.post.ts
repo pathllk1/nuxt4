@@ -42,11 +42,12 @@ export default defineEventHandler(async (event) => {
     // When TDS is DEDUCT (borne by leader), the leader's wage bill is deducted by gross amount.
     const periodDeductionAmount = tds_mode === 'DEDUCT' ? numGrossAmount : numAmount;
 
-    // Establish stable request idempotency key before posting (F-06)
-    const idempotencyKey = body.idempotency_key || body.idempotencyKey || body.client_reference || body.request_id || null;
-    const stableVoucherGroupId = idempotencyKey
-      ? `ADV-${String(period.firm_id)}-${idempotencyKey}`
-      : undefined;
+    // Establish deterministic request idempotency key before posting (F-06)
+    const rawIdempotencyKey = body.idempotency_key || body.idempotencyKey || body.client_reference || body.request_id;
+    const derivedKey = rawIdempotencyKey
+      ? String(rawIdempotencyKey).trim()
+      : `${period_id}-${periodDeductionAmount}-${payment_date}-${payment_mode}-${bank_account_id || 'cash'}`;
+    const stableVoucherGroupId = `ADV-${String(period.firm_id)}-${derivedKey}`;
 
     // 1. Preflight PostgreSQL idempotency check before creating GL vouchers (F-06)
     if (stableVoucherGroupId) {

@@ -154,7 +154,7 @@ export default defineEventHandler(async (event) => {
       matchFilter.accountHead = resolvedAccountHead;
     }
 
-    const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate narration voucherGroupId accountHead partyId').lean();
+    const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate narration voucherGroupId accountHead partyId refId statutory').lean();
     const priorYtd = priorEntries.reduce((sum: number, e: any) => sum + (Number(e.debitAmount) || 0), 0);
 
     // Compute how much prior payment has ALREADY suffered TDS for THIS deductee and section 194C (F-04)
@@ -182,7 +182,7 @@ export default defineEventHandler(async (event) => {
             }
           }
         ]
-      }, 'voucherGroupId statutory accountHead creditAmount narration').lean();
+      }, 'voucherGroupId statutory accountHead creditAmount narration refId').lean();
 
       const tdsLegsByVg = new Map<string, any[]>();
       for (const tLeg of priorTdsLegs) {
@@ -219,15 +219,30 @@ export default defineEventHandler(async (event) => {
         const matchingTdsList = tdsLegsByVg.get(vg);
         if (!matchingTdsList || matchingTdsList.length === 0) continue;
 
-        // Deductee-specific tax matching on exact statutory identity with available base (F-04)
+        // Durable Source-Payment & Deductee-specific tax matching (F-04)
         const matchedTdsLeg = matchingTdsList.find((tLeg: any) => {
           if ((Number(tLeg.remainingBase) || 0) <= 0) return false;
+
+          // 1. Direct durable source/payment reference link (F-04)
+          const entryRef = (entry as any).refId ? String((entry as any).refId) : '';
+          const tLegRef = (tLeg as any).refId ? String((tLeg as any).refId) : '';
+          if (entryRef && tLegRef && entryRef === tLegRef) {
+            return true;
+          }
+          const entrySourceRef = (entry as any).statutory?.sourcePaymentRef;
+          const tLegSourceRef = tLeg.statutory?.sourcePaymentRef;
+          if (entrySourceRef && tLegSourceRef && entrySourceRef === tLegSourceRef) {
+            return true;
+          }
+
+          // 2. Exact statutory deductee / PAN identity
           if (tLeg.statutory) {
             if (resolvedPartyId && tLeg.statutory.deducteeId && String(tLeg.statutory.deducteeId) === String(resolvedPartyId)) return true;
             if (detectedPan && tLeg.statutory.pan && tLeg.statutory.pan.toUpperCase() === detectedPan.toUpperCase()) return true;
             if (resolvedAccountHead && tLeg.statutory.deducteeName && tLeg.statutory.deducteeName.trim().toLowerCase() === resolvedAccountHead.trim().toLowerCase()) return true;
           }
-          // Legacy check: exact whole-name regex in narration (prevent substring misattribution)
+
+          // 3. Legacy check: exact whole-name regex in narration (prevent substring misattribution)
           if (partyName) {
             const escaped = partyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             if (new RegExp(`\\b${escaped}\\b`, 'i').test(tLeg.narration || '')) return true;
@@ -398,11 +413,15 @@ export default defineEventHandler(async (event) => {
         },
         grossUpOption: {
           ...grossUpComputation,
-          netAmount: grossUpComputation.netPayout
+          netAmount: grossUpComputation.netPayout,
+          isAuthoritative: !hasIncompleteHistory,
+          requiresExplicitApproval: hasIncompleteHistory
         },
         standardOption: {
           ...standardComputation,
-          netAmount: standardComputation.netPayout
+          netAmount: standardComputation.netPayout,
+          isAuthoritative: !hasIncompleteHistory,
+          requiresExplicitApproval: hasIncompleteHistory
         }
       }
     };

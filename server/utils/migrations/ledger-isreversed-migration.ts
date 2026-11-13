@@ -41,7 +41,8 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
       if (!isMatchingKey || !idx.unique) return false;
       const pfe = (idx as any).partialFilterExpression || {};
       const hasReversedFilter = pfe.isReversed === false || (pfe.isReversed && pfe.isReversed.$ne === true);
-      return Boolean(hasReversedFilter);
+      const hasVgFilter = Boolean(pfe.voucherGroupId && (pfe.voucherGroupId.$type === 'string' || pfe.voucherGroupId.$type === 2));
+      return Boolean(hasReversedFilter && hasVgFilter);
     });
 
     if (!matchingIndex) {
@@ -61,42 +62,53 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     }
   };
 
+  // ── Step 0: Detect conflicting aliases & Normalize firm identity across legacy documents (F-07) ──
+  const normalizeAliases = async () => {
+    const conflictingAliases = await ledgerCol.countDocuments({
+      firmId: { $ne: null },
+      firm_id: { $ne: null },
+      $expr: { $ne: [{ $toString: '$firmId' }, { $toString: '$firm_id' }] }
+    });
+    if (conflictingAliases > 0) {
+      throw new Error(
+        `[ERP Multi-Tenant Invariant - F-07] Found ${conflictingAliases} ledger documents with conflicting non-null firmId and firm_id aliases. Startup blocked.`
+      );
+    }
+
+    // The unique partial index strictly indexes `firmId`. Any document with `firm_id` but missing `firmId`
+    // must have `firmId` populated so the index key matches the document's true tenant identity.
+    await ledgerCol.updateMany(
+      {
+        firmId: null,
+        firm_id: { $ne: null }
+      },
+      [{ $set: { firmId: '$firm_id' } }]
+    );
+    await ledgerCol.updateMany(
+      {
+        firm_id: null,
+        firmId: { $ne: null }
+      },
+      [{ $set: { firm_id: '$firmId' } }]
+    );
+  };
+
   // Check if migration has already succeeded
   const existingMigration = await migrationsCol.findOne({ migrationId, status: 'COMPLETED' });
   if (existingMigration) {
-    // F-07: Even on already-completed path, strictly verify that the unique index and partial filter still exist!
+    // F-07: Even on already-completed path, strictly verify that the unique index, partial filter, aliases, and parity still hold!
     await verifyPartialIndex();
-    return { migrationId, status: 'ALREADY_COMPLETED' };
+    await normalizeAliases();
+
+    const missingIsReversed = await ledgerCol.countDocuments({ isReversed: { $exists: false } });
+    if (missingIsReversed === 0) {
+      return { migrationId, status: 'ALREADY_COMPLETED' };
+    }
+    console.warn(`[Migration - F-07] Found ${missingIsReversed} unmigrated documents despite completed status. Re-running migration.`);
   }
 
-  // ── Step 0: Detect conflicting aliases & Normalize firm identity across legacy documents (F-07) ──
-  const conflictingAliases = await ledgerCol.countDocuments({
-    firmId: { $ne: null },
-    firm_id: { $ne: null },
-    $expr: { $ne: [{ $toString: '$firmId' }, { $toString: '$firm_id' }] }
-  });
-  if (conflictingAliases > 0) {
-    throw new Error(
-      `[ERP Multi-Tenant Invariant - F-07] Found ${conflictingAliases} ledger documents with conflicting non-null firmId and firm_id aliases. Startup blocked.`
-    );
-  }
-
-  // The unique partial index strictly indexes `firmId`. Any document with `firm_id` but missing `firmId`
-  // must have `firmId` populated so the index key matches the document's true tenant identity.
-  await ledgerCol.updateMany(
-    {
-      firmId: null,
-      firm_id: { $ne: null }
-    },
-    [{ $set: { firmId: '$firm_id' } }]
-  );
-  await ledgerCol.updateMany(
-    {
-      firm_id: null,
-      firmId: { $ne: null }
-    },
-    [{ $set: { firm_id: '$firmId' } }]
-  );
+  // Run normalization
+  await normalizeAliases();
 
   // ── Step 1: Preflight Duplicate Key Verification (F-07) ──
   // Check for any legacy duplicate keys across rows that would join the partial unique index:

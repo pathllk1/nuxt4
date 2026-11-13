@@ -115,11 +115,12 @@ export async function acquirePostingBarrier(
   let renewalTimer: any = null;
   if (mongoose.connection.readyState === 1) {
     try {
+      // F-01: 5-minute safety margin with active continuous 15s renewal
       await PostingBarrier.create([{
         firmId: firmIdStr,
         financialYear: fy,
         postingId,
-        expiresAt: new Date(Date.now() + 60000)
+        expiresAt: new Date(Date.now() + 300000)
       }]);
     } catch (e: any) {
       // Remove from local memory before rethrowing
@@ -127,16 +128,38 @@ export async function acquirePostingBarrier(
       throw new Error(`[PeriodLock - F-01] Critical: Failed to register distributed barrier ticket: ${e?.message}`);
     }
 
-    // Renewable ownership tied to transaction lifecycle (prevents premature 60s TTL expiration)
+    // Renewable ownership tied to transaction lifecycle (F-01)
+    let consecutiveFailures = 0;
     renewalTimer = setInterval(async () => {
       try {
         if (!released) {
-          await PostingBarrier.updateOne(
+          const res = await PostingBarrier.updateOne(
             { postingId },
-            { $set: { expiresAt: new Date(Date.now() + 60000) } }
+            { $set: { expiresAt: new Date(Date.now() + 300000) } }
+          );
+          if (res.matchedCount === 0) {
+            // Recreate ticket if unexpectedly missing while posting is still active
+            await PostingBarrier.create([{
+              firmId: firmIdStr,
+              financialYear: fy,
+              postingId,
+              expiresAt: new Date(Date.now() + 300000)
+            }]).catch((err: any) => {
+              console.error(`[PeriodLock - F-01] Critical: Failed to recreate expired/missing barrier ticket ${postingId}:`, err?.message);
+            });
+          }
+          consecutiveFailures = 0;
+        }
+      } catch (err: any) {
+        consecutiveFailures++;
+        console.error(`[PeriodLock - F-01] Warning: Distributed ticket renewal failed (consecutive failures: ${consecutiveFailures}):`, err?.message);
+        if (consecutiveFailures >= 3) {
+          console.error(
+            `[PeriodLock - F-01] CRITICAL COORDINATION FAILURE: Ticket renewal failed 3 consecutive times for posting ${postingId} in FY ${fy}. ` +
+            `Close operations may prematurely detect drain completion if network partition persists.`
           );
         }
-      } catch (_) {}
+      }
     }, 15000);
     if (typeof renewalTimer.unref === 'function') renewalTimer.unref();
   }
