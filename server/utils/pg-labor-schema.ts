@@ -124,7 +124,8 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
       ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
       ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
       ADD COLUMN IF NOT EXISTS tds_amount DECIMAL(12, 2),
-      ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
+      ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2),
+      ADD COLUMN IF NOT EXISTS leg_index INT DEFAULT 0;
     `;
 
     await clientSql`
@@ -138,13 +139,15 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
       ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
     `;
 
-    // Performance Indexes
+    // Performance & Idempotency Indexes (F-06)
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_leaders_firm ON labor_leaders(firm_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_periods_leader ON labor_periods(leader_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_workers_period ON labor_workers(period_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_attendance_worker ON labor_attendance(worker_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_expenses_period ON labor_expenses(period_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_advances_period ON labor_advances(period_id);`;
+    await clientSql`CREATE UNIQUE INDEX IF NOT EXISTS uq_labor_advances_vg_leg ON labor_advances (firm_id, period_id, ledger_voucher_group_id, leg_index);`;
+    await clientSql`CREATE UNIQUE INDEX IF NOT EXISTS uq_labor_settlements_period ON labor_settlements (period_id);`;
 
     console.log('✅ PostgreSQL Labor System tables schema verified/initialized');
   } catch (err: any) {

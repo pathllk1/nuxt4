@@ -82,6 +82,14 @@ export default defineEventHandler(async (event) => {
       `;
       if (existingAdv && existingAdv.length > 0) {
         advance = existingAdv[0];
+        // Assert payload equality on idempotent retry (F-06)
+        const existingAmt = Number(advance.amount) || 0;
+        if (Math.abs(existingAmt - periodDeductionAmount) > 0.01) {
+          throw createError({
+            statusCode: 409,
+            statusMessage: `Idempotency Conflict: Existing advance record amount ₹${existingAmt} does not match requested amount ₹${periodDeductionAmount}.`
+          });
+        }
       } else {
         [advance] = await sql`
           INSERT INTO labor_advances (

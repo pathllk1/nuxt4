@@ -125,14 +125,15 @@ export default defineEventHandler(async (event) => {
     const fyString = `${fyStartYear}-${String(fyStartYear + 1).slice(-2)}`;
 
     // 2. Query Prior YTD Payments in General Ledger for this Financial Year
-    // Capped at paymentDate, strictly scoped to deductee, and restricted to 194C-eligible commercial/contractor transactions (F-04)
+    // Capped at paymentDate, strictly scoped to deductee, and positively restricted to 194C-eligible commercial/contractor transactions (F-04)
     const matchFilter: any = {
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
       transactionDate: { $gte: fyStartDate, $lte: paymentDate },
       debitAmount: { $gt: 0 },
       isReversed: { $ne: true }, // Compatible with both legacy (null) and indexed (false) active rows (F-07)
       refType: { $ne: 'REVERSAL' },
-      accountType: { $nin: ['DUTIES_AND_TAXES', 'TAX', 'GST', 'ROUND_OFF', 'CAPITAL', 'BANK', 'CASH'] }
+      // Positive definition of eligible commercial/contract expense account types (F-04)
+      accountType: { $in: ['EXPENSE', 'DIRECT_EXPENSES', 'INDIRECT_EXPENSES', 'OPERATING_EXPENSE', 'COST_OF_GOODS_SOLD', 'SUBCONTRACTOR', 'LABOR_LEADER', 'ADVANCE_TO_LABOR'] }
     };
 
     if (resolvedPartyId) {
@@ -158,13 +159,13 @@ export default defineEventHandler(async (event) => {
             $or: [
               { 'statutory.tdsSection': '194C' },
               { 'statutory.isTds': true, 'statutory.tdsSection': { $in: ['194C', null] } },
-              { accountHead: { $regex: /\b(194c|contractor|subcontractor)\b/i } },
-              { accountHead: { $regex: /\btds payable\b/i } }
+              { accountHead: { $regex: /\b(194c|tds payable|tax deducted at source)\b/i } }
             ]
           },
           {
             accountHead: {
-              $not: /\b(gst|cgst|sgst|igst|cess|tcs|194j|194i|194h|194a|borne by company)\b/i
+              // Exclude GST, non-TDS liabilities, and ordinary trade creditors (F-04)
+              $not: /\b(gst|cgst|sgst|igst|cess|tcs|194j|194i|194h|194a|borne by company|sundry creditor|creditors)\b/i
             }
           }
         ]
@@ -174,6 +175,20 @@ export default defineEventHandler(async (event) => {
       for (const tLeg of priorTdsLegs) {
         const vgId = tLeg.voucherGroupId ? String(tLeg.voucherGroupId) : '';
         if (vgId) {
+          // Initialize remaining taxable base for this TDS leg so it is not multiplied across multiple debits (F-04)
+          const statTaxable = Number(tLeg.statutory?.taxableAmount) || Number(tLeg.statutory?.grossAmount) || 0;
+          const legRate = Number(tLeg.statutory?.tdsRate || tLeg.statutory?.rate) || 0;
+          const crAmt = Number(tLeg.creditAmount) || 0;
+          let calculatedBase = 0;
+          if (statTaxable > 0) {
+            calculatedBase = statTaxable;
+          } else if (legRate > 0) {
+            calculatedBase = Math.round((crAmt / (legRate / 100)) * 100) / 100;
+          } else {
+            calculatedBase = crAmt * 100; // Fallback assumes 1%
+          }
+          (tLeg as any).remainingBase = calculatedBase;
+
           if (!tdsLegsByVg.has(vgId)) tdsLegsByVg.set(vgId, []);
           tdsLegsByVg.get(vgId)!.push(tLeg);
         }
@@ -185,8 +200,9 @@ export default defineEventHandler(async (event) => {
         const matchingTdsList = tdsLegsByVg.get(vg);
         if (!matchingTdsList || matchingTdsList.length === 0) continue;
 
-        // Deductee-specific tax matching on exact statutory identity (F-04)
+        // Deductee-specific tax matching on exact statutory identity with available base (F-04)
         const matchedTdsLeg = matchingTdsList.find((tLeg: any) => {
+          if ((Number(tLeg.remainingBase) || 0) <= 0) return false;
           if (tLeg.statutory) {
             if (resolvedPartyId && tLeg.statutory.deducteeId && String(tLeg.statutory.deducteeId) === String(resolvedPartyId)) return true;
             if (detectedPan && tLeg.statutory.pan && tLeg.statutory.pan.toUpperCase() === detectedPan.toUpperCase()) return true;
@@ -201,21 +217,11 @@ export default defineEventHandler(async (event) => {
         });
 
         if (matchedTdsLeg) {
-          // If statutory taxableAmount is recorded, use it; otherwise compute or clamp to debit (F-04)
-          const statutoryTaxable = Number(matchedTdsLeg.statutory?.taxableAmount) || 0;
-          const legRate = Number(matchedTdsLeg.statutory?.rate) || 0;
-          const creditAmt = Number(matchedTdsLeg.creditAmount) || 0;
-          let calculatedBase = 0;
-
-          if (statutoryTaxable > 0) {
-            calculatedBase = statutoryTaxable;
-          } else if (legRate > 0) {
-            calculatedBase = Math.round((creditAmt / (legRate / 100)) * 100) / 100;
-          } else {
-            calculatedBase = Number(entry.debitAmount) || 0;
-          }
-
-          priorAlreadyTaxedAmount += Math.min(Number(entry.debitAmount) || 0, calculatedBase);
+          // Allocate taxable base once across voucher group entries (F-04)
+          const entryDebit = Number(entry.debitAmount) || 0;
+          const allocatedBase = Math.min(entryDebit, Number(matchedTdsLeg.remainingBase) || 0);
+          matchedTdsLeg.remainingBase -= allocatedBase;
+          priorAlreadyTaxedAmount += allocatedBase;
         }
       }
     }
@@ -267,11 +273,37 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // 4. PAN Validation & Entity Classification
+    // 4. PAN Validation & Entity Classification (F-03)
     const panResult = TdsCalculator.validatePan(detectedPan);
-    const applicableRate = customRate !== null && !isNaN(customRate)
-      ? customRate
-      : panResult.default194CRate;
+
+    // Section 206AA & Statutory Rate Enforcement (F-03)
+    const hasExemption = Boolean(query.exemptionCertificateNo || query.exemptionReason || query.certificateNumber);
+    let applicableRate: number;
+
+    if (!panResult.isValid) {
+      // Under Section 206AA, invalid or missing PAN mandates a 20% statutory TDS rate.
+      // A request-supplied query rate cannot bypass Section 206AA.
+      if (customRate !== null && customRate !== 20) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: `Section 206AA mandates a 20% TDS rate when PAN is invalid or missing. Query rate of ${customRate}% is prohibited.`
+        });
+      }
+      applicableRate = 20;
+    } else {
+      // Valid PAN: default Section 194C statutory rate is 1% (Individual/HUF) or 2% (Other)
+      if (customRate !== null && customRate !== panResult.default194CRate) {
+        if (!hasExemption) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: `Rate override (${customRate}%) does not match statutory Section 194C rate (${panResult.default194CRate}% for ${panResult.entityType}). Explicit exemption certificate (Sec 197 / 194C(6)) is required.`
+          });
+        }
+        applicableRate = customRate;
+      } else {
+        applicableRate = panResult.default194CRate;
+      }
+    }
 
     // 5. Section 194C(5) Threshold Evaluation
     const thresholdResult = TdsCalculator.check194CThreshold(priorYtd, currentAmount, priorAlreadyTaxedAmount);

@@ -31,15 +31,18 @@ export async function enforcePeriodLock(
 
   const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
 
-  // Find all active locks for this firm where the lock date >= transaction date.
-  // If any exist, the transaction date is within a locked period.
+  // Find all active locks for this firm where the lock date >= transaction date,
+  // or where the financial year is actively closing or closed (F-01)
+  const fy = getFinancialYearFromDate(transactionDate);
   const activeLock = await PeriodLock.findOne(
     {
       firmId: firmIdObj,
-      isActive: true,
-      lockDate: { $gte: transactionDate },
+      $or: [
+        { isActive: true, lockDate: { $gte: transactionDate } },
+        { financialYear: fy, closingStatus: { $in: ['IN_PROGRESS', 'CLOSED'] } }
+      ]
     },
-    'lockDate financialYear reason lockedBy',
+    'lockDate financialYear reason lockedBy closingStatus',
     { session: session || undefined }
   ).lean();
 
@@ -47,11 +50,119 @@ export async function enforcePeriodLock(
     const error: any = new Error(
       `Transaction date ${transactionDate} falls within locked fiscal period ` +
       `(Locked up to ${activeLock.lockDate}, FY ${activeLock.financialYear}). ` +
+      `Closing status: ${activeLock.closingStatus || 'LOCKED'}. ` +
       `Reason: ${activeLock.reason || 'Period closed'}. ` +
       `Request admin unlock override if this entry is necessary.`
     );
     error.statusCode = 403;
     throw error;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// In-Flight Posting Barrier & Writer Fencing (F-01)
+//
+// Tracks active in-flight posting transactions per (firmId, financialYear).
+// Close workers wait for in-flight postings to drain before taking the
+// trial-balance snapshot, and posting transactions verify the period lock
+// barrier immediately before commit to prevent races.
+// ─────────────────────────────────────────────────────────────────────────
+
+const inFlightPostings = new Map<string, Set<string>>();
+
+export function getFinancialYearFromDate(dateStr: string): string {
+  const parts = dateStr.split('-');
+  const year = parseInt(parts[0]!, 10);
+  const month = parseInt(parts[1]!, 10);
+  const startYear = month >= 4 ? year : year - 1;
+  return `${startYear}-${String(startYear + 1).slice(-2)}`;
+}
+
+export interface IPostingBarrierToken {
+  postingId: string;
+  firmId: string;
+  financialYear: string;
+  release: () => void;
+}
+
+/**
+ * Acquires a posting barrier ticket before starting a ledger write operation.
+ * Fails closed if the period is locked or closing is in progress.
+ */
+export async function acquirePostingBarrier(
+  firmId: mongoose.Types.ObjectId | string,
+  transactionDate: string,
+  session?: mongoose.ClientSession | null
+): Promise<IPostingBarrierToken> {
+  const firmIdStr = String(firmId);
+  const fy = getFinancialYearFromDate(transactionDate);
+
+  // 1. Initial lock check
+  await enforcePeriodLock(firmId, transactionDate, session);
+
+  // 2. Register in-flight writer ticket
+  const key = `${firmIdStr}:${fy}`;
+  const postingId = new mongoose.Types.ObjectId().toString();
+  if (!inFlightPostings.has(key)) {
+    inFlightPostings.set(key, new Set());
+  }
+  inFlightPostings.get(key)!.add(postingId);
+
+  let released = false;
+  return {
+    postingId,
+    firmId: firmIdStr,
+    financialYear: fy,
+    release: () => {
+      if (!released) {
+        released = true;
+        const set = inFlightPostings.get(key);
+        if (set) {
+          set.delete(postingId);
+          if (set.size === 0) inFlightPostings.delete(key);
+        }
+      }
+    }
+  };
+}
+
+/**
+ * Re-validates the period lock barrier immediately before write/commit.
+ * Uses a fresh read outside the caller's transaction snapshot to ensure
+ * a close worker hasn't acquired the lock while the posting was in flight (F-01).
+ */
+export async function verifyPostingBarrier(
+  firmId: mongoose.Types.ObjectId | string,
+  transactionDate: string
+): Promise<void> {
+  // Always query directly without session to see the latest committed close lock state
+  await enforcePeriodLock(firmId, transactionDate, null);
+}
+
+/**
+ * Called by fiscal-year-closing.service.ts to ensure all in-flight posting
+ * transactions have drained before the trial-balance snapshot is calculated (F-01).
+ */
+export async function drainInFlightPostings(
+  firmId: mongoose.Types.ObjectId | string,
+  financialYear: string,
+  timeoutMs: number = 5000
+): Promise<void> {
+  const firmIdStr = String(firmId);
+  const key = `${firmIdStr}:${financialYear}`;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    const set = inFlightPostings.get(key);
+    if (!set || set.size === 0) {
+      return; // Drained successfully
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const remaining = inFlightPostings.get(key)?.size || 0;
+  if (remaining > 0) {
+    console.warn(`[PeriodLock] ${remaining} in-flight postings did not drain within ${timeoutMs}ms for FY ${financialYear}. Fencing will block them at commit.`);
   }
 }
 

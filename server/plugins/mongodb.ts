@@ -53,19 +53,12 @@ export const connectDB = async (): Promise<boolean> => {
       console.log(`MongoDB Connected: ${mongoose.connection.host}`);
       cache.conn = mongoose;
 
-      // Safe, idempotent backfill for legacy ledger rows missing isReversed (F-07)
+      // Versioned migration with duplicate detection and parity verification (F-07)
       try {
-        const ledgerCol = mongoose.connection.collection('ledgers');
-        await ledgerCol.updateMany(
-          { isReversed: { $in: [null, undefined] } },
-          { $set: { isReversed: false } }
-        );
-        await ledgerCol.updateMany(
-          { isReversed: { $exists: false } },
-          { $set: { isReversed: false } }
-        );
-      } catch (backfillErr: any) {
-        console.warn('[MongoDB Migration] Legacy ledger backfill notice:', backfillErr.message);
+        const { runLedgerIsReversedMigration } = await import('../utils/migrations/ledger-isreversed-migration');
+        await runLedgerIsReversedMigration();
+      } catch (migrationErr: any) {
+        console.error('[MongoDB Migration Error] Ledger isReversed backfill failed or blocked:', migrationErr.message);
       }
 
       return true;

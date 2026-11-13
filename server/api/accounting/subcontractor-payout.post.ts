@@ -147,20 +147,22 @@ export default defineEventHandler(async (event) => {
       narration: `Subcontract payout to ${subconUser.name}${hasTds ? ` (TDS u/s 194C @ ${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})` : ''}`
     });
 
-    // Statutory TDS snapshot for canonical register tracking (F-06)
-    const statutorySnapshot = {
+    // Statutory TDS snapshot for canonical register tracking (F-04)
+    // ONLY set if TDS is actually withheld (> 0) and populate taxableAmount explicitly!
+    const statutorySnapshot = tdsComputation.tdsAmount > 0 ? {
       isTds: true,
       tdsSection: '194C',
       tdsRate: effectiveRate,
       isGrossUp: isGrossUp,
       grossAmount: tdsComputation.grossAmount,
+      taxableAmount: tdsComputation.grossAmount, // Canonical taxable base (F-04)
       netAmount: tdsComputation.netPayout,
       tdsAmount: tdsComputation.tdsAmount,
       pan: subconAssignment.panNumber || '',
       deducteeName: subconUser.name,
       deducteeId: subconUser._id ? subconUser._id.toString() : undefined,
       deducteeType: 'SUBCONTRACTOR'
-    };
+    } : null;
 
     // Leg 2: Credit TDS Payable Liability (if TDS > 0)
     if (tdsComputation.tdsAmount > 0) {

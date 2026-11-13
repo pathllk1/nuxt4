@@ -81,11 +81,19 @@ export default defineEventHandler(async (event) => {
       await sql.begin(async (tx) => {
         const existingSettle = await tx`
           SELECT * FROM labor_settlements
-          WHERE period_id = ${period_id} AND ledger_voucher_group_id = ${voucherGroupId}
+          WHERE period_id = ${period_id}
           LIMIT 1
         `;
         if (existingSettle && existingSettle.length > 0) {
           settlement = existingSettle[0];
+          // Assert payload equality on idempotent retry (F-06)
+          const existingPaid = Number(settlement.paid_amount) || 0;
+          if (Math.abs(existingPaid - numPaidAmount) > 0.01) {
+            throw createError({
+              statusCode: 409,
+              statusMessage: `Idempotency Conflict: Existing settlement record paid amount ₹${existingPaid} does not match requested amount ₹${numPaidAmount}.`
+            });
+          }
         } else {
           [settlement] = await tx`
             INSERT INTO labor_settlements (

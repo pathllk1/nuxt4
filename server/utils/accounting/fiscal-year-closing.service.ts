@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Ledger from '../../models/Ledger';
 import PeriodLock from '../../models/PeriodLock';
+import { drainInFlightPostings } from './period-lock.service';
 import { UnifiedPostingService } from './unified-posting.service';
 import { LedgerService } from './ledger.service';
 import { getCurrentFinancialYear } from './bill-utils';
@@ -190,7 +191,11 @@ export class FiscalYearClosingService {
           reason: `Year-end close in progress by ${closedBy}`,
           closeStartedAt: now,
           closeLeaseExpiresAt: leaseExpiry,
-          closeExecutionToken
+          closeExecutionToken,
+          closeHeartbeatAt: now,
+        },
+        $inc: {
+          fenceNumber: 1, // Monotonic fencing sequence number (F-01)
         }
       },
       { new: true }
@@ -211,7 +216,9 @@ export class FiscalYearClosingService {
           reason: `Year-end close in progress by ${closedBy}`,
           closeStartedAt: now,
           closeLeaseExpiresAt: leaseExpiry,
-          closeExecutionToken
+          closeExecutionToken,
+          fenceNumber: 1,
+          closeHeartbeatAt: now,
         });
         lockAcquired = true;
       } catch (insertErr: any) {
@@ -232,10 +239,34 @@ export class FiscalYearClosingService {
       throw new Error(`FY ${financialYear} closing is currently in progress by ${current?.lockedBy || 'another process'}. Concurrent execution rejected.`);
     }
 
+    // ── Drain In-Flight Postings Before Snapshot (F-01) ──
+    // Wait for any in-flight posting transactions that passed the initial guard to finish draining
+    await drainInFlightPostings(firmIdObj, financialYear, 5000);
+
+    // Heartbeat renew helper to prevent unnecessary lease preemption during long close runs (F-01)
+    const renewCloseLease = async () => {
+      const hb = await PeriodLock.updateOne(
+        { firmId: firmIdObj, financialYear, closeExecutionToken },
+        {
+          $set: {
+            closeLeaseExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+            closeHeartbeatAt: new Date(),
+          }
+        }
+      );
+      if (hb.matchedCount === 0) {
+        throw new Error(
+          `CRITICAL CONCURRENCY ERROR: Close lease expired or was preempted by another close worker. Aborting closing immediately.`
+        );
+      }
+    };
+
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
+      await renewCloseLease();
+
       // ── Step 1: Get Trial Balance for the FY (Within session snapshot) ──
       const trialBalance = await LedgerService.getTrialBalance(firmIdObj, fyStartDate, fyEndDate, session);
 
@@ -388,6 +419,8 @@ export class FiscalYearClosingService {
 
         await UnifiedPostingService.postVoucher(obPayload, session);
       }
+
+      await renewCloseLease();
 
       // ── Step 4: Set Hard Period Lock with Fencing Token Verification (F-01) ──
       const finalizedLock = await PeriodLock.findOneAndUpdate(

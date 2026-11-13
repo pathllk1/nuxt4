@@ -51,6 +51,12 @@ export interface IPeriodLock extends Document {
   /** Unique execution/fencing token for the active close worker (F-01 fencing) */
   closeExecutionToken?: string | null;
 
+  /** Monotonic fencing sequence number across close cycles (F-01) */
+  fenceNumber?: number;
+
+  /** Timestamp of the latest close worker heartbeat (F-01) */
+  closeHeartbeatAt?: Date | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -106,6 +112,14 @@ const PeriodLockSchema = new Schema<IPeriodLock>(
     },
     closeExecutionToken: {
       type: String,
+      default: null,
+    },
+    fenceNumber: {
+      type: Number,
+      default: 1,
+    },
+    closeHeartbeatAt: {
+      type: Date,
       default: null,
     },
   },

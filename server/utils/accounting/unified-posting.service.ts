@@ -4,7 +4,7 @@ import ChartOfAccounts from '../../models/ChartOfAccounts';
 import VoucherSequence from '../../models/VoucherSequence';
 import Party from '../../models/Party';
 import BankAccount from '../../models/BankAccount';
-import { enforcePeriodLock } from './period-lock.service';
+import { enforcePeriodLock, acquirePostingBarrier, verifyPostingBarrier } from './period-lock.service';
 import { getCurrentFinancialYear } from './bill-utils';
 import {
   type IVoucherPayload,
@@ -63,6 +63,24 @@ export class UnifiedPostingService {
     payload: IVoucherPayload,
     session?: mongoose.ClientSession
   ): Promise<IPostingResult> {
+    // ── Multi-Leg Transaction Enforcement (F-08) ──
+    // Require transactions for all multi-leg writes. If caller did not provide a session,
+    // start an internal transaction to guarantee atomic all-or-nothing writes.
+    if (!session && payload.legs && payload.legs.length > 1) {
+      const internalSession = await mongoose.startSession();
+      internalSession.startTransaction();
+      try {
+        const result = await this.postVoucher(payload, internalSession);
+        await internalSession.commitTransaction();
+        return result;
+      } catch (internalErr) {
+        await internalSession.abortTransaction();
+        throw internalErr;
+      } finally {
+        internalSession.endSession();
+      }
+    }
+
     const firmIdObj = this.toObjectId(payload.firmId, 'firmId');
 
     // ── Step 0: Strict Calendar Date Validation ──
@@ -74,149 +92,226 @@ export class UnifiedPostingService {
       throw new Error(`Invalid calendar date "${payload.transactionDate}".`);
     }
 
-    // ── Step 1: Period Lock Guard ──
-    if (!payload._bypassPeriodLock) {
-      await enforcePeriodLock(firmIdObj, payload.transactionDate, session);
-    }
+    // ── Step 1: Period Lock Guard & In-Flight Posting Barrier (F-01) ──
+    const barrierToken = !payload._bypassPeriodLock
+      ? await acquirePostingBarrier(firmIdObj, payload.transactionDate, session)
+      : null;
 
-    // ── Step 2: Validate & Resolve Accounts ──
-    const resolvedLegs = await this.resolveAndValidateLegs(
-      firmIdObj,
-      payload.legs,
-      session
-    );
-
-    // ── Step 3: Double-Entry Parity Check ──
-    const { totalDebit, totalCredit } = this.assertDoubleEntryBalance(
-      resolvedLegs,
-      payload.voucherType,
-      payload.narration
-    );
-
-    // ── Step 4: Generate or Reuse Voucher Numbers ──
-    const financialYear = this.getFinancialYearFromDate(payload.transactionDate);
-
-    let voucherGroupId: string;
-    let voucherNo: string;
-
-    if (payload.externalVoucherGroupId && payload.externalVoucherNo) {
-      // Backward-compat: caller already has IDs (e.g. legacy billing pipelines)
-      // Guard against cross-tenant collisions and active duplicate postings (A-11)
-      const existing = await Ledger.findOne({
-        voucherGroupId: payload.externalVoucherGroupId
-      }).session(session || null).lean();
-
-      if (existing) {
-        const existingFirmId = String(existing.firmId || existing.firm_id);
-        if (existingFirmId !== String(firmIdObj)) {
-          throw new Error(
-            `[ERP Security Violation] Voucher group ID "${payload.externalVoucherGroupId}" belongs to another firm.`
-          );
-        }
-        if (!existing.isReversed) {
-          throw new Error(
-            `[ERP Accounting Invariant] Active voucher group "${payload.externalVoucherGroupId}" already exists for this firm. Use updateVoucher or reverseVoucher instead of duplicate posting.`
-          );
-        }
-      }
-
-      voucherGroupId = payload.externalVoucherGroupId;
-      voucherNo = payload.externalVoucherNo;
-    } else {
-      // Generate new gapless sequential numbers
-      const seq = await this.getNextSequenceNumber(
+    try {
+      // ── Step 2: Validate & Resolve Accounts ──
+      const resolvedLegs = await this.resolveAndValidateLegs(
         firmIdObj,
-        payload.voucherType,
-        financialYear,
+        payload.legs,
         session
       );
-      voucherGroupId = `${VOUCHER_PREFIX_MAP[payload.voucherType]}-${financialYear}-${String(seq).padStart(6, '0')}`;
-      voucherNo = `${VOUCHER_PREFIX_MAP[payload.voucherType]}/${financialYear}/${String(seq).padStart(4, '0')}`;
-    }
 
-    // ── Step 5: Construct Ledger Documents ──
-    const isWage = Boolean(payload.tags?.isWageEntry || payload.refType === 'WAGE' || payload.refType === 'WAGE_PAYOUT');
-    const masterRollId = payload.tags?.masterRollId ? this.toObjectIdSafe(payload.tags.masterRollId) : null;
+      // ── Step 3: Double-Entry Parity Check ──
+      const { totalDebit, totalCredit } = this.assertDoubleEntryBalance(
+        resolvedLegs,
+        payload.voucherType,
+        payload.narration
+      );
 
-    const ledgerDocs = resolvedLegs.map((leg, index) => ({
-      firmId: firmIdObj,
-      firm_id: firmIdObj, // Canonical dual-identity mirror
-      legIndex: index,
-      transactionDate: payload.transactionDate,
-      accountHead: leg.accountHead,
-      accountType: leg.accountType,
-      accountCode: (leg as any).accountCode || ACCOUNT_CODE_MAP[leg.accountType || ''] || null,
-      debitAmount: leg.debitAmount || 0,
-      creditAmount: leg.creditAmount || 0,
-      narration: leg.narration || payload.narration,
-      voucherGroupId,
-      voucherNo,
-      voucherType: payload.voucherType,
-      refType: payload.refType || 'VOUCHER',
-      refId: (leg as any).refId ? this.toObjectIdSafe((leg as any).refId) : (payload.refId ? this.toObjectIdSafe(payload.refId) : null),
-      partyId: leg.partyId ? this.toObjectIdSafe(leg.partyId) : null,
-      bankAccountId: leg.bankAccountId ? this.toObjectIdSafe(leg.bankAccountId) : null,
-      stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
-      stockRegId: leg.stockRegId ? this.toObjectIdSafe(leg.stockRegId) : null,
-      paymentMode: leg.paymentMode || null,
-      isWageEntry: isWage || Boolean((leg as any).isWageEntry),
-      masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
-      replacesVoucherGroupId: payload.tags?.replacesVoucherGroupId || null,
-      statutory: (leg as any).statutory || (payload.tags?.statutory || null),
-      isReversed: false,
-      createdBy: payload.createdBy,
-    }));
+      // ── Step 4: Generate or Reuse Voucher Numbers ──
+      const financialYear = this.getFinancialYearFromDate(payload.transactionDate);
 
-    // ── Step 6: Atomic Insert with Idempotency Guard (F-07, F-08) ──
-    try {
-      await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
-    } catch (insertError: any) {
-      if (insertError.code === 11000) {
-        // Concurrency idempotency: if duplicate key hit for voucherGroupId, query outside session
-        // because MongoDB session may be aborted by duplicate key error
-        const targetVoucherGroupId = payload.externalVoucherGroupId || voucherGroupId;
-        const existingDocs = await Ledger.find({
-          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          voucherGroupId: targetVoucherGroupId,
-          isReversed: { $ne: true }
-        }).lean();
+      let voucherGroupId: string;
+      let voucherNo: string;
 
-        if (existingDocs && existingDocs.length > 0) {
-          const first = existingDocs[0]!;
-          const drTotal = existingDocs.reduce((s, d) => s + (d.debitAmount || 0), 0);
-          const crTotal = existingDocs.reduce((s, d) => s + (d.creditAmount || 0), 0);
+      if (payload.externalVoucherGroupId && payload.externalVoucherNo) {
+        // Backward-compat: caller already has IDs (e.g. legacy billing pipelines)
+        // Guard against cross-tenant collisions and active duplicate postings (A-11)
+        const existing = await Ledger.findOne({
+          voucherGroupId: payload.externalVoucherGroupId
+        }).session(session || null).lean();
 
-          // Strict Payload Equivalence Verification (F-08)
-          const diffDr = Math.abs(drTotal - totalDebit);
-          const diffCr = Math.abs(crTotal - totalCredit);
-          if (diffDr > 0.05 || diffCr > 0.05) {
+        if (existing) {
+          const existingFirmId = String(existing.firmId || existing.firm_id);
+          if (existingFirmId !== String(firmIdObj)) {
             throw new Error(
-              `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Payload debit/credit totals mismatch. Existing committed: DR ₹${drTotal.toFixed(2)} / CR ₹${crTotal.toFixed(2)}, Retry requested: DR ₹${totalDebit.toFixed(2)} / CR ₹${totalCredit.toFixed(2)}.`
+              `[ERP Security Violation] Voucher group ID "${payload.externalVoucherGroupId}" belongs to another firm.`
             );
           }
-
-          return {
-            success: true,
-            voucherGroupId: first.voucherGroupId!,
-            voucherNo: first.voucherNo!,
-            entryCount: existingDocs.length,
-            totalDebit: drTotal,
-            totalCredit: crTotal,
-            isIdempotentReplay: true
-          };
+          if (!existing.isReversed) {
+            throw new Error(
+              `[ERP Accounting Invariant] Active voucher group "${payload.externalVoucherGroupId}" already exists for this firm. Use updateVoucher or reverseVoucher instead of duplicate posting.`
+            );
+          }
         }
-      }
-      throw insertError;
-    }
 
-    return {
-      success: true,
-      voucherGroupId,
-      voucherNo,
-      entryCount: ledgerDocs.length,
-      totalDebit,
-      totalCredit,
-    };
+        voucherGroupId = payload.externalVoucherGroupId;
+        voucherNo = payload.externalVoucherNo;
+      } else {
+        // Generate new gapless sequential numbers
+        const seq = await this.getNextSequenceNumber(
+          firmIdObj,
+          payload.voucherType,
+          financialYear,
+          session
+        );
+        voucherGroupId = `${VOUCHER_PREFIX_MAP[payload.voucherType]}-${financialYear}-${String(seq).padStart(6, '0')}`;
+        voucherNo = `${VOUCHER_PREFIX_MAP[payload.voucherType]}/${financialYear}/${String(seq).padStart(4, '0')}`;
+      }
+
+      // ── Step 5: Construct Ledger Documents ──
+      const isWage = Boolean(payload.tags?.isWageEntry || payload.refType === 'WAGE' || payload.refType === 'WAGE_PAYOUT');
+      const masterRollId = payload.tags?.masterRollId ? this.toObjectIdSafe(payload.tags.masterRollId) : null;
+
+      const ledgerDocs = resolvedLegs.map((leg, index) => {
+        // Strict Statutory Scoping (F-04):
+        // Only attach statutory tax metadata if explicitly defined on this leg,
+        // OR if payload.tags.statutory is present and this leg is a tax liability leg (DUTIES_AND_TAXES with CR > 0).
+        // NEVER copy statutory tax metadata onto bank, cash, or expense legs!
+        const isTaxLiabilityLeg = leg.accountType === 'DUTIES_AND_TAXES' && (leg.creditAmount || 0) > 0;
+        const statutory = (leg as any).statutory || (isTaxLiabilityLeg && payload.tags?.statutory?.isTds ? payload.tags.statutory : null);
+
+        return {
+          firmId: firmIdObj,
+          firm_id: firmIdObj, // Canonical dual-identity mirror
+          legIndex: index,
+          transactionDate: payload.transactionDate,
+          accountHead: leg.accountHead,
+          accountType: leg.accountType,
+          accountCode: (leg as any).accountCode || ACCOUNT_CODE_MAP[leg.accountType || ''] || null,
+          debitAmount: leg.debitAmount || 0,
+          creditAmount: leg.creditAmount || 0,
+          narration: leg.narration || payload.narration,
+          voucherGroupId,
+          voucherNo,
+          voucherType: payload.voucherType,
+          refType: payload.refType || 'VOUCHER',
+          refId: (leg as any).refId ? this.toObjectIdSafe((leg as any).refId) : (payload.refId ? this.toObjectIdSafe(payload.refId) : null),
+          partyId: leg.partyId ? this.toObjectIdSafe(leg.partyId) : null,
+          bankAccountId: leg.bankAccountId ? this.toObjectIdSafe(leg.bankAccountId) : null,
+          stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
+          stockRegId: leg.stockRegId ? this.toObjectIdSafe(leg.stockRegId) : null,
+          paymentMode: leg.paymentMode || null,
+          isWageEntry: isWage || Boolean((leg as any).isWageEntry),
+          masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
+          replacesVoucherGroupId: payload.tags?.replacesVoucherGroupId || null,
+          statutory,
+          isReversed: false,
+          createdBy: payload.createdBy,
+        };
+      });
+
+      // ── Step 6: Atomic Insert with Pre-Write Fence & Idempotency Guard (F-01, F-07, F-08) ──
+      if (!payload._bypassPeriodLock) {
+        // Fresh read immediately before writing documents to block if a close worker acquired the lock during resolution
+        await verifyPostingBarrier(firmIdObj, payload.transactionDate);
+      }
+
+      try {
+        await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
+      } catch (insertError: any) {
+        if (insertError.code === 11000) {
+          // Concurrency idempotency: if duplicate key hit for voucherGroupId, query outside session
+          // because MongoDB session may be marked aborted by duplicate key error
+          const targetVoucherGroupId = payload.externalVoucherGroupId || voucherGroupId;
+          const existingDocs = await Ledger.find({
+            $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+            voucherGroupId: targetVoucherGroupId,
+            isReversed: { $ne: true }
+          }).lean();
+
+          if (existingDocs && existingDocs.length > 0) {
+            // Sort existing documents strictly by legIndex
+            const sortedExisting = [...existingDocs].sort((a, b) => (Number(a.legIndex) || 0) - (Number(b.legIndex) || 0));
+
+            // 1. Verify exact leg count match
+            if (sortedExisting.length !== ledgerDocs.length) {
+              throw new Error(
+                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg count mismatch. Existing committed: ${sortedExisting.length} legs, Retry requested: ${ledgerDocs.length} legs.`
+              );
+            }
+
+            // 2. Verify complete canonical per-leg payload identity (F-08)
+            for (let i = 0; i < ledgerDocs.length; i++) {
+              const exLeg = sortedExisting[i]!;
+              const reqLeg = ledgerDocs[i]!;
+
+              const exHead = (exLeg.accountHead || '').trim().toLowerCase();
+              const reqHead = (reqLeg.accountHead || '').trim().toLowerCase();
+              if (exHead !== reqHead) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountHead mismatch. Existing: "${exLeg.accountHead}", Requested: "${reqLeg.accountHead}".`
+                );
+              }
+
+              if (exLeg.accountType !== reqLeg.accountType) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountType mismatch. Existing: "${exLeg.accountType}", Requested: "${reqLeg.accountType}".`
+                );
+              }
+
+              const drDiff = Math.abs((Number(exLeg.debitAmount) || 0) - (Number(reqLeg.debitAmount) || 0));
+              const crDiff = Math.abs((Number(exLeg.creditAmount) || 0) - (Number(reqLeg.creditAmount) || 0));
+              if (drDiff > 0.01 || crDiff > 0.01) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} amount mismatch. Existing: DR ${exLeg.debitAmount}/CR ${exLeg.creditAmount}, Requested: DR ${reqLeg.debitAmount}/CR ${reqLeg.creditAmount}.`
+                );
+              }
+
+              const exParty = exLeg.partyId ? String(exLeg.partyId) : '';
+              const reqParty = reqLeg.partyId ? String(reqLeg.partyId) : '';
+              if (exParty !== reqParty) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} partyId mismatch. Existing: "${exParty}", Requested: "${reqParty}".`
+                );
+              }
+
+              const exBank = exLeg.bankAccountId ? String(exLeg.bankAccountId) : '';
+              const reqBank = reqLeg.bankAccountId ? String(reqLeg.bankAccountId) : '';
+              if (exBank !== reqBank) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} bankAccountId mismatch. Existing: "${exBank}", Requested: "${reqBank}".`
+                );
+              }
+
+              const exStat = exLeg.statutory;
+              const reqStat = reqLeg.statutory;
+              if (Boolean(exStat) !== Boolean(reqStat)) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory metadata presence mismatch.`
+                );
+              }
+              if (exStat && reqStat) {
+                if (exStat.tdsSection !== reqStat.tdsSection || (exStat.pan || '') !== (reqStat.pan || '')) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory metadata values mismatch.`
+                  );
+                }
+              }
+            }
+
+            const drTotal = sortedExisting.reduce((s, d) => s + (d.debitAmount || 0), 0);
+            const crTotal = sortedExisting.reduce((s, d) => s + (d.creditAmount || 0), 0);
+
+            return {
+              success: true,
+              voucherGroupId: sortedExisting[0]!.voucherGroupId!,
+              voucherNo: sortedExisting[0]!.voucherNo!,
+              entryCount: sortedExisting.length,
+              totalDebit: drTotal,
+              totalCredit: crTotal,
+              isIdempotentReplay: true
+            };
+          }
+        }
+        throw insertError;
+      }
+
+      return {
+        success: true,
+        voucherGroupId,
+        voucherNo,
+        entryCount: ledgerDocs.length,
+        totalDebit,
+        totalCredit,
+      };
+    } finally {
+      barrierToken?.release();
+    }
   }
 
   /**

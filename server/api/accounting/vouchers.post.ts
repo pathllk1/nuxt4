@@ -130,7 +130,8 @@ export default defineEventHandler(async (event) => {
         }
 
         const advancesToInsert: any[] = [];
-        for (const entry of entries) {
+        for (let idx = 0; idx < entries.length; idx++) {
+          const entry = entries[idx];
           const periodId = entry.laborPeriodId || body.laborPeriodId;
           const head = (entry.accountHead || '').toLowerCase();
           // Ignore tax / deduction lines
@@ -151,7 +152,8 @@ export default defineEventHandler(async (event) => {
               voucherGroupId: postResult.voucherGroupId,
               tdsMode,
               tdsAmount,
-              grossAmount: currentGrossAmount
+              grossAmount: currentGrossAmount,
+              legIndex: idx
             });
           }
         }
@@ -159,24 +161,33 @@ export default defineEventHandler(async (event) => {
         if (advancesToInsert.length > 0) {
           await sql.begin(async (tx: any) => {
             for (const adv of advancesToInsert) {
-              // Idempotent insertion guard: check if advance row already exists for this voucher group (F-06)
+              // Idempotent insertion guard: check if advance row already exists for this exact source line (F-06)
               const existing = await tx`
-                SELECT id FROM labor_advances
+                SELECT id, amount FROM labor_advances
                 WHERE firm_id = ${adv.firmId}
                   AND period_id = ${adv.periodId}
                   AND ledger_voucher_group_id = ${adv.voucherGroupId}
+                  AND leg_index = ${adv.legIndex}
                 LIMIT 1
               `;
               if (existing.length === 0) {
                 await tx`
                   INSERT INTO labor_advances (
                     firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
-                    tds_mode, tds_amount, gross_amount
+                    tds_mode, tds_amount, gross_amount, leg_index
                   ) VALUES (
                     ${adv.firmId}, ${adv.periodId}, ${adv.amount}, ${adv.paymentDate}, ${adv.paidFromBankId}, ${adv.voucherGroupId},
-                    ${adv.tdsMode}, ${adv.tdsAmount}, ${adv.grossAmount}
+                    ${adv.tdsMode}, ${adv.tdsAmount}, ${adv.grossAmount}, ${adv.legIndex}
                   )
                 `;
+              } else {
+                // Assert payload equality on idempotent retry (F-06)
+                const existingAmt = Number(existing[0].amount) || 0;
+                if (Math.abs(existingAmt - adv.amount) > 0.01) {
+                  throw new Error(
+                    `[Labor Idempotency Conflict] Existing advance row amount ₹${existingAmt} does not match replay payload ₹${adv.amount}`
+                  );
+                }
               }
             }
           });

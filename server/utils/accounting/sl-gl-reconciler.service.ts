@@ -197,25 +197,36 @@ export class SLGLReconcilerService {
         }
 
         // Independent operational sub-ledger totals derived from PostgreSQL operational records (F-05)
+        // Net Labor Balance = Gross Advances minus Advances Recovered/Settled in Settlements through cutoff
         const [advSumRow] = await sql`
           SELECT COALESCE(SUM(amount), 0) AS total_adv
           FROM labor_advances
           WHERE firm_id = ${String(firmId)} AND payment_date <= ${toDate}
         `;
-        slOperationalTotal = Number(advSumRow?.total_adv || 0);
+        const totalAdv = Number(advSumRow?.total_adv || 0);
+
+        const [settleSumRow] = await sql`
+          SELECT COALESCE(SUM(s.total_advances), 0) AS total_settled_adv
+          FROM labor_settlements s
+          JOIN labor_periods p ON s.period_id = p.id
+          WHERE p.firm_id = ${String(firmId)} AND s.payment_date <= ${toDate}
+        `;
+        const totalSettledAdv = Number(settleSumRow?.total_settled_adv || 0);
+
+        slOperationalTotal = Math.max(0, totalAdv - totalSettledAdv);
       }
     } catch (pgErr: any) {
       console.warn('[SL-GL Reconciler] Postgres labor leader sync notice:', pgErr.message);
     }
 
-    let slGrandTotal = slOperationalTotal > 0 ? slOperationalTotal : 0;
+    // STRICT: Never fall back to GL balance when operational total is zero (F-05)
+    // The operational sub-ledger total must reflect independent operational records.
+    let slGrandTotal = slOperationalTotal;
     const variances: IReconciliationVariance[] = [];
 
     for (const [headKey, glNet] of glMap) {
       const canonicalName = leaderMap.get(headKey);
-      if (canonicalName) {
-        if (slOperationalTotal === 0) slGrandTotal += glNet;
-      } else {
+      if (!canonicalName) {
         variances.push({
           category: 'LABOR',
           entityName: `Unregistered Leader (${headKey})`,
@@ -255,7 +266,7 @@ export class SLGLReconcilerService {
             voucherGroupId: { $in: advVoucherIds },
             transactionDate: { $lte: toDate },
             isReversed: { $ne: true }
-          }, 'voucherGroupId accountHead accountType debitAmount creditAmount bankAccountId transactionDate').lean();
+          }, 'voucherGroupId accountHead accountType debitAmount creditAmount bankAccountId transactionDate legIndex').lean();
 
           const glLegsByGroup = new Map<string, any[]>();
           for (const leg of glLegs) {
@@ -266,6 +277,9 @@ export class SLGLReconcilerService {
               glLegsByGroup.set(vId, list);
             }
           }
+
+          // Track consumed legs per voucherGroupId to prevent 1-to-many leg reuse (F-05)
+          const consumedLegsByVg = new Map<string, Set<number>>();
 
           for (const adv of pgAdvances) {
             const vId = String(adv.ledger_voucher_group_id);
@@ -288,13 +302,22 @@ export class SLGLReconcilerService {
               continue;
             }
 
+            if (!consumedLegsByVg.has(vId)) {
+              consumedLegsByVg.set(vId, new Set());
+            }
+            const consumedSet = consumedLegsByVg.get(vId)!;
+
             // Verify specific labor leader debit leg matching the exact PostgreSQL leader (F-05)
+            // Use exact equality or canonical prefix matching, NOT loose substring includes!
             const targetLeaderName = (adv.leader_name || '').trim().toLowerCase();
-            const leaderLeg = legs.find((l: any) => {
+            const leaderLeg = legs.find((l: any, idx: number) => {
+              if (consumedSet.has(idx)) return false;
               if (Number(l.debitAmount) <= 0) return false;
               if (targetLeaderName) {
                 const head = (l.accountHead || '').trim().toLowerCase();
-                return head === targetLeaderName || head.includes(targetLeaderName);
+                return head === targetLeaderName ||
+                       head === `advance to ${targetLeaderName}` ||
+                       head === `${targetLeaderName} - advance`;
               }
               return l.accountType === 'LABOR_LEADER' || l.accountType === 'ADVANCE_TO_LABOR';
             });
@@ -314,6 +337,9 @@ export class SLGLReconcilerService {
               });
               continue;
             }
+
+            // Mark this leg as consumed
+            consumedSet.add(legs.indexOf(leaderLeg));
 
             // Expected amount basis depends on TDS mode (F-05):
             // In DEDUCT mode, leader leg debits gross amount; in GROSS_UP mode, leader leg debits net payout
@@ -421,18 +447,64 @@ export class SLGLReconcilerService {
       glGrandTotal += net;
     }
 
-    // SL side: query all registered parties belonging to this firm
+    // SL side: query all registered parties belonging to this firm with opening balances (F-05)
     const parties = await Party.find(
       { $or: [{ firmId }, { firm_id: firmId }] },
-      'name'
+      'name openingBalance balanceType'
     ).lean();
 
-    const partyMap = new Map<string, string>();
+    const partyMap = new Map<string, any>();
     for (const p of parties) {
-      partyMap.set(String(p._id), p.name);
+      partyMap.set(String(p._id), p);
     }
 
+    // Query independent operational commercial bills for this category up to cutoff (F-05)
+    const billTypes = category === 'AR' ? ['SALES', 'CREDIT_NOTE'] : ['PURCHASE', 'DEBIT_NOTE'];
+    const activeBills = await Bill.find(
+      {
+        $or: [{ firmId }, { firm_id: firmId as any }],
+        btype: { $in: billTypes as any },
+        status: 'ACTIVE',
+        bdate: { $lte: toDate }
+      },
+      '_id bno btype netTotal partyId partyName voucherId'
+    ).lean();
+
+    // Compute independent operational sub-ledger balances per party from Billing Register
+    const partyOperationalMap = new Map<string, number>();
+    for (const p of parties) {
+      const pid = String(p._id);
+      let opBal = 0;
+      if (p.openingBalance) {
+        if (category === 'AR') {
+          opBal += p.balanceType === 'CR' ? -p.openingBalance : p.openingBalance;
+        } else {
+          opBal += p.balanceType === 'DR' ? -p.openingBalance : p.openingBalance;
+        }
+      }
+      partyOperationalMap.set(pid, opBal);
+    }
+
+    for (const b of activeBills) {
+      const pid = String(b.partyId);
+      if (partyOperationalMap.has(pid)) {
+        const amt = Number(b.netTotal) || 0;
+        if (category === 'AR') {
+          const delta = b.btype === 'CREDIT_NOTE' ? -amt : amt;
+          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + delta);
+        } else {
+          const delta = b.btype === 'DEBIT_NOTE' ? -amt : amt;
+          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + delta);
+        }
+      }
+    }
+
+    // Independent operational SL Grand Total derived strictly from operational registers (F-05)
     let slGrandTotal = 0;
+    for (const [_, opBal] of partyOperationalMap) {
+      slGrandTotal += opBal;
+    }
+
     const variances: IReconciliationVariance[] = [];
 
     for (const [partyId, glNet] of glMap) {
@@ -451,10 +523,24 @@ export class SLGLReconcilerService {
         continue;
       }
 
-      const partyName = partyMap.get(partyId);
-      if (partyName) {
-        // Party is verified in Master Registry
-        slGrandTotal += glNet;
+      const partyObj = partyMap.get(partyId);
+      if (partyObj) {
+        const partyName = partyObj.name;
+        const slBal = partyOperationalMap.get(partyId) || 0;
+        const diff = Math.abs(glNet - slBal);
+        if (diff > 0.05) {
+          variances.push({
+            category,
+            entityName: `${partyName} (${partyId}) Operational Billing Register Mismatch`,
+            entityId: partyId,
+            glBalance: Math.abs(glNet),
+            glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+            slBalance: Math.abs(slBal),
+            slBalanceType: slBal >= 0 ? 'DR' : 'CR',
+            variance: diff,
+            status: 'WARNING',
+          });
+        }
       } else {
         // Orphan partyId found in Ledger that does not exist in Party registry!
         variances.push({
@@ -473,17 +559,6 @@ export class SLGLReconcilerService {
 
     // Independent Sub-Ledger Document Verification: Commercial Invoices (A-07, F-05)
     if (category === 'AR' || category === 'AP') {
-      const billTypes = category === 'AR' ? ['SALES', 'CREDIT_NOTE'] : ['PURCHASE', 'DEBIT_NOTE'];
-      const activeBills = await Bill.find(
-        {
-          $or: [{ firmId }, { firm_id: firmId as any }],
-          btype: { $in: billTypes as any },
-          status: 'ACTIVE',
-          bdate: { $lte: toDate }
-        },
-        '_id bno btype netTotal partyId partyName voucherId'
-      ).lean();
-
       if (activeBills.length > 0) {
         const billVoucherIds = activeBills
           .map((b: any) => b.voucherId)
@@ -657,11 +732,18 @@ export class SLGLReconcilerService {
     let slGrandTotal = 0;
     const variances: IReconciliationVariance[] = [];
 
+    // Derive operational SL total strictly from registered BankAccount entities (F-05)
+    for (const b of bankAccounts) {
+      const bId = String(b._id);
+      const glNet = glMap.get(bId) || 0;
+      slGrandTotal += glNet;
+    }
+
     for (const [bankId, glNet] of glMap) {
       if (bankId === 'UNTAGGED') {
         variances.push({
           category: 'BANK',
-          entityName: 'Untagged Bank Entries (Missing bankAccountId)',
+          entityName: 'Untagged Bank Entries (Missing bankAccountId in GL)',
           entityId: 'UNTAGGED',
           glBalance: Math.abs(glNet),
           glBalanceType: glNet >= 0 ? 'DR' : 'CR',
@@ -674,14 +756,11 @@ export class SLGLReconcilerService {
       }
 
       const bankName = bankMap.get(bankId);
-      if (bankName) {
-        // Valid registered bank account
-        slGrandTotal += glNet;
-      } else {
+      if (!bankName) {
         // Orphan bankAccountId found in Ledger that does not exist in BankAccount registry!
         variances.push({
           category: 'BANK',
-          entityName: `Unknown Bank (${bankId})`,
+          entityName: `Unregistered Bank Account (${bankId})`,
           entityId: bankId,
           glBalance: Math.abs(glNet),
           glBalanceType: glNet >= 0 ? 'DR' : 'CR',
