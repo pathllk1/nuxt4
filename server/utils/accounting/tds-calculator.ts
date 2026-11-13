@@ -107,19 +107,23 @@ export const TdsCalculator = {
    * 1. Single payment <= ₹30,000
    * 2. Aggregate in financial year <= ₹1,00,000
    */
-  check194CThreshold(priorYtd: number, currentPayment: number): ThresholdCheckResult {
+  check194CThreshold(priorYtd: number, currentPayment: number, priorAlreadyTaxedAmount: number = 0): ThresholdCheckResult {
     const prior = Math.max(0, Number(priorYtd) || 0);
     const curr = Math.max(0, Number(currentPayment) || 0);
+    const taxedPrior = Math.max(0, Number(priorAlreadyTaxedAmount) || 0);
     const newYtd = prior + curr;
 
     const singleExceeded = curr > 30000;
     const aggregateExceeded = newYtd > 100000;
     const wasAlreadyExceeded = prior > 100000;
 
-    // Catch-up applies if aggregate crosses ₹1,00,000 with THIS payment,
-    // and prior payments did not already have TDS applied.
-    const requiresCatchUp = aggregateExceeded && !wasAlreadyExceeded && prior > 0;
-    const catchUpBase = requiresCatchUp ? prior : 0;
+    // Untaxed prior payments that were previously exempt under the ₹1,00,000 aggregate limit
+    const untaxedPrior = Math.max(0, prior - taxedPrior);
+
+    // Catch-up applies ONLY if aggregate crosses ₹1,00,000 with THIS payment,
+    // and there is an actual untaxed prior base (prevents double taxation).
+    const requiresCatchUp = aggregateExceeded && !wasAlreadyExceeded && untaxedPrior > 0;
+    const catchUpBase = requiresCatchUp ? untaxedPrior : 0;
 
     return {
       singleExceeded,

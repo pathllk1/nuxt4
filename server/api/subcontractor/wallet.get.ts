@@ -36,7 +36,8 @@ export default defineEventHandler(async (event) => {
 
   // 1. Fetch all GL Payouts from firm to this subcontractor's Direct Expense head
   const payoutEntries = await Ledger.find({
-    firmId: firmIdObj,
+    $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+    isReversed: { $ne: true },
     accountHead: ledgerHead,
     debitAmount: { $gt: 0 }
   })
@@ -50,7 +51,8 @@ export default defineEventHandler(async (event) => {
   let allVoucherLegs: any[] = [];
   if (voucherGroupIds.length > 0) {
     allVoucherLegs = await Ledger.find({
-      firmId: firmIdObj,
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      isReversed: { $ne: true },
       voucherGroupId: { $in: voucherGroupIds }
     }).lean();
   }

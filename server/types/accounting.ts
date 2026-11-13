@@ -273,6 +273,8 @@ export function classifyAccountType(accountType: string): 'PNL' | 'BALANCE_SHEET
 export const PARTY_REQUIRED_ACCOUNT_TYPES = new Set([
   'SUNDRY_DEBTORS',
   'SUNDRY_CREDITORS',
+  'DEBTOR',
+  'CREDITOR',
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────

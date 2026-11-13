@@ -404,17 +404,13 @@ export class TdsManagerService {
       // PAN Validation
       const panValidation = TdsCalculator.validatePan(payeePan);
 
-      // Effective Rate
-      let tdsRate = 0;
-      const baseForRate = isGrossUp ? (grossAmount - totalTdsAmt) : grossAmount;
-      if (baseForRate > 0) {
-        const rawRate = (totalTdsAmt / baseForRate) * 100;
-        tdsRate = Math.round(rawRate * 10) / 10;
-        if (Math.abs(tdsRate - 1) < 0.15) tdsRate = 1;
-        else if (Math.abs(tdsRate - 2) < 0.15) tdsRate = 2;
-        else if (Math.abs(tdsRate - 5) < 0.15) tdsRate = 5;
-        else if (Math.abs(tdsRate - 10) < 0.15) tdsRate = 10;
-        else if (Math.abs(tdsRate - 20) < 0.15) tdsRate = 20;
+      // Statutory Rate: Strictly adheres to Section 194C / Form 26Q statutory rates (1%, 2%, or 20%)
+      let tdsRate = Number((primaryTdsLeg as any)?.statutory?.tdsRate);
+      if (isNaN(tdsRate) || tdsRate <= 0) {
+        tdsRate = panValidation.default194CRate;
+      }
+      if (totalTdsAmt > 0 && tdsRate === 0) {
+        tdsRate = panValidation.isIndividual ? 1 : 2;
       }
 
       rawItems.push({

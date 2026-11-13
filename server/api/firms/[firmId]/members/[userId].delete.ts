@@ -56,7 +56,8 @@ export default defineEventHandler(async (event) => {
         const balanceResult = await Ledger.aggregate([
           {
             $match: {
-              firmId: firmIdObj,
+              $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+              isReversed: { $ne: true },
               accountHead: ledgerHead
             }
           },

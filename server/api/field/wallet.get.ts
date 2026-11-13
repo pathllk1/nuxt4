@@ -35,7 +35,13 @@ export default defineEventHandler(async (event) => {
 
   // Compute live GL balance: Σ(DR) - Σ(CR) for the imprest account
   const balanceResult = await Ledger.aggregate([
-    { $match: { firmId: firmIdObj, accountHead: ledgerHead } },
+    {
+      $match: {
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        isReversed: { $ne: true },
+        accountHead: ledgerHead
+      }
+    },
     {
       $group: {
         _id: null,
@@ -68,7 +74,8 @@ export default defineEventHandler(async (event) => {
 
   // Fetch recent ledger transactions for the advance history
   const recentTransactions = await Ledger.find({
-    firmId: firmIdObj,
+    $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+    isReversed: { $ne: true },
     accountHead: ledgerHead
   })
     .sort({ transactionDate: -1, createdAt: -1 })

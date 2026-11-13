@@ -96,7 +96,7 @@ export async function deleteAdvanceLedger(
     const origEntries = await Ledger.find({
       refType: 'ADVANCE',
       refId: advanceId,
-      firmId,
+      $or: [{ firmId }, { firm_id: firmId }],
     }).session(session).lean();
 
     const firstEntry = origEntries[0];
@@ -111,7 +111,7 @@ export async function deleteAdvanceLedger(
       });
 
       await Ledger.updateMany(
-        { refType: 'ADVANCE', refId: advanceId, firmId },
+        { refType: 'ADVANCE', refId: advanceId, $or: [{ firmId }, { firm_id: firmId }] },
         { $set: { isReversed: true } },
         { session }
       );

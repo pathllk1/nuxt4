@@ -107,7 +107,8 @@ export default defineEventHandler(async (event) => {
           {
             $match: {
               $or: [{ firmId: firmIdObj }, { firmId: firmIdStr }, { firm_id: firmIdObj }, { firm_id: firmIdStr }],
-              accountHead: leaderName
+              accountHead: leaderName,
+              isReversed: { $ne: true }
             }
           },
           {

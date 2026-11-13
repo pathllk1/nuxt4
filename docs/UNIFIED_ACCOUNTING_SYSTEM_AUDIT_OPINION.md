@@ -182,3 +182,27 @@ The application does not need a complete redesign. The central architecture (`Un
 
 Executing the phased plan above will transform the platform from a "promising central posting layer" into a **fully certified, audit-proof, enterprise-grade General Ledger**.
 
+---
+
+## 6. Phase 1, 2 & 3 Remediation Execution Log & Certification
+
+All 3 phases and all 13 audit findings have been systematically resolved, remediated in the live codebase, and verified:
+
+| Finding ID | Scope & Requirement | Resolution Status | Technical Implementation & Code References |
+|---|---|---|---|
+| **A-01** | Filter `isReversed: true` in all financial reports | **COMPLETED** | Enforced canonical `getEffectiveLedgerMatch` in `ledger.service.ts` across `getTrialBalance`, `getAccountBalance`, `getLedger`, `getVouchersSummary`, `getJournalSummary`, `getAccountTypeSummaries`. Applied `{ isReversed: { $ne: true } }` in `coa.get.ts`, `ledger.get.ts`, `parties.get.ts`, `dashboard/summary.get.ts`, `banking/[id].get.ts`, `subcontractor-wallets.get.ts`, `subcontractor/wallet.get.ts`, `field/wallet.get.ts`, `details.get.ts`, `threshold-check.get.ts`. |
+| **A-02** | Eliminate cross-firm hard delete in labor compensation | **COMPLETED** | Replaced unscoped `Ledger.deleteMany({ voucherGroupId })` with firm-scoped reversal updates `{ voucherGroupId, $or: [{ firmId: firmOid }, { firm_id: firmOid }] }` in `advance.post.ts` and `settle.post.ts`. |
+| **A-03** | Prohibit non-transactional retries | **COMPLETED** | Guarded standalone replica-set retry strictly with `process.env.NODE_ENV !== 'production'` in `vouchers.post.ts` and `subcontractor-payout.post.ts`. In production, financial postings fail closed immediately if transactions are unavailable. |
+| **A-04** | Dual-DB failure window in Labor (Mongo GL + Postgres) | **COMPLETED** | Added compensating reversal in `vouchers.post.ts` and `advance.post.ts`. If PostgreSQL synchronization fails for a voucher tied to a labor period, the GL voucher is reversed and an HTTP 500 error is thrown, preventing cross-database drift. |
+| **A-05** | Reversals drop audit dimensions | **COMPLETED** | In `UnifiedPostingService.reverseVoucher()`, preserved `masterRollId`, `employeeId`, `statutory` metadata, `refId`, `refType`, `partyId`, `bankAccountId`, and `stockId`. |
+| **A-06** | Leg validation permits negative and dual-sided amounts | **COMPLETED** | Enforced strict finite number check, strictly prohibited negative amounts (`dr < 0 || cr < 0`), and prohibited dual-sided legs (`dr > 0 && cr > 0`) in `resolveAndValidateLegs()`. Added strict calendar date validation (`YYYY-MM-DD`). |
+| **A-07** | Sub-ledger reconciliation circular self-comparison | **COMPLETED** | Overhauled `sl-gl-reconciler.service.ts`: Cross-checks GL against independent `Bill` documents (sales/purchase invoices), independent `Advance` records, and PostgreSQL `labor_advances`, flagging missing vouchers, unbacked entries, and untagged control account legs. |
+| **A-08** | Party/labor dimensions consistency | **COMPLETED** | Updated `PARTY_REQUIRED_ACCOUNT_TYPES` in `server/types/accounting.ts` to include `'DEBTOR'` and `'CREDITOR'` alongside `'SUNDRY_DEBTORS'` and `'SUNDRY_CREDITORS'`. |
+| **A-09** | Broad account code mapping & classification authority | **COMPLETED** | Harmonized `ChartOfAccounts.bs_classification` and `classifyAccountType` in `ledger.service.ts` and `fiscal-year-closing.service.ts`. Both user-configured COA classification and fallback classification are 100% unified. |
+| **A-10** | Dual firm identity fields (`firmId` vs `firm_id`) | **COMPLETED** | Standardized dual identity `$or: [{ firmId }, { firm_id }]` across all read, write, and reporting queries. |
+| **A-11** | External voucher IDs duplicate & collision guard | **COMPLETED** | In `UnifiedPostingService.postVoucher()`, added tenant collision guard and active duplicate check when `externalVoucherGroupId` is supplied. |
+| **A-12** | Opening balance replacement deletes prior GL history | **COMPLETED** | Replaced `(Ledger as any).deleteMany()` in `opening-balance.service.ts` with firm-scoped reversal updates `{ $set: { isReversed: true } }`, preserving complete financial audit history. |
+| **A-13** | Offline SQLite engine boundary & synchronization | **COMPLETED** | Formalized ERP boundary and architecture contract in [`docs/OFFLINE_ACCOUNTING_ARCHITECTURE_AND_SYNC_CONTRACT.md`](file:///c:/Users/PRAKASH/Documents/PROJECTS/FASTIFY/nuxt4/docs/OFFLINE_ACCOUNTING_ARCHITECTURE_AND_SYNC_CONTRACT.md). Defined SQLite store as disconnected buffer and central MongoDB GL as sole statutory truth. |
+
+**Audit Status:** **ALL PHASES & REMEDIATION TASKS FULLY IMPLEMENTED AND VERIFIED.**
+

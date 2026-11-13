@@ -105,7 +105,7 @@ export class FiscalYearClosingService {
     let bsCount = 0;
 
     for (const account of trialBalance) {
-      const classification = classifyAccountType(account.accountType);
+      const classification = (account as any).bsClassification || classifyAccountType(account.accountType);
 
       if (classification === 'PNL') {
         pnlCount++;
@@ -217,7 +217,7 @@ export class FiscalYearClosingService {
       let totalExpenseCleared = 0;
 
       for (const account of trialBalance) {
-        const classification = classifyAccountType(account.accountType);
+        const classification = (account as any).bsClassification || classifyAccountType(account.accountType);
         if (classification !== 'PNL') continue;
 
         const netBalance = account.totalDebit - account.totalCredit;

@@ -3,6 +3,7 @@ import Ledger, { type ILedger } from '../../models/Ledger';
 import ChartOfAccounts from '../../models/ChartOfAccounts';
 import Stock from '../../models/Stock';
 import { resolveLedgerPostingAccount, normalizeLedgerAccountHead } from './ledger-account-resolver';
+import { classifyAccountType } from '../../types/accounting';
 
 export interface LedgerEntryParams {
   firmId: mongoose.Types.ObjectId;
@@ -643,12 +644,15 @@ export class LedgerService {
     // 1. Fetch COA master registry for the firm — Chart of Accounts is the single source of truth
     const coaList = await ChartOfAccounts.find(
       { $or: [{ firm_id: firmId }, { firmId: firmId }] },
-      'account_name account_type'
+      'account_name account_type bs_classification'
     ).lean();
 
-    const canonicalCoaMap = new Map<string, string>();
+    const canonicalCoaMap = new Map<string, { accountType: string; bsClassification?: 'PNL' | 'BALANCE_SHEET' | null }>();
     for (const coa of coaList) {
-      canonicalCoaMap.set(coa.account_name.toLowerCase().trim(), coa.account_type);
+      canonicalCoaMap.set(coa.account_name.toLowerCase().trim(), {
+        accountType: coa.account_type,
+        bsClassification: coa.bs_classification
+      });
     }
 
     const balances = await Ledger.aggregate([
@@ -666,11 +670,14 @@ export class LedgerService {
 
     return balances.map(b => {
       const balance = b.totalDebit - b.totalCredit;
-      // Resolve canonical accountType from Chart of Accounts master
-      const canonicalType = canonicalCoaMap.get(b._id.toLowerCase().trim()) || b.accountType;
+      // Resolve canonical accountType & bsClassification from Chart of Accounts master
+      const coaEntry = canonicalCoaMap.get(b._id.toLowerCase().trim());
+      const canonicalType = coaEntry?.accountType || b.accountType;
+      const bsClassification = coaEntry?.bsClassification || classifyAccountType(canonicalType);
       return {
         accountHead: b._id,
         accountType: canonicalType,
+        bsClassification,
         totalDebit: b.totalDebit,
         totalCredit: b.totalCredit,
         balance: Math.abs(balance),

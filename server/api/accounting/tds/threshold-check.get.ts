@@ -38,6 +38,7 @@ export default defineEventHandler(async (event) => {
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
       transactionDate: { $gte: fyStartDate, $lte: fyEndDate },
       debitAmount: { $gt: 0 },
+      isReversed: { $ne: true },
       refType: { $ne: 'REVERSAL' }
     };
 
@@ -47,8 +48,27 @@ export default defineEventHandler(async (event) => {
       matchFilter.accountHead = accountHead;
     }
 
-    const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate narration').lean();
+    const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate narration voucherGroupId').lean();
     const priorYtd = priorEntries.reduce((sum: number, e: any) => sum + (Number(e.debitAmount) || 0), 0);
+
+    // Compute how much prior payment has ALREADY suffered TDS (prevents duplicate catch-up)
+    const vgIds = Array.from(new Set(priorEntries.map(e => e.voucherGroupId).filter((id): id is string => Boolean(id))));
+    let priorAlreadyTaxedAmount = 0;
+    if (vgIds.length > 0) {
+      const priorTdsLegs = await Ledger.find({
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        voucherGroupId: { $in: vgIds },
+        accountType: 'DUTIES_AND_TAXES',
+        creditAmount: { $gt: 0 },
+        isReversed: { $ne: true }
+      }, 'voucherGroupId').lean();
+      const taxedVgSet = new Set(priorTdsLegs.map(l => l.voucherGroupId));
+      for (const entry of priorEntries) {
+        if (entry.voucherGroupId && taxedVgSet.has(entry.voucherGroupId)) {
+          priorAlreadyTaxedAmount += Number(entry.debitAmount) || 0;
+        }
+      }
+    }
 
     // 3. Look up PAN across Party, COA, and PostgreSQL Labor Leaders
     let detectedPan = '';
@@ -104,7 +124,7 @@ export default defineEventHandler(async (event) => {
       : panResult.default194CRate;
 
     // 5. Section 194C(5) Threshold Evaluation
-    const thresholdResult = TdsCalculator.check194CThreshold(priorYtd, currentAmount);
+    const thresholdResult = TdsCalculator.check194CThreshold(priorYtd, currentAmount, priorAlreadyTaxedAmount);
 
     // 6. Pre-calculate Both Options (Gross-Up vs Standard Deduction)
     const grossUpComputation = TdsCalculator.computeTds({

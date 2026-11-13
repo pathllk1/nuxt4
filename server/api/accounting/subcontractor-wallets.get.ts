@@ -61,12 +61,13 @@ export default defineEventHandler(async (event) => {
 
   const [glPayouts, allExpenses] = await Promise.all([
     Ledger.find({
-      firmId: firmIdObj,
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      isReversed: { $ne: true },
       accountHead: { $in: linkedHeads },
       debitAmount: { $gt: 0 }
     }).lean(),
     SubcontractorExpense.find({
-      firmId: firmIdObj
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }]
     }).lean()
   ]);
 
@@ -77,7 +78,8 @@ export default defineEventHandler(async (event) => {
   let allVoucherLegs: any[] = [];
   if (vgIds.length > 0) {
     allVoucherLegs = await Ledger.find({
-      firmId: firmIdObj,
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      isReversed: { $ne: true },
       voucherGroupId: { $in: vgIds }
     }).lean();
   }

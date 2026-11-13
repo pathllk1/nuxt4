@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
 
     // Calculate balance from Ledger entries matching bankAccountId OR accountHead name
     const entries = await Ledger.find({
-      $and: [firmFilter, accountFilter]
+      $and: [firmFilter, accountFilter, { isReversed: { $ne: true } }]
     }).lean();
 
     let totalDebit = 0;

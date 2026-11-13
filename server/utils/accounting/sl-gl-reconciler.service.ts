@@ -5,6 +5,7 @@ import BankAccount from '../../models/BankAccount';
 import ChartOfAccounts from '../../models/ChartOfAccounts';
 import Advance from '../../models/Advance';
 import MasterRoll from '../../models/MasterRoll';
+import Bill from '../../models/Bill';
 
 // ─────────────────────────────────────────────────────────────────────────
 // SUB-LEDGER TO GENERAL LEDGER (SL-GL) RECONCILIATION SERVICE
@@ -220,6 +221,47 @@ export class SLGLReconcilerService {
       }
     }
 
+    // Cross-Database: Verify that all PostgreSQL labor advances are reflected in GL (A-04, A-07)
+    try {
+      const { getSql, isPgReady } = await import('../pg.config');
+      const sql = getSql();
+      if (sql && isPgReady()) {
+        const pgAdvances = await sql`
+          SELECT id, period_id, amount, ledger_voucher_group_id
+          FROM labor_advances
+          WHERE firm_id = ${String(firmId)}
+            AND ledger_voucher_group_id IS NOT NULL
+        `;
+        if (pgAdvances && pgAdvances.length > 0) {
+          const advVoucherIds = pgAdvances.map((a: any) => String(a.ledger_voucher_group_id)).filter(Boolean);
+          const glVouchers = await Ledger.find({
+            $or: [{ firmId }, { firm_id: firmId }],
+            voucherGroupId: { $in: advVoucherIds },
+            isReversed: { $ne: true }
+          }, 'voucherGroupId').lean();
+          const glVoucherSet = new Set(glVouchers.map((v: any) => v.voucherGroupId));
+          for (const adv of pgAdvances) {
+            const vId = String(adv.ledger_voucher_group_id);
+            if (vId && !glVoucherSet.has(vId)) {
+              variances.push({
+                category: 'LABOR',
+                entityName: `PostgreSQL Labor Advance #${adv.id} (Period #${adv.period_id}) missing or reversed in GL`,
+                entityId: String(adv.id),
+                glBalance: 0,
+                glBalanceType: 'DR',
+                slBalance: Number(adv.amount) || 0,
+                slBalanceType: 'DR',
+                variance: Number(adv.amount) || 0,
+                status: 'CRITICAL',
+              });
+            }
+          }
+        }
+      }
+    } catch (pgAdvErr: any) {
+      console.warn('[SL-GL Reconciler] Postgres labor advance cross-check notice:', pgAdvErr.message);
+    }
+
     const totalVariance = Math.abs(glGrandTotal - slGrandTotal);
 
     return {
@@ -322,7 +364,51 @@ export class SLGLReconcilerService {
       }
     }
 
-    const totalVariance = Math.abs(glGrandTotal - slGrandTotal);
+    // Independent Sub-Ledger Document Verification: Commercial Invoices (A-07)
+    if (category === 'AR' || category === 'AP') {
+      const billTypes = category === 'AR' ? ['SALES', 'CREDIT_NOTE'] : ['PURCHASE', 'DEBIT_NOTE'];
+      const activeBills = await Bill.find(
+        {
+          $or: [{ firmId }, { firm_id: firmId as any }],
+          btype: { $in: billTypes as any },
+          status: 'ACTIVE',
+          bdate: { $lte: toDate }
+        },
+        '_id bno btype netTotal partyId partyName voucherId'
+      ).lean();
+
+      if (activeBills.length > 0) {
+        const billVoucherIds = activeBills
+          .map((b: any) => b.voucherId)
+          .filter((vid: any): vid is string => typeof vid === 'string' && vid.length > 0);
+
+        const activeLedgerVouchers = await Ledger.find({
+          $or: [{ firmId }, { firm_id: firmId }],
+          voucherGroupId: { $in: billVoucherIds },
+          isReversed: { $ne: true }
+        }, 'voucherGroupId debitAmount creditAmount').lean();
+
+        const activeVoucherGroupSet = new Set(activeLedgerVouchers.map((v: any) => v.voucherGroupId));
+
+        for (const bill of activeBills) {
+          if (!bill.voucherId || !activeVoucherGroupSet.has(bill.voucherId)) {
+            variances.push({
+              category,
+              entityName: `${bill.partyName || 'Party'} - Missing or Unposted GL Voucher for Bill ${bill.bno}`,
+              entityId: String(bill._id),
+              glBalance: 0,
+              glBalanceType: 'DR',
+              slBalance: Number(bill.netTotal) || 0,
+              slBalanceType: category === 'AR' ? 'DR' : 'CR',
+              variance: Number(bill.netTotal) || 0,
+              status: 'CRITICAL',
+            });
+          }
+        }
+      }
+    }
+
+    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + variances.filter(v => v.entityName.includes('Missing or Unposted GL Voucher')).reduce((sum, v) => sum + v.variance, 0);
 
     return {
       summary: {

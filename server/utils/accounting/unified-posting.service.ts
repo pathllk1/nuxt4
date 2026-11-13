@@ -101,6 +101,25 @@ export class UnifiedPostingService {
 
     if (payload.externalVoucherGroupId && payload.externalVoucherNo) {
       // Backward-compat: caller already has IDs (e.g. legacy billing pipelines)
+      // Guard against cross-tenant collisions and active duplicate postings (A-11)
+      const existing = await Ledger.findOne({
+        voucherGroupId: payload.externalVoucherGroupId
+      }).session(session || null).lean();
+
+      if (existing) {
+        const existingFirmId = String(existing.firmId || existing.firm_id);
+        if (existingFirmId !== String(firmIdObj)) {
+          throw new Error(
+            `[ERP Security Violation] Voucher group ID "${payload.externalVoucherGroupId}" belongs to another firm.`
+          );
+        }
+        if (!existing.isReversed) {
+          throw new Error(
+            `[ERP Accounting Invariant] Active voucher group "${payload.externalVoucherGroupId}" already exists for this firm. Use updateVoucher or reverseVoucher instead of duplicate posting.`
+          );
+        }
+      }
+
       voucherGroupId = payload.externalVoucherGroupId;
       voucherNo = payload.externalVoucherNo;
     } else {

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import Ledger from '../../models/Ledger';
 import BankAccount from '../../models/BankAccount';
 import { UnifiedPostingService } from '../../utils/accounting/unified-posting.service';
 import { convertVoucherInputToLegs, mapLegacyVoucherType } from '../../utils/accounting/posting-adapter';
@@ -152,8 +153,34 @@ export default defineEventHandler(async (event) => {
           }
         }
       }
-    } catch (laborSyncErr) {
-      console.warn('Cross-module labor advance sync notice:', laborSyncErr);
+    } catch (laborSyncErr: any) {
+      console.error('[Dual-DB Sync Failure] Post-voucher labor advance sync error:', laborSyncErr.message);
+      // If the caller explicitly bound this voucher to a labor period, roll back MongoDB voucher (A-04)
+      const hasLaborPeriod = entries.some((e: any) => e.laborPeriodId) || body.laborPeriodId;
+      if (hasLaborPeriod && postResult?.voucherGroupId) {
+        try {
+          const firmOid = new mongoose.Types.ObjectId(String(user.firm_id));
+          await Ledger.updateMany(
+            {
+              voucherGroupId: postResult.voucherGroupId,
+              $or: [{ firmId: firmOid }, { firm_id: firmOid }]
+            },
+            {
+              $set: {
+                isReversed: true,
+                reversedAt: new Date(),
+                reversalReason: `Compensating cancellation: PostgreSQL labor advance write failed (${laborSyncErr.message || 'Error'})`
+              }
+            }
+          );
+        } catch (revErr: any) {
+          console.error('[Dual-DB Compensation Failure] Could not reverse orphaned MongoDB voucher:', revErr.message);
+        }
+        throw createError({
+          statusCode: 500,
+          statusMessage: `PostgreSQL labor synchronization failed: ${laborSyncErr.message || 'Database error'}. The General Ledger voucher was safely reversed to maintain cross-database parity.`
+        });
+      }
     }
   }
 
