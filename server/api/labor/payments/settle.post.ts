@@ -124,7 +124,11 @@ export default defineEventHandler(async (event) => {
                 { $set: { isReversed: true, reversedAt: new Date(), reversalReason: 'Voided duplicate voucher from concurrent settlement race' } }
               );
             } catch (vErr: any) {
-              console.warn('[Labor Settlement] Warning: Could not void concurrent duplicate voucher:', vErr?.message);
+              console.error('[Labor Settlement - F-06] Critical: Failed to reverse redundant voucher during settlement race:', vErr?.message);
+              throw createError({
+                statusCode: 500,
+                statusMessage: `Failed to reverse redundant GL voucher "${voucherGroupId}" during concurrent settlement race: ${vErr?.message}`
+              });
             }
           }
 

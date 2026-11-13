@@ -156,12 +156,26 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
       WHERE a.id = n.id AND (a.leg_index IS NULL OR a.leg_index IS DISTINCT FROM n.new_leg_index);
     `;
 
-    // 2. Deduplicate duplicate settlements per period keeping the latest created record
-    await clientSql`
-      DELETE FROM labor_settlements a
-      USING labor_settlements b
-      WHERE a.period_id = b.period_id AND a.created_at < b.created_at;
+    // 2. Non-Destructive Duplicate Settlement Detection (F-09)
+    // Never silently discard financial records during schema initialization!
+    // Detect duplicates, preserve all source rows, and block readiness with a conflict report.
+    const duplicateSettlements = await clientSql`
+      SELECT period_id, COUNT(*) as count, ARRAY_AGG(id) as settlement_ids
+      FROM labor_settlements
+      GROUP BY period_id
+      HAVING COUNT(*) > 1;
     `;
+
+    if (duplicateSettlements && duplicateSettlements.length > 0) {
+      const conflictSummary = duplicateSettlements
+        .map((r: any) => `Period #${r.period_id} (${r.count} records: IDs [${(r.settlement_ids || []).join(', ')}])`)
+        .join('; ');
+      console.error(`🚨 [Labor Schema Critical] Conflicting duplicate labor settlement rows detected: ${conflictSummary}`);
+      throw new Error(
+        `[Labor Schema Conflict - F-09] Duplicate settlement records detected for periods: ${conflictSummary}. ` +
+        `Startup readiness blocked to prevent financial data loss. Preserve all records and perform explicit reviewed reconciliation.`
+      );
+    }
 
     // Performance & Idempotency Indexes (F-06)
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_leaders_firm ON labor_leaders(firm_id);`;

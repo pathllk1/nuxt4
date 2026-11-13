@@ -111,6 +111,8 @@ export async function acquirePostingBarrier(
   inFlightPostings.get(key)!.add(postingId);
 
   // Distributed registration in MongoDB (independent of caller's transaction session)
+  // F-01: Fail-closed. Throw error if distributed barrier ticket registration cannot be confirmed.
+  let renewalTimer: any = null;
   if (mongoose.connection.readyState === 1) {
     try {
       await PostingBarrier.create([{
@@ -120,8 +122,23 @@ export async function acquirePostingBarrier(
         expiresAt: new Date(Date.now() + 60000)
       }]);
     } catch (e: any) {
-      console.warn('[PeriodLock] Notice: Could not register distributed barrier ticket:', e?.message);
+      // Remove from local memory before rethrowing
+      inFlightPostings.get(key)?.delete(postingId);
+      throw new Error(`[PeriodLock - F-01] Critical: Failed to register distributed barrier ticket: ${e?.message}`);
     }
+
+    // Renewable ownership tied to transaction lifecycle (prevents premature 60s TTL expiration)
+    renewalTimer = setInterval(async () => {
+      try {
+        if (!released) {
+          await PostingBarrier.updateOne(
+            { postingId },
+            { $set: { expiresAt: new Date(Date.now() + 60000) } }
+          );
+        }
+      } catch (_) {}
+    }, 15000);
+    if (typeof renewalTimer.unref === 'function') renewalTimer.unref();
   }
 
   let released = false;
@@ -132,6 +149,10 @@ export async function acquirePostingBarrier(
     release: () => {
       if (!released) {
         released = true;
+        if (renewalTimer) {
+          clearInterval(renewalTimer);
+          renewalTimer = null;
+        }
         const set = inFlightPostings.get(key);
         if (set) {
           set.delete(postingId);
@@ -176,13 +197,11 @@ export async function drainInFlightPostings(
     const localCount = inFlightPostings.get(key)?.size || 0;
     let distributedCount = 0;
     if (mongoose.connection.readyState === 1) {
-      try {
-        distributedCount = await PostingBarrier.countDocuments({
-          firmId: firmIdStr,
-          financialYear,
-          expiresAt: { $gt: new Date() }
-        });
-      } catch (_) {}
+      distributedCount = await PostingBarrier.countDocuments({
+        firmId: firmIdStr,
+        financialYear,
+        expiresAt: { $gt: new Date() }
+      });
     }
     if (localCount === 0 && distributedCount === 0) {
       return; // Drained successfully
@@ -193,13 +212,11 @@ export async function drainInFlightPostings(
   const remainingLocal = inFlightPostings.get(key)?.size || 0;
   let remainingDistributed = 0;
   if (mongoose.connection.readyState === 1) {
-    try {
-      remainingDistributed = await PostingBarrier.countDocuments({
-        firmId: firmIdStr,
-        financialYear,
-        expiresAt: { $gt: new Date() }
-      });
-    } catch (_) {}
+    remainingDistributed = await PostingBarrier.countDocuments({
+      firmId: firmIdStr,
+      financialYear,
+      expiresAt: { $gt: new Date() }
+    });
   }
 
   const totalRemaining = Math.max(remainingLocal, remainingDistributed);

@@ -148,6 +148,11 @@ export interface IVoucherPayload {
   externalVoucherNo?: string;
 
   /**
+   * Optional replacement voucher link (F-08)
+   */
+  replacesVoucherGroupId?: string | null;
+
+  /**
    * If true, skip the period lock check. Used ONLY by the Year-End Closing
    * service which must write into the locked period as part of the close.
    * This flag is stripped at the API boundary and CANNOT be set by end-users.

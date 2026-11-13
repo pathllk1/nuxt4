@@ -48,9 +48,10 @@ export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
     }
 
   } catch (err: any) {
-    console.error('⚠️ PostgreSQL connection failed:', err.message);
+    console.error('⚠️ PostgreSQL connection or schema verification failed:', err.message);
     sql = null;
     pgReady = false;
+    throw err;
   }
 
   return sql;

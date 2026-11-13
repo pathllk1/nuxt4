@@ -224,7 +224,7 @@
                 <div class="col-span-3 relative flex items-center">
                   <span class="absolute left-2.5 text-xs font-mono font-bold text-slate-400">₹</span>
                   <input 
-                    :value="Math.abs(Number(entry.amount) || 0)" 
+                    :value="entry.amount !== undefined && Math.abs(Number(entry.amount)) > 0 ? Math.abs(Number(entry.amount)) : ''" 
                     @input="onAmountInput(entry, ($event.target as HTMLInputElement).value)"
                     type="number" 
                     placeholder="0.00" 
@@ -281,7 +281,7 @@
 
               <!-- TDS 194C / Gross-Up Assistant for Payment Lines -->
               <div 
-                v-if="form.vtype === 'PAYMENT' && !entry.isDeduction && entry.accountHead && (Number(entry.amount) > 0 || isLaborLeader(entry.accountHead))"
+                v-if="form.vtype === 'PAYMENT' && !entry.isDeduction && entry.accountHead && (Number(entry.amount) > 0 || isLaborLeader(entry.accountHead)) && !isTdsRelatedLine(entry.accountHead)"
                 class="pt-1 space-y-2"
               >
                 <div class="flex items-center justify-between">
@@ -297,8 +297,11 @@
                       <span>⚡ TDS 194C & Gross-Up Assistant</span>
                       <span class="text-[9px]">{{ activeTdsLineIndex === index ? '▲' : '▼' }}</span>
                     </button>
-                    <span v-if="hasTdsDeductionLine()" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span v-if="hasValidTdsBooked()" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
                       <span>✓</span> TDS Liability Booked
+                    </span>
+                    <span v-else-if="hasTdsDeductionLine()" class="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span>⚠️</span> TDS Line ₹0 (Enter Amount)
                     </span>
                   </div>
                   <button 
@@ -435,7 +438,7 @@
                             </div>
                             <div class="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold border-t border-slate-100 dark:border-zinc-700 pt-1">
                               <span>Net Bank Outflow:</span>
-                              <span>₹{{ formatINR(tdsResult.grossUpOption.netAmount) }}</span>
+                              <span>₹{{ formatINR(tdsResult.grossUpOption.netPayout ?? tdsResult.grossUpOption.netAmount) }}</span>
                             </div>
                           </div>
                         </div>
@@ -473,7 +476,7 @@
                             </div>
                             <div class="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold border-t border-slate-100 dark:border-zinc-700 pt-1">
                               <span>Net Bank Outflow:</span>
-                              <span>₹{{ formatINR(tdsResult.standardOption.netAmount) }}</span>
+                              <span>₹{{ formatINR(tdsResult.standardOption.netPayout ?? tdsResult.standardOption.netAmount) }}</span>
                             </div>
                           </div>
                         </div>
@@ -800,20 +803,104 @@ function toggleDeduction(entry: LocalVoucherEntry) {
   entry.amount = entry.isDeduction ? -currentVal : currentVal;
 }
 
-function onAmountInput(entry: LocalVoucherEntry, rawValue: string) {
-  const val = Math.abs(parseFloat(rawValue) || 0);
-  entry.amount = entry.isDeduction ? -val : val;
-}
+let tdsInputDebounce: any = null;
 
-function formatINR(val: number) {
-  return Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function isTdsRelatedLine(accountHead?: string) {
+  if (!accountHead) return false;
+  const lower = accountHead.toLowerCase();
+  return lower.includes('tds borne by company') || lower.includes('tds payable');
 }
 
 function hasTdsDeductionLine() {
   return form.entries.some(e => 
-    (e.accountHead || '').toLowerCase().includes('tds payable') && 
-    (Number(e.amount) < 0 || e.isDeduction)
+    (e.accountHead || '').toLowerCase().includes('tds payable')
   );
+}
+
+function hasValidTdsBooked() {
+  return form.entries.some(e => 
+    (e.accountHead || '').toLowerCase().includes('tds payable') && 
+    Math.abs(Number(e.amount) || 0) > 0
+  );
+}
+
+function recalculateExistingTdsLines(payeeAmt: number) {
+  if (payeeAmt <= 0) return;
+
+  const rate = Number(tdsResult.value?.applicableRate) || 1;
+  const r = rate / 100;
+  const catchUpBase = Number(tdsResult.value?.threshold?.catchUpBase) || 0;
+  const requiresCatchUp = Boolean(tdsResult.value?.threshold?.requiresCatchUp);
+
+  // Check if Gross-Up is active (indicated by presence of 'TDS Borne by Company' line)
+  const expenseLine = form.entries.find(e => 
+    (e.accountHead || '').toLowerCase().includes('tds borne by company')
+  );
+  const tdsLine = form.entries.find(e => 
+    (e.accountHead || '').toLowerCase().includes('tds payable')
+  );
+
+  if (expenseLine) {
+    // Gross-Up mode: Payee receives payeeAmt net. Firm bears TDS.
+    const net = payeeAmt;
+    let totalTds = 0;
+    if (requiresCatchUp && catchUpBase > 0) {
+      const totalNet = catchUpBase + net;
+      const totalGross = totalNet / (1 - r);
+      totalTds = Math.round((totalGross - totalNet) * 100) / 100;
+    } else {
+      const gross = net / (1 - r);
+      totalTds = Math.round((gross - net) * 100) / 100;
+    }
+
+    expenseLine.amount = totalTds;
+    expenseLine.isDeduction = false;
+    if (tdsLine) {
+      tdsLine.amount = -totalTds;
+      tdsLine.isDeduction = true;
+    }
+  } else if (tdsLine) {
+    // Standard deduction mode: Payee absorbs TDS.
+    const gross = payeeAmt;
+    const regularTds = gross * r;
+    const catchUpTds = (requiresCatchUp && catchUpBase > 0) ? catchUpBase * r : 0;
+    const totalTds = Math.round((regularTds + catchUpTds) * 100) / 100;
+
+    tdsLine.amount = -totalTds;
+    tdsLine.isDeduction = true;
+  }
+}
+
+function onAmountInput(entry: LocalVoucherEntry, rawValue: string) {
+  const val = Math.abs(parseFloat(rawValue) || 0);
+  entry.amount = entry.isDeduction ? -val : val;
+
+  // If this is a TDS-generated line, don't trigger payee sync
+  if (isTdsRelatedLine(entry.accountHead)) {
+    return;
+  }
+
+  const lineIndex = form.entries.indexOf(entry);
+  if (lineIndex >= 0) {
+    originalAmounts[lineIndex] = val;
+  }
+
+  // 1. If TDS assistant panel is open for this line, re-fetch calculation with debounce
+  if (activeTdsLineIndex.value === lineIndex && val > 0) {
+    clearTimeout(tdsInputDebounce);
+    tdsInputDebounce = setTimeout(() => {
+      fetchTdsForLine(lineIndex);
+    }, 250);
+  }
+
+  // 2. If TDS lines already exist in the voucher, recalculate them dynamically so amounts never stay 0!
+  if (hasTdsDeductionLine() && val > 0) {
+    recalculateExistingTdsLines(val);
+  }
+}
+
+function formatINR(val: number) {
+  return Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function closeTdsAssistant() {
@@ -838,12 +925,14 @@ async function fetchTdsForLine(index: number) {
   tdsError.value = null;
   try {
     const rawAmt = Math.abs(Number(entry.amount) || 0);
-    if (originalAmounts[index] === undefined || originalAmounts[index] === 0) {
-      originalAmounts[index] = rawAmt;
+    const amtToCheck = rawAmt > 0 ? rawAmt : ((originalAmounts[index] && originalAmounts[index] > 0) ? originalAmounts[index] : 0);
+    if (amtToCheck > 0) {
+      originalAmounts[index] = amtToCheck;
     }
+
     const res: any = await checkTdsThreshold({
       accountHead: entry.accountHead,
-      amount: originalAmounts[index] || rawAmt,
+      amount: amtToCheck,
       paymentDate: form.vdate
     });
     if (res.success && res.data) {
@@ -856,20 +945,44 @@ async function fetchTdsForLine(index: number) {
   }
 }
 
-function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number) {
-  if (!tdsResult.value) return;
+async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number) {
   const entry = form.entries[index];
   if (!entry) return;
 
-  const baseline = originalAmounts[index] || Math.abs(Number(entry.amount) || 0);
+  const rawAmt = Math.abs(Number(entry.amount) || 0);
+  const baseline = rawAmt > 0 ? rawAmt : (originalAmounts[index] || 0);
+
+  if (baseline <= 0) {
+    alert('Please enter a payment amount greater than ₹0 before applying TDS.');
+    return;
+  }
+
+  originalAmounts[index] = baseline;
+
+  // If tdsResult is missing or calculated for a different amount, fetch now
+  if (!tdsResult.value || tdsResult.value.currentAmount !== baseline || !tdsResult.value.grossUpOption) {
+    await fetchTdsForLine(index);
+  }
+
+  const rate = Number(tdsResult.value?.applicableRate) || 1;
+  const r = rate / 100;
+  const catchUpBase = Number(tdsResult.value?.threshold?.catchUpBase) || 0;
+  const requiresCatchUp = Boolean(tdsResult.value?.threshold?.requiresCatchUp);
+  const catchUpTds = requiresCatchUp ? Math.round(catchUpBase * r * 100) / 100 : 0;
+
   let gross = baseline;
   let tdsAmt = 0;
   let modeName = '';
 
   if (optionType === 'GROSS_UP') {
-    gross = tdsResult.value.grossUpOption.grossAmount;
-    tdsAmt = tdsResult.value.grossUpOption.tdsAmount;
-    modeName = `Grossed-up TDS u/s 195A @ ${tdsResult.value.applicableRate}%`;
+    if (tdsResult.value?.grossUpOption && tdsResult.value.grossUpOption.tdsAmount > 0) {
+      gross = tdsResult.value.grossUpOption.grossAmount;
+      tdsAmt = tdsResult.value.grossUpOption.tdsAmount;
+    } else {
+      gross = Math.round(((baseline + catchUpTds) / (1 - r)) * 100) / 100;
+      tdsAmt = Math.round((gross - baseline) * 100) / 100;
+    }
+    modeName = `Grossed-up TDS u/s 195A @ ${rate}%`;
 
     // Leader / Contractor payment MUST BE NET.
     // TDS is on firm's head, so leader account is debited baseline (net payout),
@@ -912,9 +1025,14 @@ function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number) {
     }
   } else {
     // STANDARD / DEDUCT: Payee bears TDS
-    gross = tdsResult.value.standardOption.grossAmount;
-    tdsAmt = tdsResult.value.standardOption.tdsAmount;
-    modeName = `TDS Deducted u/s 194C @ ${tdsResult.value.applicableRate}%`;
+    if (tdsResult.value?.standardOption && tdsResult.value.standardOption.tdsAmount > 0) {
+      gross = tdsResult.value.standardOption.grossAmount;
+      tdsAmt = tdsResult.value.standardOption.tdsAmount;
+    } else {
+      gross = baseline;
+      tdsAmt = Math.round((gross * r + catchUpTds) * 100) / 100;
+    }
+    modeName = `TDS Deducted u/s 194C @ ${rate}%`;
 
     entry.amount = gross;
     entry.isDeduction = false;
@@ -946,16 +1064,15 @@ function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number) {
   }
 
   // 3. Append mode to narration if not already present
-  if (!form.narration.includes('TDS')) {
-    form.narration = form.narration ? `${form.narration} (${modeName})` : modeName;
-  }
+  const cleanNarration = form.narration.replace(/\s*\(?(Grossed-up TDS|TDS Deducted)[^)]*\)?/g, '').trim();
+  form.narration = cleanNarration ? `${cleanNarration} (${modeName})` : modeName;
 
   closeTdsAssistant();
 }
 
 function clearTdsForLine(index: number) {
   const entry = form.entries[index];
-  if (entry && originalAmounts[index] !== undefined) {
+  if (entry && originalAmounts[index] !== undefined && originalAmounts[index] > 0) {
     entry.amount = originalAmounts[index];
     entry.isDeduction = false;
   }
@@ -973,6 +1090,7 @@ function clearTdsForLine(index: number) {
   if (existingBorneIndex >= 0) {
     form.entries.splice(existingBorneIndex, 1);
   }
+  form.narration = form.narration.replace(/\s*\(?(Grossed-up TDS|TDS Deducted)[^)]*\)?/g, '').trim();
   delete originalAmounts[index];
   closeTdsAssistant();
 }
@@ -1024,7 +1142,9 @@ const isSaveDisabled = computed(() => {
 const getAccountType = (name: string) => {
   const match = chartOfAccounts.value.find(acc => acc.account_name === name);
   if (match) return match.account_type;
-  if ((name || '').toLowerCase().includes('tds payable')) return 'DUTIES_AND_TAXES';
+  const lower = (name || '').toLowerCase();
+  if (lower.includes('tds payable')) return 'DUTIES_AND_TAXES';
+  if (lower.includes('tds borne by company')) return 'EXPENSE';
   return 'ASSET';
 };
 
@@ -1141,5 +1261,9 @@ function resetForm() {
   form.entries = [
     { accountHead: '', amount: 0, isDeduction: false, laborPeriodId: '' }
   ] as any[];
+  closeTdsAssistant();
+  for (const k of Object.keys(originalAmounts)) {
+    delete originalAmounts[Number(k)];
+  }
 }
 </script>

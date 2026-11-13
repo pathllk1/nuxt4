@@ -213,7 +213,8 @@ export class SLGLReconcilerService {
             COALESCE(SUM(s.total_expenses), 0) AS sum_expenses,
             COALESCE(SUM(s.total_advances), 0) AS sum_settled_adv,
             COALESCE(SUM(s.paid_amount), 0) AS sum_paid,
-            COALESCE(SUM(s.net_payable), 0) AS sum_net_payable
+            COALESCE(SUM(s.net_payable), 0) AS sum_net_payable,
+            COALESCE(SUM(CASE WHEN s.net_payable > 0 THEN (s.net_payable - s.paid_amount) ELSE 0 END), 0) AS sum_adjustments
           FROM labor_settlements s
           JOIN labor_periods p ON s.period_id = p.id
           WHERE p.firm_id = ${String(firmId)} AND s.payment_date <= ${toDate}
@@ -221,14 +222,10 @@ export class SLGLReconcilerService {
         const sumWages = Number(settleSumRow?.sum_wages || 0);
         const sumExpenses = Number(settleSumRow?.sum_expenses || 0);
         const sumPaid = Number(settleSumRow?.sum_paid || 0);
-        const sumNetPayable = Number(settleSumRow?.sum_net_payable || 0);
-
-        let sumAdjustments = 0;
-        if (sumNetPayable > 0) {
-          sumAdjustments = sumNetPayable - sumPaid;
-        }
+        const sumAdjustments = Number(settleSumRow?.sum_adjustments || 0);
 
         // Net operational labor balance reflecting complete operational state without artificial clamping (F-05)
+        // Adjustments calculated per-settlement strictly matching labor-ledger-helper.ts posting logic
         slOperationalTotal = (totalAdv + sumPaid + sumAdjustments) - (sumWages + sumExpenses);
       }
     } catch (pgErr: any) {

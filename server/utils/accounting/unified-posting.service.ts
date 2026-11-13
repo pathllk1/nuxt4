@@ -116,19 +116,17 @@ export class UnifiedPostingService {
       };
 
       session.commitTransaction = async function (...args: any[]) {
-        try {
-          return await origCommit(...args);
-        } finally {
-          safeRelease();
-        }
+        const res = await origCommit(...args);
+        // F-01: Release ticket ONLY upon confirmed, successful commit!
+        safeRelease();
+        return res;
       };
 
       session.abortTransaction = async function (...args: any[]) {
-        try {
-          return await origAbort(...args);
-        } finally {
-          safeRelease();
-        }
+        const res = await origAbort(...args);
+        // Release ticket upon confirmed abort
+        safeRelease();
+        return res;
       };
 
       if (origEnd) {
@@ -163,8 +161,8 @@ export class UnifiedPostingService {
       let voucherGroupId: string;
       let voucherNo: string;
 
-      if (payload.externalVoucherGroupId && payload.externalVoucherNo) {
-        // Backward-compat: caller already has IDs (e.g. legacy billing pipelines)
+      if (payload.externalVoucherGroupId) {
+        // Honor stable caller-supplied voucher group ID (F-06: works even without caller-generated voucherNo)
         // Guard against cross-tenant collisions and active duplicate postings (A-11)
         const existing = await Ledger.findOne({
           voucherGroupId: payload.externalVoucherGroupId
@@ -185,7 +183,17 @@ export class UnifiedPostingService {
         }
 
         voucherGroupId = payload.externalVoucherGroupId;
-        voucherNo = payload.externalVoucherNo;
+        if (payload.externalVoucherNo) {
+          voucherNo = payload.externalVoucherNo;
+        } else {
+          const seq = await this.getNextSequenceNumber(
+            firmIdObj,
+            payload.voucherType,
+            financialYear,
+            session
+          );
+          voucherNo = `${VOUCHER_PREFIX_MAP[payload.voucherType]}-${financialYear}-${String(seq).padStart(6, '0')}`;
+        }
       } else {
         // Generate new gapless sequential numbers
         const seq = await this.getNextSequenceNumber(
@@ -308,10 +316,35 @@ export class UnifiedPostingService {
               );
             }
 
+            const exReplaces = (firstEx.replacesVoucherGroupId || (firstEx as any).tags?.replacesVoucherGroupId || '').trim();
+            const reqReplaces = (payload.replacesVoucherGroupId || payload.tags?.replacesVoucherGroupId || '').trim();
+            if (exReplaces !== reqReplaces) {
+              throw new Error(
+                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": replacesVoucherGroupId mismatch. Existing: "${exReplaces}", Requested: "${reqReplaces}".`
+              );
+            }
+
             // 3. Verify complete canonical per-leg payload identity (F-08)
             for (let i = 0; i < ledgerDocs.length; i++) {
               const exLeg = sortedExisting[i]!;
               const reqLeg = ledgerDocs[i]!;
+
+              // Per-leg accounting identity & reference IDs (F-08)
+              const exLegRef = (exLeg.refId ? String(exLeg.refId) : '').trim();
+              const reqLegRef = (reqLeg.refId ? String(reqLeg.refId) : '').trim();
+              if (exLegRef !== reqLegRef) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} refId mismatch. Existing: "${exLegRef}", Requested: "${reqLegRef}".`
+                );
+              }
+
+              const exCode = (exLeg.accountCode || '').trim();
+              const reqCode = (reqLeg.accountCode || '').trim();
+              if (exCode !== reqCode) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} accountCode mismatch. Existing: "${exCode}", Requested: "${reqCode}".`
+                );
+              }
 
               const exHead = (exLeg.accountHead || '').trim().toLowerCase();
               const reqHead = (reqLeg.accountHead || '').trim().toLowerCase();

@@ -32,13 +32,55 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
   const migrationsCol = db.collection('system_migrations');
   const ledgerCol = db.collection('ledgers');
 
+  // ── Step 4 Helper: Verify Unique Partial Index Presence and Filter on Collection (F-07) ──
+  const verifyPartialIndex = async () => {
+    const indexes = await ledgerCol.indexes();
+    const matchingIndex = indexes.find(idx => {
+      const key = idx.key || {};
+      const isMatchingKey = key.firmId === 1 && key.voucherGroupId === 1 && key.legIndex === 1;
+      if (!isMatchingKey || !idx.unique) return false;
+      const pfe = (idx as any).partialFilterExpression || {};
+      const hasReversedFilter = pfe.isReversed === false || (pfe.isReversed && pfe.isReversed.$ne === true);
+      return Boolean(hasReversedFilter);
+    });
+
+    if (!matchingIndex) {
+      try {
+        await ledgerCol.createIndex(
+          { firmId: 1, voucherGroupId: 1, legIndex: 1 },
+          {
+            unique: true,
+            partialFilterExpression: { isReversed: false, voucherGroupId: { $type: 'string' } },
+            name: 'firmId_1_voucherGroupId_1_legIndex_1'
+          }
+        );
+        console.log('✅ [Migration] Created/verified unique partial index firmId_1_voucherGroupId_1_legIndex_1 on ledgers');
+      } catch (idxErr: any) {
+        throw new Error(`[Migration Index Verification Failed - F-07] Could not create or verify unique index with partial filter: ${idxErr.message}`);
+      }
+    }
+  };
+
   // Check if migration has already succeeded
   const existingMigration = await migrationsCol.findOne({ migrationId, status: 'COMPLETED' });
   if (existingMigration) {
+    // F-07: Even on already-completed path, strictly verify that the unique index and partial filter still exist!
+    await verifyPartialIndex();
     return { migrationId, status: 'ALREADY_COMPLETED' };
   }
 
-  // ── Step 0: Normalize firm identity aliases across legacy documents (F-07) ──
+  // ── Step 0: Detect conflicting aliases & Normalize firm identity across legacy documents (F-07) ──
+  const conflictingAliases = await ledgerCol.countDocuments({
+    firmId: { $ne: null },
+    firm_id: { $ne: null },
+    $expr: { $ne: [{ $toString: '$firmId' }, { $toString: '$firm_id' }] }
+  });
+  if (conflictingAliases > 0) {
+    throw new Error(
+      `[ERP Multi-Tenant Invariant - F-07] Found ${conflictingAliases} ledger documents with conflicting non-null firmId and firm_id aliases. Startup blocked.`
+    );
+  }
+
   // The unique partial index strictly indexes `firmId`. Any document with `firm_id` but missing `firmId`
   // must have `firmId` populated so the index key matches the document's true tenant identity.
   await ledgerCol.updateMany(
@@ -137,28 +179,8 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     );
   }
 
-  // ── Step 4: Verify Unique Partial Index Presence on Collection (F-07) ──
-  const indexes = await ledgerCol.indexes();
-  const hasPartialUniqueIndex = indexes.some(idx => {
-    const key = idx.key || {};
-    return key.firmId === 1 && key.voucherGroupId === 1 && key.legIndex === 1 && idx.unique;
-  });
-
-  if (!hasPartialUniqueIndex) {
-    try {
-      await ledgerCol.createIndex(
-        { firmId: 1, voucherGroupId: 1, legIndex: 1 },
-        {
-          unique: true,
-          partialFilterExpression: { isReversed: false, voucherGroupId: { $type: 'string' } },
-          name: 'firmId_1_voucherGroupId_1_legIndex_1'
-        }
-      );
-      console.log('✅ [Migration] Created unique partial index firmId_1_voucherGroupId_1_legIndex_1 on ledgers');
-    } catch (idxErr: any) {
-      throw new Error(`[Migration Index Verification Failed] Could not create or verify unique index: ${idxErr.message}`);
-    }
-  }
+  // ── Step 4: Verify Unique Partial Index Presence and Filter on Collection (F-07) ──
+  await verifyPartialIndex();
 
   // ── Step 5: Record Completed Migration ──
   await migrationsCol.updateOne(

@@ -379,7 +379,11 @@ export default defineEventHandler(async (event) => {
           isApplied: exemptionApplied,
           certificateNumber,
         },
+        isAuthoritative: !hasIncompleteHistory,
         incompleteHistory: hasIncompleteHistory,
+        warning: hasIncompleteHistory
+          ? 'Historical vouchers contain unknown TDS tax rates. Prior taxable base could not be authoritatively established. Catch-up calculations are non-authoritative.'
+          : null,
         priorYtd: thresholdResult.priorYtd,
         currentAmount,
         newYtd: thresholdResult.newYtd,
@@ -392,8 +396,14 @@ export default defineEventHandler(async (event) => {
           singleLimit: 30000,
           aggregateLimit: 100000
         },
-        grossUpOption: grossUpComputation,
-        standardOption: standardComputation
+        grossUpOption: {
+          ...grossUpComputation,
+          netAmount: grossUpComputation.netPayout
+        },
+        standardOption: {
+          ...standardComputation,
+          netAmount: standardComputation.netPayout
+        }
       }
     };
   } catch (err: any) {
