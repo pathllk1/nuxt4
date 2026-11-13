@@ -22,7 +22,9 @@ export interface ILedger extends Document {
   paymentMode?: string;
   isWageEntry?: boolean;
   masterRollId?: mongoose.Types.ObjectId;
+  legIndex?: number;
   isReversed?: boolean;
+  reversalVoucherGroupId?: string | null;
   reversedAt?: Date | null;
   reversedBy?: string | null;
   replacesVoucherGroupId?: string | null;
@@ -135,9 +137,19 @@ const LedgerSchema = new Schema<ILedger>(
       ref: 'MasterRoll',
       default: null,
     },
+    legIndex: {
+      type: Number,
+      default: 0,
+      index: true,
+    },
     isReversed: {
       type: Boolean,
       default: false,
+      index: true,
+    },
+    reversalVoucherGroupId: {
+      type: String,
+      default: null,
       index: true,
     },
     reversedAt: {
@@ -171,6 +183,10 @@ LedgerSchema.pre('save', function () {
 
 LedgerSchema.index({ firmId: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, accountHead: 1, transactionDate: 1 });
+LedgerSchema.index(
+  { firmId: 1, voucherGroupId: 1, legIndex: 1 },
+  { unique: true, partialFilterExpression: { isReversed: { $ne: true }, voucherGroupId: { $type: 'string' } } }
+);
 LedgerSchema.index({ firmId: 1, voucherType: 1, voucherGroupId: 1 });
 LedgerSchema.index({ firmId: 1, partyId: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, masterRollId: 1, transactionDate: 1 });

@@ -287,39 +287,29 @@ export class FiscalYearClosingService {
       }
 
       // ── Step 3: Generate Opening Balances for next FY ──
-      // Get the UPDATED trial balance (after closing entry) for BS accounts only
-      const updatedBalance = await Ledger.aggregate([
-        {
-          $match: {
-            firmId: firmIdObj,
-            transactionDate: { $lte: fyEndDate },
-          },
-        },
-        {
-          $group: {
-            _id: { accountHead: '$accountHead', accountType: '$accountType' },
-            totalDebit: { $sum: '$debitAmount' },
-            totalCredit: { $sum: '$creditAmount' },
-          },
-        },
-      ]).session(session);
+      // Canonical parity (F-02): Use LedgerService.getTrialBalance() within the same session
+      // to guarantee identical population (filters reversed rows, dual firm identity)
+      // and authoritative ChartOfAccounts bsClassification.
+      const updatedBalance = await LedgerService.getTrialBalance(
+        firmIdObj,
+        undefined,
+        fyEndDate,
+        session
+      );
 
       let obCount = 0;
       const obLegs: IVoucherLeg[] = [];
 
       for (const row of updatedBalance) {
-        const accountType = row._id.accountType;
-        const classification = classifyAccountType(accountType);
-
-        // Only carry forward Balance Sheet (permanent) accounts
-        if (classification !== 'BALANCE_SHEET') continue;
+        // Only carry forward Balance Sheet (permanent) accounts per authoritative COA classification
+        if (row.bsClassification !== 'BALANCE_SHEET') continue;
 
         const netBalance = (row.totalDebit || 0) - (row.totalCredit || 0);
         if (Math.abs(netBalance) < 0.01) continue; // Zero balance, skip
 
         obLegs.push({
-          accountHead: row._id.accountHead,
-          accountType: accountType,
+          accountHead: row.accountHead,
+          accountType: row.accountType,
           debitAmount: netBalance > 0 ? netBalance : 0,
           creditAmount: netBalance < 0 ? Math.abs(netBalance) : 0,
           narration: `Opening Balance for FY ${nextFY}`,

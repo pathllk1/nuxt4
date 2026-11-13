@@ -86,10 +86,13 @@ export default defineEventHandler(async (event) => {
         session
       );
 
-      // Mark original ledger entries as reversed
+      // Mark original ledger entries as reversed with audit pointer (F-01)
+      // Since reversalLegs (a counter-voucher) is posted, BOTH original and reversal voucher
+      // remain in the general ledger and naturally net to 0. Marking isReversed: true would
+      // exclude original while keeping reversalLegs, causing a double-reversal.
       await Ledger.updateMany(
         { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }], refType: 'BILL', refId: bill._id },
-        { $set: { isReversed: true, reversedBy: reversalVoucherGroupId } },
+        { $set: { reversalVoucherGroupId, reversedBy: reversalVoucherGroupId, reversedAt: new Date() } },
         session ? { session } : {}
       );
     }

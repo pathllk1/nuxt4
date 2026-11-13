@@ -177,6 +177,9 @@ export interface IPostingResult {
 
   /** Sum of credits */
   totalCredit: number;
+
+  /** True if this result was returned idempotently from an existing committed voucher */
+  isIdempotentReplay?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

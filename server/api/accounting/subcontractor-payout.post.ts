@@ -147,6 +147,21 @@ export default defineEventHandler(async (event) => {
       narration: `Subcontract payout to ${subconUser.name}${hasTds ? ` (TDS u/s 194C @ ${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})` : ''}`
     });
 
+    // Statutory TDS snapshot for canonical register tracking (F-06)
+    const statutorySnapshot = {
+      isTds: true,
+      tdsSection: '194C',
+      tdsRate: effectiveRate,
+      isGrossUp: isGrossUp,
+      grossAmount: tdsComputation.grossAmount,
+      netAmount: tdsComputation.netPayout,
+      tdsAmount: tdsComputation.tdsAmount,
+      pan: subconAssignment.panNumber || '',
+      deducteeName: subconUser.name,
+      deducteeId: subconUser._id ? subconUser._id.toString() : undefined,
+      deducteeType: 'SUBCONTRACTOR'
+    };
+
     // Leg 2: Credit TDS Payable Liability (if TDS > 0)
     if (tdsComputation.tdsAmount > 0) {
       legs.push({
@@ -154,8 +169,9 @@ export default defineEventHandler(async (event) => {
         accountType: 'DUTIES_AND_TAXES',
         debitAmount: 0,
         creditAmount: tdsComputation.tdsAmount,
-        narration: `TDS 194C withheld on payout to ${subconUser.name} (${effectiveRate}%)`
-      });
+        narration: `TDS 194C withheld on payout to ${subconUser.name} (${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})`,
+        statutory: statutorySnapshot
+      } as any);
     }
 
     // Leg 3: Credit Bank / Cash (Net payout disbursed)
@@ -188,7 +204,8 @@ export default defineEventHandler(async (event) => {
           tdsAmount: tdsComputation.tdsAmount,
           grossAmount: tdsComputation.grossAmount,
           netPayout: tdsComputation.netPayout,
-          projectId: projectId || ''
+          projectId: projectId || '',
+          statutory: statutorySnapshot
         }
       }, session);
     };

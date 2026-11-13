@@ -87,9 +87,18 @@ export class TdsManagerService {
     if (accHead.includes('borne by company')) {
       return false; // Debit side of gross-up
     }
+    // Statutory GST / Cess / TCS / Output Tax accounts are NOT TDS (F-04)
+    if (/\b(gst|cgst|sgst|igst|cess|tcs|input tax credit|output gst|input gst)\b/i.test(accHead)) {
+      return false;
+    }
 
     // STRICT INCLUSIONS:
-    if (accType === 'DUTIES_AND_TAXES') return true;
+    // 1. Explicit statutory TDS metadata on leg
+    if (leg.statutory?.isTds === true || leg.statutory?.tdsSection || (leg.statutory?.tdsAmount && Number(leg.statutory.tdsAmount) > 0)) {
+      return true;
+    }
+
+    // 2. Explicit TDS account head
     if (/\btds\b/i.test(accHead) || /\btax deducted\b/i.test(accHead) || /\bwithholding\b/i.test(accHead)) {
       return true;
     }
@@ -183,21 +192,26 @@ export class TdsManagerService {
     const firmIdObj = new mongoose.Types.ObjectId(String(params.firmId));
     const { startDate, endDate, fy, qtr } = this.resolvePeriodDates(params);
 
-    // 1. Fetch only genuine TDS liability credit entries in date range
+    // 1. Fetch only genuine TDS liability credit entries in date range (F-04: explicitly exclude GST/Cess)
     const candidateTdsEntries = await Ledger.find({
       $and: [
         { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
         {
           $or: [
-            { accountType: 'DUTIES_AND_TAXES' },
+            { 'statutory.isTds': true },
+            { 'statutory.tdsSection': { $exists: true } },
             { accountHead: { $regex: /\btds\b|\btax deducted\b|\bwithholding\b/i } }
           ]
+        },
+        {
+          accountHead: {
+            $not: /\b(gst|cgst|sgst|igst|cess|tcs|borne by company)\b/i
+          }
         }
       ],
       transactionDate: { $gte: startDate, $lte: endDate },
       creditAmount: { $gt: 0 },
-      isReversed: { $ne: true },
-      accountHead: { $not: /borne by company/i }
+      isReversed: { $ne: true }
     }).lean();
 
     // Strictly filter through isTdsLiabilityLeg to eliminate any bank/cash lines
@@ -304,6 +318,8 @@ export class TdsManagerService {
         : siblingLegs.some(l => 
             (l.accountHead || '').toLowerCase().includes('tds borne by company') ||
             (l.narration || '').toLowerCase().includes('grossed-up') ||
+            (l.narration || '').toLowerCase().includes('gross-up') ||
+            (l.narration || '').toLowerCase().includes('gross up') ||
             (l.narration || '').toLowerCase().includes('195a')
           );
 

@@ -221,16 +221,18 @@ export class SLGLReconcilerService {
       }
     }
 
-    // Cross-Database: Verify that all PostgreSQL labor advances are reflected in GL (A-04, A-07)
+    // Cross-Database: Verify that all PostgreSQL labor advances are reflected in GL (A-04, A-07, F-03)
+    let pgAdvancesVarianceSum = 0;
     try {
       const { getSql, isPgReady } = await import('../pg.config');
       const sql = getSql();
       if (sql && isPgReady()) {
         const pgAdvances = await sql`
-          SELECT id, period_id, amount, ledger_voucher_group_id
+          SELECT id, period_id, amount, payment_date, ledger_voucher_group_id
           FROM labor_advances
           WHERE firm_id = ${String(firmId)}
             AND ledger_voucher_group_id IS NOT NULL
+            AND payment_date <= ${toDate}
         `;
         if (pgAdvances && pgAdvances.length > 0) {
           const advVoucherIds = pgAdvances.map((a: any) => String(a.ledger_voucher_group_id)).filter(Boolean);
@@ -243,31 +245,56 @@ export class SLGLReconcilerService {
           for (const adv of pgAdvances) {
             const vId = String(adv.ledger_voucher_group_id);
             if (vId && !glVoucherSet.has(vId)) {
+              const advAmt = Number(adv.amount) || 0;
+              pgAdvancesVarianceSum += advAmt;
               variances.push({
                 category: 'LABOR',
                 entityName: `PostgreSQL Labor Advance #${adv.id} (Period #${adv.period_id}) missing or reversed in GL`,
                 entityId: String(adv.id),
                 glBalance: 0,
                 glBalanceType: 'DR',
-                slBalance: Number(adv.amount) || 0,
+                slBalance: advAmt,
                 slBalanceType: 'DR',
-                variance: Number(adv.amount) || 0,
+                variance: advAmt,
                 status: 'CRITICAL',
               });
             }
           }
         }
+      } else {
+        variances.push({
+          category: 'LABOR',
+          entityName: 'PostgreSQL Database Unavailable for Cross-Verification',
+          entityId: 'PG_UNAVAILABLE',
+          glBalance: glGrandTotal,
+          glBalanceType: 'DR',
+          slBalance: 0,
+          slBalanceType: 'DR',
+          variance: 0,
+          status: 'WARNING'
+        });
       }
     } catch (pgAdvErr: any) {
       console.warn('[SL-GL Reconciler] Postgres labor advance cross-check notice:', pgAdvErr.message);
+      variances.push({
+        category: 'LABOR',
+        entityName: `PostgreSQL Verification Incomplete: ${pgAdvErr.message}`,
+        entityId: 'PG_ERROR',
+        glBalance: glGrandTotal,
+        glBalanceType: 'DR',
+        slBalance: 0,
+        slBalanceType: 'DR',
+        variance: 0,
+        status: 'WARNING'
+      });
     }
 
-    const totalVariance = Math.abs(glGrandTotal - slGrandTotal);
+    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + pgAdvancesVarianceSum;
 
     return {
       summary: {
         glTotal: glGrandTotal,
-        slTotal: slGrandTotal,
+        slTotal: slGrandTotal + pgAdvancesVarianceSum,
         variance: totalVariance,
         status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
       },
@@ -389,6 +416,16 @@ export class SLGLReconcilerService {
         }, 'voucherGroupId debitAmount creditAmount').lean();
 
         const activeVoucherGroupSet = new Set(activeLedgerVouchers.map((v: any) => v.voucherGroupId));
+        const voucherPartyLegMap = new Map<string, { dr: number; cr: number }>();
+        for (const leg of activeLedgerVouchers) {
+          const vId = leg.voucherGroupId;
+          if (vId) {
+            const curr = voucherPartyLegMap.get(vId) || { dr: 0, cr: 0 };
+            curr.dr += Number(leg.debitAmount) || 0;
+            curr.cr += Number(leg.creditAmount) || 0;
+            voucherPartyLegMap.set(vId, curr);
+          }
+        }
 
         for (const bill of activeBills) {
           if (!bill.voucherId || !activeVoucherGroupSet.has(bill.voucherId)) {
@@ -403,12 +440,39 @@ export class SLGLReconcilerService {
               variance: Number(bill.netTotal) || 0,
               status: 'CRITICAL',
             });
+          } else {
+            // Amount Parity Verification (F-03): Check that the GL voucher legs match the bill's net total
+            const voucherLegs = voucherPartyLegMap.get(bill.voucherId);
+            const billAmt = Number(bill.netTotal) || 0;
+            const voucherAmt = Math.max(voucherLegs?.dr || 0, voucherLegs?.cr || 0);
+            const diff = Math.abs(voucherAmt - billAmt);
+            if (diff > 0.05) {
+              variances.push({
+                category,
+                entityName: `${bill.partyName || 'Party'} - Bill Amount Mismatch for ${bill.bno} (Billed: ₹${billAmt.toFixed(2)}, Voucher: ₹${voucherAmt.toFixed(2)})`,
+                entityId: String(bill._id),
+                glBalance: voucherAmt,
+                glBalanceType: category === 'AR' ? 'DR' : 'CR',
+                slBalance: billAmt,
+                slBalanceType: category === 'AR' ? 'DR' : 'CR',
+                variance: diff,
+                status: 'CRITICAL',
+              });
+            }
           }
         }
       }
     }
 
-    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + variances.filter(v => v.entityName.includes('Missing or Unposted GL Voucher')).reduce((sum, v) => sum + v.variance, 0);
+    const billVarianceSum = variances
+      .filter(v => v.entityName.includes('Missing or Unposted GL Voucher') || v.entityName.includes('Bill Amount Mismatch'))
+      .reduce((sum, v) => sum + v.variance, 0);
+
+    const partyOrphanSum = variances
+      .filter(v => v.entityName.includes('Unknown Party') || v.entityName.includes('Untagged'))
+      .reduce((sum, v) => sum + v.variance, 0);
+
+    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + billVarianceSum + partyOrphanSum;
 
     return {
       summary: {

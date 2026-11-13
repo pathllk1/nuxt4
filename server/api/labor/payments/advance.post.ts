@@ -86,7 +86,9 @@ export default defineEventHandler(async (event) => {
         RETURNING *
       `;
     } catch (pgError: any) {
-      // Compensating transaction: roll back dangling MongoDB voucher with strict tenant scoping
+      // Compensating transaction: roll back dangling MongoDB voucher with strict tenant scoping (F-07)
+      let compSuccess = false;
+      let compErrorMsg = '';
       if (voucherGroupId) {
         try {
           const mongoose = (await import('mongoose')).default;
@@ -94,7 +96,7 @@ export default defineEventHandler(async (event) => {
           const firmOid = mongoose.Types.ObjectId.isValid(String(period.firm_id))
             ? new mongoose.Types.ObjectId(String(period.firm_id))
             : period.firm_id;
-          await Ledger.updateMany(
+          const compResult = await Ledger.updateMany(
             {
               voucherGroupId,
               $or: [{ firmId: firmOid }, { firm_id: firmOid }]
@@ -107,9 +109,18 @@ export default defineEventHandler(async (event) => {
               }
             }
           );
+          compSuccess = (compResult?.modifiedCount || 0) > 0;
         } catch (compErr: any) {
+          compErrorMsg = compErr.message;
           console.error('[Dual-DB Compensation Failure] Could not reverse orphaned MongoDB voucher:', compErr.message);
         }
+      }
+
+      if (voucherGroupId && !compSuccess) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: `PostgreSQL labor advance write failed: ${pgError.message || 'Database error'}. WARNING: Compensating void of MongoDB voucher "${voucherGroupId}" could not be confirmed (${compErrorMsg || '0 documents updated'}). Manual reconciliation required.`
+        });
       }
       throw pgError;
     }

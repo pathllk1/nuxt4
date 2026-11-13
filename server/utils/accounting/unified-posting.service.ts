@@ -138,9 +138,10 @@ export class UnifiedPostingService {
     const isWage = Boolean(payload.tags?.isWageEntry || payload.refType === 'WAGE' || payload.refType === 'WAGE_PAYOUT');
     const masterRollId = payload.tags?.masterRollId ? this.toObjectIdSafe(payload.tags.masterRollId) : null;
 
-    const ledgerDocs = resolvedLegs.map((leg) => ({
+    const ledgerDocs = resolvedLegs.map((leg, index) => ({
       firmId: firmIdObj,
       firm_id: firmIdObj, // Canonical dual-identity mirror
+      legIndex: index,
       transactionDate: payload.transactionDate,
       accountHead: leg.accountHead,
       accountType: leg.accountType,
@@ -165,8 +166,35 @@ export class UnifiedPostingService {
       createdBy: payload.createdBy,
     }));
 
-    // ── Step 6: Atomic Insert ──
-    await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
+    // ── Step 6: Atomic Insert with Idempotency Guard (F-08) ──
+    try {
+      await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
+    } catch (insertError: any) {
+      if (insertError.code === 11000 && payload.externalVoucherGroupId) {
+        // Concurrency idempotency: if duplicate key hit for external voucher, return already committed result
+        const existingDocs = await Ledger.find({
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+          voucherGroupId: payload.externalVoucherGroupId,
+          isReversed: { $ne: true }
+        }).session(session || null).lean();
+
+        if (existingDocs && existingDocs.length > 0) {
+          const first = existingDocs[0]!;
+          const drTotal = existingDocs.reduce((s, d) => s + (d.debitAmount || 0), 0);
+          const crTotal = existingDocs.reduce((s, d) => s + (d.creditAmount || 0), 0);
+          return {
+            success: true,
+            voucherGroupId: first.voucherGroupId!,
+            voucherNo: first.voucherNo!,
+            entryCount: existingDocs.length,
+            totalDebit: drTotal,
+            totalCredit: crTotal,
+            isIdempotentReplay: true
+          };
+        }
+      }
+      throw insertError;
+    }
 
     return {
       success: true,
@@ -220,9 +248,9 @@ export class UnifiedPostingService {
     }
 
     // Invariant: Guard against double-reversal cascades
-    if (originalEntries.some((e) => e.isReversed)) {
+    if (originalEntries.some((e: any) => e.reversalVoucherGroupId || e.isReversed || (e.tags && e.tags.reversedByVoucherGroupId))) {
       throw new Error(
-        `[Idempotency Guard] Voucher "${originalVoucherGroupId}" is already marked as reversed. Duplicate reversal rejected.`
+        `[Idempotency Guard] Voucher "${originalVoucherGroupId}" is already reversed. Duplicate reversal rejected.`
       );
     }
 
@@ -272,7 +300,13 @@ export class UnifiedPostingService {
       session
     );
 
-    // Flag original entries as reversed with audit metadata
+    // Link original entries to reversal voucher with audit metadata
+    // STATUTORY ERP SEMANTICS (F-01):
+    // When a counter-voucher is posted, BOTH the original voucher AND the counter-voucher
+    // remain active in the General Ledger. The counter-voucher (flipped DR/CR) mathematically
+    // nets the account balances to zero. Marking the original isReversed: true would cause
+    // effective-ledger queries ({ isReversed: { $ne: true } }) to omit the original while
+    // including the counter-voucher, improperly moving the balance by -X instead of 0.
     await Ledger.updateMany(
       {
         $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
@@ -280,7 +314,7 @@ export class UnifiedPostingService {
       },
       {
         $set: {
-          isReversed: true,
+          reversalVoucherGroupId: reversalResult.voucherGroupId,
           reversedAt: new Date(),
           reversedBy: createdBy,
         }
@@ -387,9 +421,10 @@ export class UnifiedPostingService {
       ? this.toObjectIdSafe(payload.tags.masterRollId)
       : (firstEntry.masterRollId ? this.toObjectIdSafe(firstEntry.masterRollId) : null);
 
-    const ledgerDocs = resolvedLegs.map((leg) => ({
+    const ledgerDocs = resolvedLegs.map((leg, index) => ({
       firmId: firmIdObj,
       firm_id: firmIdObj,
+      legIndex: index,
       transactionDate: payload.transactionDate,
       accountHead: leg.accountHead,
       accountType: leg.accountType,

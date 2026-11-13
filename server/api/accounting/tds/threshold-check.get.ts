@@ -14,8 +14,6 @@ export default defineEventHandler(async (event) => {
     const query = getQuery(event);
 
     const accountHead = query.accountHead ? String(query.accountHead).trim() : '';
-    const currentAmount = Math.max(0, parseFloat(String(query.amount || '0')) || 0);
-    const paymentDate = String(query.paymentDate || new Date().toISOString().split('T')[0]);
     const leaderId = query.leaderId ? String(query.leaderId).trim() : '';
     const partyId = query.partyId ? String(query.partyId).trim() : '';
     const customRate = query.rate ? parseFloat(String(query.rate)) : null;
@@ -24,8 +22,23 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'accountHead, partyId, or leaderId is required' });
     }
 
+    // Strict Input Validation (F-05)
+    const paymentDate = String(query.paymentDate || new Date().toISOString().split('T')[0]).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) {
+      throw createError({ statusCode: 400, statusMessage: 'Invalid paymentDate format. Expected YYYY-MM-DD.' });
+    }
+    const pDate = new Date(`${paymentDate}T00:00:00Z`);
+    if (isNaN(pDate.getTime())) {
+      throw createError({ statusCode: 400, statusMessage: 'Invalid calendar date for paymentDate.' });
+    }
+
+    const rawAmount = query.amount !== undefined ? parseFloat(String(query.amount)) : 0;
+    if (isNaN(rawAmount) || !Number.isFinite(rawAmount) || rawAmount < 0) {
+      throw createError({ statusCode: 400, statusMessage: 'Invalid amount. Must be a finite non-negative number.' });
+    }
+    const currentAmount = rawAmount;
+
     // 1. Determine Financial Year boundaries (April 1 to March 31)
-    const pDate = new Date(paymentDate);
     const year = pDate.getFullYear();
     const month = pDate.getMonth() + 1; // 1-12
     const fyStartYear = month >= 4 ? year : year - 1;
@@ -34,9 +47,10 @@ export default defineEventHandler(async (event) => {
     const fyString = `${fyStartYear}-${String(fyStartYear + 1).slice(-2)}`;
 
     // 2. Query Prior YTD Payments in General Ledger for this Financial Year
+    // Capped at paymentDate (F-05: never evaluate future transactions in the same FY for past payment)
     const matchFilter: any = {
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-      transactionDate: { $gte: fyStartDate, $lte: fyEndDate },
+      transactionDate: { $gte: fyStartDate, $lte: paymentDate },
       debitAmount: { $gt: 0 },
       isReversed: { $ne: true },
       refType: { $ne: 'REVERSAL' }
@@ -56,12 +70,26 @@ export default defineEventHandler(async (event) => {
     let priorAlreadyTaxedAmount = 0;
     if (vgIds.length > 0) {
       const priorTdsLegs = await Ledger.find({
-        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-        voucherGroupId: { $in: vgIds },
-        accountType: 'DUTIES_AND_TAXES',
-        creditAmount: { $gt: 0 },
-        isReversed: { $ne: true }
-      }, 'voucherGroupId').lean();
+        $and: [
+          { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }] },
+          { voucherGroupId: { $in: vgIds } },
+          { creditAmount: { $gt: 0 } },
+          { isReversed: { $ne: true } },
+          {
+            $or: [
+              { 'statutory.isTds': true },
+              { 'statutory.tdsSection': { $exists: true } },
+              { accountHead: { $regex: /\btds\b|\btax deducted\b|\bwithholding\b/i } }
+            ]
+          },
+          {
+            accountHead: {
+              $not: /\b(gst|cgst|sgst|igst|cess|tcs|borne by company)\b/i
+            }
+          }
+        ]
+      }, 'voucherGroupId statutory accountHead').lean();
+
       const taxedVgSet = new Set(priorTdsLegs.map(l => l.voucherGroupId));
       for (const entry of priorEntries) {
         if (entry.voucherGroupId && taxedVgSet.has(entry.voucherGroupId)) {

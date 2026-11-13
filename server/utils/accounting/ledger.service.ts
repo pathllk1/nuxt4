@@ -633,7 +633,7 @@ export class LedgerService {
     return { totalDebit, totalCredit, balance: Math.abs(balance), balanceType: balance >= 0 ? 'DR' : 'CR' };
   }
 
-  static async getTrialBalance(firmId: mongoose.Types.ObjectId, fromDate?: string, toDate?: string) {
+  static async getTrialBalance(firmId: mongoose.Types.ObjectId, fromDate?: string, toDate?: string, session?: mongoose.ClientSession) {
     const query = this.getEffectiveLedgerMatch(firmId);
     if (fromDate || toDate) {
       (query as any).transactionDate = {};
@@ -642,10 +642,12 @@ export class LedgerService {
     }
 
     // 1. Fetch COA master registry for the firm — Chart of Accounts is the single source of truth
-    const coaList = await ChartOfAccounts.find(
+    const coaQuery = ChartOfAccounts.find(
       { $or: [{ firm_id: firmId }, { firmId: firmId }] },
       'account_name account_type bs_classification'
-    ).lean();
+    );
+    if (session) coaQuery.session(session);
+    const coaList = await coaQuery.lean();
 
     const canonicalCoaMap = new Map<string, { accountType: string; bsClassification?: 'PNL' | 'BALANCE_SHEET' | null }>();
     for (const coa of coaList) {
@@ -655,7 +657,7 @@ export class LedgerService {
       });
     }
 
-    const balances = await Ledger.aggregate([
+    const agg = Ledger.aggregate([
       { $match: query },
       {
         $group: {
@@ -667,6 +669,8 @@ export class LedgerService {
       },
       { $sort: { _id: 1 } },
     ]);
+    if (session) agg.session(session);
+    const balances = await agg;
 
     return balances.map(b => {
       const balance = b.totalDebit - b.totalCredit;

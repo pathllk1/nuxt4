@@ -155,12 +155,14 @@ export default defineEventHandler(async (event) => {
       }
     } catch (laborSyncErr: any) {
       console.error('[Dual-DB Sync Failure] Post-voucher labor advance sync error:', laborSyncErr.message);
-      // If the caller explicitly bound this voucher to a labor period, roll back MongoDB voucher (A-04)
+      // If the caller explicitly bound this voucher to a labor period, roll back MongoDB voucher (A-04, F-07)
       const hasLaborPeriod = entries.some((e: any) => e.laborPeriodId) || body.laborPeriodId;
       if (hasLaborPeriod && postResult?.voucherGroupId) {
+        let compSuccess = false;
+        let compErrorMsg = '';
         try {
           const firmOid = new mongoose.Types.ObjectId(String(user.firm_id));
-          await Ledger.updateMany(
+          const compResult = await Ledger.updateMany(
             {
               voucherGroupId: postResult.voucherGroupId,
               $or: [{ firmId: firmOid }, { firm_id: firmOid }]
@@ -173,13 +175,23 @@ export default defineEventHandler(async (event) => {
               }
             }
           );
+          compSuccess = (compResult?.modifiedCount || 0) > 0;
         } catch (revErr: any) {
+          compErrorMsg = revErr.message;
           console.error('[Dual-DB Compensation Failure] Could not reverse orphaned MongoDB voucher:', revErr.message);
         }
-        throw createError({
-          statusCode: 500,
-          statusMessage: `PostgreSQL labor synchronization failed: ${laborSyncErr.message || 'Database error'}. The General Ledger voucher was safely reversed to maintain cross-database parity.`
-        });
+
+        if (compSuccess) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: `PostgreSQL labor synchronization failed: ${laborSyncErr.message || 'Database error'}. General Ledger voucher "${postResult.voucherGroupId}" was successfully voided via compensating transaction.`
+          });
+        } else {
+          throw createError({
+            statusCode: 500,
+            statusMessage: `CRITICAL INTEGRITY ALERT: PostgreSQL labor synchronization failed: ${laborSyncErr.message || 'Database error'}. Compensating void of General Ledger voucher "${postResult.voucherGroupId}" FAILED (${compErrorMsg || '0 documents modified'}). Manual reconciliation required.`
+          });
+        }
       }
     }
   }
