@@ -75,18 +75,27 @@ export default defineEventHandler(async (event) => {
       `;
     } catch (_) {}
 
-    // Insert into PostgreSQL labor_settlements & update labor_periods status
+    // Insert into PostgreSQL labor_settlements & update labor_periods status (idempotent write)
     let settlement: any = null;
     try {
       await sql.begin(async (tx) => {
-        [settlement] = await tx`
-          INSERT INTO labor_settlements (
-            period_id, total_wages, total_expenses, total_advances, net_payable, paid_amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id, adjustment_reason
-          ) VALUES (
-            ${period_id}, ${totalWages}, ${totalExpenses}, ${totalAdvances}, ${netPayable}, ${numPaidAmount}, ${payment_date}, ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId}, ${adjustment_reason || null}
-          )
-          RETURNING *
+        const existingSettle = await tx`
+          SELECT * FROM labor_settlements
+          WHERE period_id = ${period_id} AND ledger_voucher_group_id = ${voucherGroupId}
+          LIMIT 1
         `;
+        if (existingSettle && existingSettle.length > 0) {
+          settlement = existingSettle[0];
+        } else {
+          [settlement] = await tx`
+            INSERT INTO labor_settlements (
+              period_id, total_wages, total_expenses, total_advances, net_payable, paid_amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id, adjustment_reason
+            ) VALUES (
+              ${period_id}, ${totalWages}, ${totalExpenses}, ${totalAdvances}, ${netPayable}, ${numPaidAmount}, ${payment_date}, ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId}, ${adjustment_reason || null}
+            )
+            RETURNING *
+          `;
+        }
 
         await tx`
           UPDATE labor_periods SET status = 'Settled', updated_at = CURRENT_TIMESTAMP WHERE id = ${period_id}

@@ -178,7 +178,8 @@ export class SLGLReconcilerService {
       leaderMap.set(l.account_name.trim().toLowerCase(), l.account_name);
     }
 
-    // Cross-Database: Query registered Labor Leaders from PostgreSQL
+    // Cross-Database: Query registered Labor Leaders and independent operational total from PostgreSQL (F-05)
+    let slOperationalTotal = 0;
     try {
       const { getSql, isPgReady } = await import('../pg.config');
       const sql = getSql();
@@ -194,18 +195,26 @@ export class SLGLReconcilerService {
             leaderMap.set(lowerName, String(pl.name));
           }
         }
+
+        // Independent operational sub-ledger totals derived from PostgreSQL operational records (F-05)
+        const [advSumRow] = await sql`
+          SELECT COALESCE(SUM(amount), 0) AS total_adv
+          FROM labor_advances
+          WHERE firm_id = ${String(firmId)} AND payment_date <= ${toDate}
+        `;
+        slOperationalTotal = Number(advSumRow?.total_adv || 0);
       }
     } catch (pgErr: any) {
       console.warn('[SL-GL Reconciler] Postgres labor leader sync notice:', pgErr.message);
     }
 
-    let slGrandTotal = 0;
+    let slGrandTotal = slOperationalTotal > 0 ? slOperationalTotal : 0;
     const variances: IReconciliationVariance[] = [];
 
     for (const [headKey, glNet] of glMap) {
       const canonicalName = leaderMap.get(headKey);
       if (canonicalName) {
-        slGrandTotal += glNet;
+        if (slOperationalTotal === 0) slGrandTotal += glNet;
       } else {
         variances.push({
           category: 'LABOR',
@@ -221,35 +230,53 @@ export class SLGLReconcilerService {
       }
     }
 
-    // Cross-Database: Verify that all PostgreSQL labor advances are reflected in GL (A-04, A-07, F-03)
+    // Cross-Database: Verify that all PostgreSQL labor advances are reflected in GL with exact cutoff & leader parity (A-04, A-07, F-03, F-05)
     let pgAdvancesVarianceSum = 0;
     try {
       const { getSql, isPgReady } = await import('../pg.config');
       const sql = getSql();
       if (sql && isPgReady()) {
         const pgAdvances = await sql`
-          SELECT id, period_id, amount, payment_date, ledger_voucher_group_id
-          FROM labor_advances
-          WHERE firm_id = ${String(firmId)}
-            AND ledger_voucher_group_id IS NOT NULL
-            AND payment_date <= ${toDate}
+          SELECT a.id, a.period_id, a.amount, a.payment_date, a.ledger_voucher_group_id,
+                 a.gross_amount, a.tds_amount, a.tds_mode, a.paid_from_bank_account_id,
+                 p.leader_id, l.name as leader_name
+          FROM labor_advances a
+          LEFT JOIN labor_periods p ON a.period_id = p.id
+          LEFT JOIN labor_leaders l ON p.leader_id = l.id
+          WHERE a.firm_id = ${String(firmId)}
+            AND a.ledger_voucher_group_id IS NOT NULL
+            AND a.payment_date <= ${toDate}
         `;
         if (pgAdvances && pgAdvances.length > 0) {
           const advVoucherIds = pgAdvances.map((a: any) => String(a.ledger_voucher_group_id)).filter(Boolean);
-          const glVouchers = await Ledger.find({
+          // STRICT: Filter GL legs by transactionDate <= toDate and effective population (F-05, F-07)
+          const glLegs = await Ledger.find({
             $or: [{ firmId }, { firm_id: firmId }],
             voucherGroupId: { $in: advVoucherIds },
+            transactionDate: { $lte: toDate },
             isReversed: { $ne: true }
-          }, 'voucherGroupId').lean();
-          const glVoucherSet = new Set(glVouchers.map((v: any) => v.voucherGroupId));
+          }, 'voucherGroupId accountHead accountType debitAmount creditAmount bankAccountId transactionDate').lean();
+
+          const glLegsByGroup = new Map<string, any[]>();
+          for (const leg of glLegs) {
+            const vId = leg.voucherGroupId;
+            if (vId) {
+              const list = glLegsByGroup.get(vId) || [];
+              list.push(leg);
+              glLegsByGroup.set(vId, list);
+            }
+          }
+
           for (const adv of pgAdvances) {
             const vId = String(adv.ledger_voucher_group_id);
-            if (vId && !glVoucherSet.has(vId)) {
-              const advAmt = Number(adv.amount) || 0;
+            const legs = glLegsByGroup.get(vId);
+            const advAmt = Number(adv.amount) || 0;
+
+            if (!legs || legs.length === 0) {
               pgAdvancesVarianceSum += advAmt;
               variances.push({
                 category: 'LABOR',
-                entityName: `PostgreSQL Labor Advance #${adv.id} (Period #${adv.period_id}) missing or reversed in GL`,
+                entityName: `PostgreSQL Labor Advance #${adv.id} (Period #${adv.period_id}) missing or reversed in GL at cutoff ${toDate}`,
                 entityId: String(adv.id),
                 glBalance: 0,
                 glBalanceType: 'DR',
@@ -258,10 +285,62 @@ export class SLGLReconcilerService {
                 variance: advAmt,
                 status: 'CRITICAL',
               });
+              continue;
+            }
+
+            // Verify specific labor leader debit leg matching the exact PostgreSQL leader (F-05)
+            const targetLeaderName = (adv.leader_name || '').trim().toLowerCase();
+            const leaderLeg = legs.find((l: any) => {
+              if (Number(l.debitAmount) <= 0) return false;
+              if (targetLeaderName) {
+                const head = (l.accountHead || '').trim().toLowerCase();
+                return head === targetLeaderName || head.includes(targetLeaderName);
+              }
+              return l.accountType === 'LABOR_LEADER' || l.accountType === 'ADVANCE_TO_LABOR';
+            });
+
+            if (!leaderLeg) {
+              pgAdvancesVarianceSum += advAmt;
+              variances.push({
+                category: 'LABOR',
+                entityName: `PostgreSQL Labor Advance #${adv.id}: Missing Leader GL Debit Leg for "${adv.leader_name || 'Leader'}"`,
+                entityId: String(adv.id),
+                glBalance: 0,
+                glBalanceType: 'DR',
+                slBalance: advAmt,
+                slBalanceType: 'DR',
+                variance: advAmt,
+                status: 'CRITICAL',
+              });
+              continue;
+            }
+
+            // Expected amount basis depends on TDS mode (F-05):
+            // In DEDUCT mode, leader leg debits gross amount; in GROSS_UP mode, leader leg debits net payout
+            const expectedDebit = adv.tds_mode === 'DEDUCT'
+              ? (Number(adv.gross_amount) || advAmt)
+              : advAmt;
+
+            const legDr = Number(leaderLeg.debitAmount) || 0;
+            const diff = Math.abs(legDr - expectedDebit);
+            if (diff > 0.05) {
+              pgAdvancesVarianceSum += diff;
+              variances.push({
+                category: 'LABOR',
+                entityName: `PostgreSQL Labor Advance #${adv.id} Amount Mismatch (Expected ${adv.tds_mode || 'NET'}: ₹${expectedDebit.toFixed(2)}, GL: ₹${legDr.toFixed(2)})`,
+                entityId: String(adv.id),
+                glBalance: legDr,
+                glBalanceType: 'DR',
+                slBalance: expectedDebit,
+                slBalanceType: 'DR',
+                variance: diff,
+                status: 'CRITICAL',
+              });
             }
           }
         }
       } else {
+        // PostgreSQL unavailable must prevent unverified healthy assurance (F-05)
         variances.push({
           category: 'LABOR',
           entityName: 'PostgreSQL Database Unavailable for Cross-Verification',
@@ -270,8 +349,8 @@ export class SLGLReconcilerService {
           glBalanceType: 'DR',
           slBalance: 0,
           slBalanceType: 'DR',
-          variance: 0,
-          status: 'WARNING'
+          variance: glGrandTotal > 0 ? glGrandTotal : 1,
+          status: 'CRITICAL'
         });
       }
     } catch (pgAdvErr: any) {
@@ -284,11 +363,12 @@ export class SLGLReconcilerService {
         glBalanceType: 'DR',
         slBalance: 0,
         slBalanceType: 'DR',
-        variance: 0,
-        status: 'WARNING'
+        variance: glGrandTotal > 0 ? glGrandTotal : 1,
+        status: 'CRITICAL'
       });
     }
 
+    const hasCriticalLabor = variances.some(v => v.category === 'LABOR' && v.status === 'CRITICAL');
     const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + pgAdvancesVarianceSum;
 
     return {
@@ -296,7 +376,7 @@ export class SLGLReconcilerService {
         glTotal: glGrandTotal,
         slTotal: slGrandTotal + pgAdvancesVarianceSum,
         variance: totalVariance,
-        status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
+        status: hasCriticalLabor || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
       },
       variances,
     };
@@ -391,7 +471,7 @@ export class SLGLReconcilerService {
       }
     }
 
-    // Independent Sub-Ledger Document Verification: Commercial Invoices (A-07)
+    // Independent Sub-Ledger Document Verification: Commercial Invoices (A-07, F-05)
     if (category === 'AR' || category === 'AP') {
       const billTypes = category === 'AR' ? ['SALES', 'CREDIT_NOTE'] : ['PURCHASE', 'DEBIT_NOTE'];
       const activeBills = await Bill.find(
@@ -409,49 +489,83 @@ export class SLGLReconcilerService {
           .map((b: any) => b.voucherId)
           .filter((vid: any): vid is string => typeof vid === 'string' && vid.length > 0);
 
-        const activeLedgerVouchers = await Ledger.find({
+        const targetAccountTypes = category === 'AR'
+          ? ['SUNDRY_DEBTORS', 'DEBTOR']
+          : ['SUNDRY_CREDITORS', 'CREDITOR'];
+
+        const activeControlLegs = await Ledger.find({
           $or: [{ firmId }, { firm_id: firmId }],
           voucherGroupId: { $in: billVoucherIds },
-          isReversed: { $ne: true }
-        }, 'voucherGroupId debitAmount creditAmount').lean();
+          transactionDate: { $lte: toDate },
+          isReversed: { $ne: true },
+          accountType: { $in: targetAccountTypes }
+        }, 'voucherGroupId partyId accountType debitAmount creditAmount transactionDate').lean();
 
-        const activeVoucherGroupSet = new Set(activeLedgerVouchers.map((v: any) => v.voucherGroupId));
-        const voucherPartyLegMap = new Map<string, { dr: number; cr: number }>();
-        for (const leg of activeLedgerVouchers) {
+        // Group active control legs by voucherGroupId
+        const voucherPartyLegMap = new Map<string, Array<{ partyId?: any; debitAmount: number; creditAmount: number }>>();
+        for (const leg of activeControlLegs) {
           const vId = leg.voucherGroupId;
           if (vId) {
-            const curr = voucherPartyLegMap.get(vId) || { dr: 0, cr: 0 };
-            curr.dr += Number(leg.debitAmount) || 0;
-            curr.cr += Number(leg.creditAmount) || 0;
-            voucherPartyLegMap.set(vId, curr);
+            const list = voucherPartyLegMap.get(vId) || [];
+            list.push({
+              partyId: leg.partyId,
+              debitAmount: Number(leg.debitAmount) || 0,
+              creditAmount: Number(leg.creditAmount) || 0
+            });
+            voucherPartyLegMap.set(vId, list);
           }
         }
 
         for (const bill of activeBills) {
-          if (!bill.voucherId || !activeVoucherGroupSet.has(bill.voucherId)) {
+          if (!bill.voucherId || !voucherPartyLegMap.has(bill.voucherId)) {
             variances.push({
               category,
-              entityName: `${bill.partyName || 'Party'} - Missing or Unposted GL Voucher for Bill ${bill.bno}`,
+              entityName: `${bill.partyName || 'Party'} - Missing or Unposted GL Control Leg for Bill ${bill.bno}`,
               entityId: String(bill._id),
               glBalance: 0,
-              glBalanceType: 'DR',
+              glBalanceType: category === 'AR' ? 'DR' : 'CR',
               slBalance: Number(bill.netTotal) || 0,
               slBalanceType: category === 'AR' ? 'DR' : 'CR',
               variance: Number(bill.netTotal) || 0,
               status: 'CRITICAL',
             });
           } else {
-            // Amount Parity Verification (F-03): Check that the GL voucher legs match the bill's net total
-            const voucherLegs = voucherPartyLegMap.get(bill.voucherId);
+            // Amount and Specific Control Leg Verification (F-05)
+            const legs = voucherPartyLegMap.get(bill.voucherId)!;
+            const partyLeg = legs.find(l => String(l.partyId) === String(bill.partyId));
+
+            if (!partyLeg) {
+              variances.push({
+                category,
+                entityName: `${bill.partyName || 'Party'} - Control Account Leg Wrong Party Tag for Bill ${bill.bno}`,
+                entityId: String(bill._id),
+                glBalance: 0,
+                glBalanceType: category === 'AR' ? 'DR' : 'CR',
+                slBalance: Number(bill.netTotal) || 0,
+                slBalanceType: category === 'AR' ? 'DR' : 'CR',
+                variance: Number(bill.netTotal) || 0,
+                status: 'CRITICAL',
+              });
+              continue;
+            }
+
             const billAmt = Number(bill.netTotal) || 0;
-            const voucherAmt = Math.max(voucherLegs?.dr || 0, voucherLegs?.cr || 0);
-            const diff = Math.abs(voucherAmt - billAmt);
+            // For AR: SALES debits debtor, CREDIT_NOTE credits debtor
+            // For AP: PURCHASE credits creditor, DEBIT_NOTE debits creditor
+            let controlAmt = 0;
+            if (category === 'AR') {
+              controlAmt = bill.btype === 'SALES' ? partyLeg.debitAmount : partyLeg.creditAmount;
+            } else {
+              controlAmt = bill.btype === 'PURCHASE' ? partyLeg.creditAmount : partyLeg.debitAmount;
+            }
+
+            const diff = Math.abs(controlAmt - billAmt);
             if (diff > 0.05) {
               variances.push({
                 category,
-                entityName: `${bill.partyName || 'Party'} - Bill Amount Mismatch for ${bill.bno} (Billed: ₹${billAmt.toFixed(2)}, Voucher: ₹${voucherAmt.toFixed(2)})`,
+                entityName: `${bill.partyName || 'Party'} - Bill Control Leg Amount Mismatch for ${bill.bno} (Billed: ₹${billAmt.toFixed(2)}, GL Control Leg: ₹${controlAmt.toFixed(2)})`,
                 entityId: String(bill._id),
-                glBalance: voucherAmt,
+                glBalance: controlAmt,
                 glBalanceType: category === 'AR' ? 'DR' : 'CR',
                 slBalance: billAmt,
                 slBalanceType: category === 'AR' ? 'DR' : 'CR',
@@ -465,13 +579,14 @@ export class SLGLReconcilerService {
     }
 
     const billVarianceSum = variances
-      .filter(v => v.entityName.includes('Missing or Unposted GL Voucher') || v.entityName.includes('Bill Amount Mismatch'))
+      .filter(v => v.category === category && (v.entityName.includes('Missing or Unposted GL') || v.entityName.includes('Control Leg') || v.entityName.includes('Bill Amount Mismatch') || v.entityName.includes('Wrong Party Tag')))
       .reduce((sum, v) => sum + v.variance, 0);
 
     const partyOrphanSum = variances
-      .filter(v => v.entityName.includes('Unknown Party') || v.entityName.includes('Untagged'))
+      .filter(v => v.category === category && (v.entityName.includes('Unknown Party') || v.entityName.includes('Untagged')))
       .reduce((sum, v) => sum + v.variance, 0);
 
+    const hasCriticalCategory = variances.some(v => v.category === category && v.status === 'CRITICAL');
     const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + billVarianceSum + partyOrphanSum;
 
     return {
@@ -479,7 +594,7 @@ export class SLGLReconcilerService {
         glTotal: glGrandTotal,
         slTotal: slGrandTotal,
         variance: totalVariance,
-        status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
+        status: hasCriticalCategory || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
       },
       variances,
     };
@@ -774,6 +889,7 @@ export class SLGLReconcilerService {
           ],
         },
         { transactionDate: { $lte: toDate } },
+        { isReversed: { $ne: true } },
       ],
     });
 

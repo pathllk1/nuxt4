@@ -185,7 +185,7 @@ LedgerSchema.index({ firmId: 1, transactionDate: 1 });
 LedgerSchema.index({ firmId: 1, accountHead: 1, transactionDate: 1 });
 LedgerSchema.index(
   { firmId: 1, voucherGroupId: 1, legIndex: 1 },
-  { unique: true, partialFilterExpression: { isReversed: { $ne: true }, voucherGroupId: { $type: 'string' } } }
+  { unique: true, partialFilterExpression: { isReversed: false, voucherGroupId: { $type: 'string' } } }
 );
 LedgerSchema.index({ firmId: 1, voucherType: 1, voucherGroupId: 1 });
 LedgerSchema.index({ firmId: 1, partyId: 1, transactionDate: 1 });

@@ -163,43 +163,81 @@ export class FiscalYearClosingService {
     const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
     const { fyStartDate, fyEndDate, nextFyStartDate, nextFY } = this.getFYDates(financialYear);
 
-    // ── Idempotency Guard ──
-    const existingLock = await PeriodLock.findOne({
-      firmId: firmIdObj,
-      financialYear,
-    });
+    // ── Atomic Compare-and-Set Lock Acquisition with Fencing Token (F-01) ──
+    // Atomically acquires exclusive close ownership and IMMEDIATELY blocks all incoming writes
+    // by asserting isActive: true and lockDate: fyEndDate before reading any trial balance.
+    const now = new Date();
+    const leaseExpiry = new Date(now.getTime() + 10 * 60 * 1000); // 10 minute lease
+    const closeExecutionToken = new mongoose.Types.ObjectId().toString(); // Monotonic fencing token (F-01)
+    let lockAcquired = false;
 
-    if (existingLock?.closingStatus === 'CLOSED') {
-      throw new Error(`FY ${financialYear} has already been closed. Cannot re-execute.`);
-    }
-
-    if (existingLock?.closingStatus === 'IN_PROGRESS') {
-      throw new Error(`FY ${financialYear} closing is already in progress. Please wait.`);
-    }
-
-    // ── Mark as IN_PROGRESS (pessimistic lock) ──
-    await PeriodLock.findOneAndUpdate(
-      { firmId: firmIdObj, financialYear },
+    const existingLockUpdate = await PeriodLock.findOneAndUpdate(
       {
-        $set: { closingStatus: 'IN_PROGRESS' },
-        $setOnInsert: {
-          firmId: firmIdObj,
-          financialYear,
+        firmId: firmIdObj,
+        financialYear,
+        $or: [
+          { closingStatus: { $in: ['NOT_CLOSED', null] } },
+          { closingStatus: 'IN_PROGRESS', closeLeaseExpiresAt: { $lt: now } }, // Reclaim expired lease
+          { closingStatus: 'IN_PROGRESS', closeLeaseExpiresAt: null } // Reclaim legacy stuck in-progress lock with no expiry (F-01)
+        ]
+      },
+      {
+        $set: {
+          closingStatus: 'IN_PROGRESS',
+          isActive: true, // STRICT: Immediately active so enforcePeriodLock blocks concurrent postings!
           lockDate: fyEndDate,
           lockedBy: closedBy,
-          isActive: false,
-          reason: 'Year-end close in progress',
-        },
+          reason: `Year-end close in progress by ${closedBy}`,
+          closeStartedAt: now,
+          closeLeaseExpiresAt: leaseExpiry,
+          closeExecutionToken
+        }
       },
-      { upsert: true }
+      { new: true }
     );
+
+    if (existingLockUpdate) {
+      lockAcquired = true;
+    } else {
+      // Document might not exist yet: attempt atomic insert
+      try {
+        await PeriodLock.create({
+          firmId: firmIdObj,
+          financialYear,
+          closingStatus: 'IN_PROGRESS',
+          isActive: true, // STRICT: Immediately active!
+          lockDate: fyEndDate,
+          lockedBy: closedBy,
+          reason: `Year-end close in progress by ${closedBy}`,
+          closeStartedAt: now,
+          closeLeaseExpiresAt: leaseExpiry,
+          closeExecutionToken
+        });
+        lockAcquired = true;
+      } catch (insertErr: any) {
+        if (insertErr.code === 11000) {
+          // Unique index collision: another worker raced and created the lock first
+          lockAcquired = false;
+        } else {
+          throw insertErr;
+        }
+      }
+    }
+
+    if (!lockAcquired) {
+      const current = await PeriodLock.findOne({ firmId: firmIdObj, financialYear }).lean();
+      if (current?.closingStatus === 'CLOSED') {
+        throw new Error(`FY ${financialYear} has already been closed. Cannot re-execute.`);
+      }
+      throw new Error(`FY ${financialYear} closing is currently in progress by ${current?.lockedBy || 'another process'}. Concurrent execution rejected.`);
+    }
 
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-      // ── Step 1: Get Trial Balance for the FY ──
-      const trialBalance = await LedgerService.getTrialBalance(firmIdObj, fyStartDate, fyEndDate);
+      // ── Step 1: Get Trial Balance for the FY (Within session snapshot) ──
+      const trialBalance = await LedgerService.getTrialBalance(firmIdObj, fyStartDate, fyEndDate, session);
 
       const totalDr = trialBalance.reduce((sum, b) => sum + b.totalDebit, 0);
       const totalCr = trialBalance.reduce((sum, b) => sum + b.totalCredit, 0);
@@ -351,9 +389,9 @@ export class FiscalYearClosingService {
         await UnifiedPostingService.postVoucher(obPayload, session);
       }
 
-      // ── Step 4: Set Hard Period Lock ──
-      await PeriodLock.findOneAndUpdate(
-        { firmId: firmIdObj, financialYear },
+      // ── Step 4: Set Hard Period Lock with Fencing Token Verification (F-01) ──
+      const finalizedLock = await PeriodLock.findOneAndUpdate(
+        { firmId: firmIdObj, financialYear, closeExecutionToken },
         {
           $set: {
             lockDate: fyEndDate,
@@ -363,10 +401,18 @@ export class FiscalYearClosingService {
             closedBy: closedBy,
             reason: `Year-End Close executed by ${closedBy}`,
             lockedBy: closedBy,
+            closeLeaseExpiresAt: null,
+            closeExecutionToken: null
           },
         },
-        { session }
+        { session, new: true }
       );
+
+      if (!finalizedLock) {
+        throw new Error(
+          `CRITICAL CONCURRENCY ERROR: Close lease expired or was preempted by another close worker. Finalization aborted to preserve ledger integrity.`
+        );
+      }
 
       await session.commitTransaction();
 
@@ -382,10 +428,19 @@ export class FiscalYearClosingService {
     } catch (err) {
       await session.abortTransaction();
 
-      // Reset closingStatus back to NOT_CLOSED on failure
+      // Reset closingStatus ONLY if this worker still holds its unique closeExecutionToken (F-01)
+      // This strictly prevents a failed stale worker from resetting or unlocking a newer worker's lock!
       await PeriodLock.findOneAndUpdate(
-        { firmId: firmIdObj, financialYear, closingStatus: 'IN_PROGRESS' },
-        { $set: { closingStatus: 'NOT_CLOSED' } }
+        { firmId: firmIdObj, financialYear, closeExecutionToken },
+        {
+          $set: {
+            closingStatus: 'NOT_CLOSED',
+            isActive: false,
+            closeStartedAt: null,
+            closeLeaseExpiresAt: null,
+            closeExecutionToken: null
+          }
+        }
       );
 
       throw err;

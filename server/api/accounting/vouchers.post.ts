@@ -129,6 +129,7 @@ export default defineEventHandler(async (event) => {
           }
         }
 
+        const advancesToInsert: any[] = [];
         for (const entry of entries) {
           const periodId = entry.laborPeriodId || body.laborPeriodId;
           const head = (entry.accountHead || '').toLowerCase();
@@ -141,16 +142,44 @@ export default defineEventHandler(async (event) => {
             const periodAdvanceAmount = baseAmount;
             const currentGrossAmount = tdsMode === 'GROSS_UP' ? (baseAmount + (tdsAmount || 0)) : (tdsMode === 'DEDUCT' ? baseAmount : null);
             const paidFromBankId = postResult.bankAccountId ? String(postResult.bankAccountId) : null;
-            await sql`
-              INSERT INTO labor_advances (
-                firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
-                tds_mode, tds_amount, gross_amount
-              ) VALUES (
-                ${String(user.firm_id)}, ${periodId}, ${periodAdvanceAmount}, ${transactionDate}, ${paidFromBankId}, ${postResult.voucherGroupId},
-                ${tdsMode}, ${tdsAmount}, ${currentGrossAmount}
-              )
-            `;
+            advancesToInsert.push({
+              firmId: String(user.firm_id),
+              periodId,
+              amount: periodAdvanceAmount,
+              paymentDate: transactionDate,
+              paidFromBankId,
+              voucherGroupId: postResult.voucherGroupId,
+              tdsMode,
+              tdsAmount,
+              grossAmount: currentGrossAmount
+            });
           }
+        }
+
+        if (advancesToInsert.length > 0) {
+          await sql.begin(async (tx: any) => {
+            for (const adv of advancesToInsert) {
+              // Idempotent insertion guard: check if advance row already exists for this voucher group (F-06)
+              const existing = await tx`
+                SELECT id FROM labor_advances
+                WHERE firm_id = ${adv.firmId}
+                  AND period_id = ${adv.periodId}
+                  AND ledger_voucher_group_id = ${adv.voucherGroupId}
+                LIMIT 1
+              `;
+              if (existing.length === 0) {
+                await tx`
+                  INSERT INTO labor_advances (
+                    firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
+                    tds_mode, tds_amount, gross_amount
+                  ) VALUES (
+                    ${adv.firmId}, ${adv.periodId}, ${adv.amount}, ${adv.paymentDate}, ${adv.paidFromBankId}, ${adv.voucherGroupId},
+                    ${adv.tdsMode}, ${adv.tdsAmount}, ${adv.grossAmount}
+                  )
+                `;
+              }
+            }
+          });
         }
       }
     } catch (laborSyncErr: any) {

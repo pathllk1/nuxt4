@@ -163,25 +163,38 @@ export class UnifiedPostingService {
       masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
       replacesVoucherGroupId: payload.tags?.replacesVoucherGroupId || null,
       statutory: (leg as any).statutory || (payload.tags?.statutory || null),
+      isReversed: false,
       createdBy: payload.createdBy,
     }));
 
-    // ── Step 6: Atomic Insert with Idempotency Guard (F-08) ──
+    // ── Step 6: Atomic Insert with Idempotency Guard (F-07, F-08) ──
     try {
       await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
     } catch (insertError: any) {
-      if (insertError.code === 11000 && payload.externalVoucherGroupId) {
-        // Concurrency idempotency: if duplicate key hit for external voucher, return already committed result
+      if (insertError.code === 11000) {
+        // Concurrency idempotency: if duplicate key hit for voucherGroupId, query outside session
+        // because MongoDB session may be aborted by duplicate key error
+        const targetVoucherGroupId = payload.externalVoucherGroupId || voucherGroupId;
         const existingDocs = await Ledger.find({
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          voucherGroupId: payload.externalVoucherGroupId,
+          voucherGroupId: targetVoucherGroupId,
           isReversed: { $ne: true }
-        }).session(session || null).lean();
+        }).lean();
 
         if (existingDocs && existingDocs.length > 0) {
           const first = existingDocs[0]!;
           const drTotal = existingDocs.reduce((s, d) => s + (d.debitAmount || 0), 0);
           const crTotal = existingDocs.reduce((s, d) => s + (d.creditAmount || 0), 0);
+
+          // Strict Payload Equivalence Verification (F-08)
+          const diffDr = Math.abs(drTotal - totalDebit);
+          const diffCr = Math.abs(crTotal - totalCredit);
+          if (diffDr > 0.05 || diffCr > 0.05) {
+            throw new Error(
+              `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Payload debit/credit totals mismatch. Existing committed: DR ₹${drTotal.toFixed(2)} / CR ₹${crTotal.toFixed(2)}, Retry requested: DR ₹${totalDebit.toFixed(2)} / CR ₹${totalCredit.toFixed(2)}.`
+            );
+          }
+
           return {
             success: true,
             voucherGroupId: first.voucherGroupId!,
@@ -446,6 +459,7 @@ export class UnifiedPostingService {
       masterRollId,
       replacesVoucherGroupId: voucherGroupId.trim(),
       statutory: leg.statutory || null,
+      isReversed: false,
       createdBy: firstEntry.createdBy || payload.createdBy,
       createdAt: firstEntry.createdAt,
       updatedAt: new Date()

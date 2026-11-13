@@ -42,6 +42,15 @@ export interface IPeriodLock extends Document {
   /** Username of the person who executed the year-end close */
   closedBy?: string | null;
 
+  /** Timestamp when year-end close started (F-01 concurrency guard) */
+  closeStartedAt?: Date | null;
+
+  /** Timestamp when in-progress close lease expires for crash recovery (F-01) */
+  closeLeaseExpiresAt?: Date | null;
+
+  /** Unique execution/fencing token for the active close worker (F-01 fencing) */
+  closeExecutionToken?: string | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -84,6 +93,18 @@ const PeriodLockSchema = new Schema<IPeriodLock>(
       default: null,
     },
     closedBy: {
+      type: String,
+      default: null,
+    },
+    closeStartedAt: {
+      type: Date,
+      default: null,
+    },
+    closeLeaseExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    closeExecutionToken: {
       type: String,
       default: null,
     },

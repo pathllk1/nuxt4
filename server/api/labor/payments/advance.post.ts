@@ -70,21 +70,32 @@ export default defineEventHandler(async (event) => {
       `;
     } catch (_) {}
 
-    // 2. Insert into PostgreSQL labor_advances (with compensating rollback on failure)
+    // 2. Insert into PostgreSQL labor_advances (with idempotent check and compensating rollback on failure)
     let advance: any = null;
     try {
-      [advance] = await sql`
-        INSERT INTO labor_advances (
-          firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
-          tds_mode, tds_rate, tds_amount, gross_amount
-        )
-        VALUES (
-          ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date},
-          ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
-          ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
-        )
-        RETURNING *
+      const existingAdv = await sql`
+        SELECT * FROM labor_advances
+        WHERE firm_id = ${period.firm_id}
+          AND period_id = ${period_id}
+          AND ledger_voucher_group_id = ${voucherGroupId}
+        LIMIT 1
       `;
+      if (existingAdv && existingAdv.length > 0) {
+        advance = existingAdv[0];
+      } else {
+        [advance] = await sql`
+          INSERT INTO labor_advances (
+            firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
+            tds_mode, tds_rate, tds_amount, gross_amount
+          )
+          VALUES (
+            ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date},
+            ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
+            ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
+          )
+          RETURNING *
+        `;
+      }
     } catch (pgError: any) {
       // Compensating transaction: roll back dangling MongoDB voucher with strict tenant scoping (F-07)
       let compSuccess = false;

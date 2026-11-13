@@ -151,7 +151,11 @@ export default defineEventHandler(async (event) => {
             });
           }
         } catch (stockErr: any) {
-          console.warn(`[Bill Cancel] Stock reversal warning for item ${item.item}:`, stockErr.message);
+          console.error(`[Bill Cancel] Stock reversal failed for item "${item.item}":`, stockErr.message);
+          throw createError({
+            statusCode: 500,
+            statusMessage: `Failed to reverse inventory for item "${item.item}": ${stockErr.message}. Bill cancellation aborted to preserve warehouse inventory and financial ledger integrity.`
+          });
         }
       }
     }
@@ -177,12 +181,11 @@ export default defineEventHandler(async (event) => {
       err.message?.includes('replica set') ||
       err.message?.includes('Transaction numbers')
     ) {
-      console.warn('[Bill Cancel] Retrying cancellation without transaction session:', err.message);
-      try {
-        cancelledBill = await executeCancel(undefined);
-      } catch (retryErr: any) {
-        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
-      }
+      console.error('[Bill Cancel] MongoDB transaction unsupported:', err.message);
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'MongoDB replica set transactions are required for bill cancellation to guarantee atomic reversal across commercial billing, financial General Ledger, and warehouse inventory. Non-transactional execution is prohibited.'
+      });
     } else {
       throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });
     }
