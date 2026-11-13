@@ -20,7 +20,7 @@ const emit = defineEmits<{
   (e: 'refresh'): void;
 }>();
 
-const toggleDetail = async (entityId: string) => {
+const toggleDetail = async (entityId: string, category?: string) => {
   if (expandedEntityId.value === entityId) {
     expandedEntityId.value = null;
     detailData.value = null;
@@ -31,7 +31,8 @@ const toggleDetail = async (entityId: string) => {
   detailData.value = null;
   try {
     const toDateParam = props.report?.toDate ? `&toDate=${props.report.toDate}` : '';
-    const res = await api.get(`/accounting/audit/sl-gl-detail?id=${entityId}${toDateParam}`);
+    const categoryParam = category ? `&category=${category}` : '';
+    const res = await api.get(`/accounting/audit/sl-gl-detail?id=${entityId}${toDateParam}${categoryParam}`);
     if (res.success && res.data) {
       detailData.value = res.data;
     }
@@ -44,9 +45,46 @@ const toggleDetail = async (entityId: string) => {
 
 watch(() => [props.modelValue, props.report?.variances], ([open, vars]) => {
   if (open && vars && (vars as any[]).length === 1 && !expandedEntityId.value) {
-    toggleDetail((vars as any[])[0].entityId);
+    const first = (vars as any[])[0];
+    toggleDetail(first.entityId, first.category);
   }
 }, { immediate: true });
+
+const getGLHeader = (cat: string) => {
+  switch (cat) {
+    case 'AP':
+      return 'General Ledger (Creditor Vouchers & Payments)';
+    case 'AR':
+      return 'General Ledger (Debtor Vouchers & Receipts)';
+    case 'BANK':
+      return 'General Ledger (Bank Account Transactions)';
+    case 'LABOR':
+    default:
+      return 'General Ledger (Advance to Employees)';
+  }
+};
+
+const getSLHeader = (cat: string) => {
+  switch (cat) {
+    case 'AP':
+      return 'Sub-Ledger (Purchase Bills Register & Operational Payables)';
+    case 'AR':
+      return 'Sub-Ledger (Sales Invoices Register & Operational Receivables)';
+    case 'BANK':
+      return 'Sub-Ledger (Bank Statement / Registry Balance)';
+    case 'LABOR':
+    default:
+      return 'Sub-Ledger (Advance Collection & Repayments)';
+  }
+};
+
+const getBadgeClass = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  if (t.includes('ADVANCE') || t.includes('PURCHASE') || t.includes('DEBIT')) {
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300';
+  }
+  return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300';
+};
 
 const reconcileVariance = async (v: any) => {
   reconcilingId.value = v.entityId;
@@ -351,9 +389,10 @@ const formatINR = (n: number) => {
                               variant="ghost"
                               :icon="expandedEntityId === v.entityId ? 'i-heroicons-chevron-up' : 'i-heroicons-magnifying-glass'"
                               :label="expandedEntityId === v.entityId ? 'Hide' : 'Inspect'"
-                              @click="toggleDetail(v.entityId)"
+                              @click="toggleDetail(v.entityId, v.category)"
                             />
                             <UButton
+                              v-if="v.category === 'LABOR'"
                               size="xs"
                               color="primary"
                               variant="solid"
@@ -375,7 +414,7 @@ const formatINR = (n: number) => {
                           <div v-else-if="detailData" class="space-y-4">
                             <div class="flex items-center justify-between border-b dark:border-zinc-800 pb-2">
                               <span class="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
-                                Detailed Inspection: {{ detailData.employee?.employee_name || v.entityName }}
+                                Detailed Inspection: {{ detailData.entityName || detailData.employee?.employee_name || v.entityName }}
                               </span>
                               <div class="flex items-center gap-3 text-xs font-mono">
                                 <span>GL Net: <strong>{{ formatINR(detailData.glSummary?.netBalance) }}</strong> ({{ detailData.glSummary?.entryCount }} entries)</span>
@@ -386,7 +425,7 @@ const formatINR = (n: number) => {
                             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                               <!-- Left: GL Entries -->
                               <div class="space-y-2">
-                                <h5 class="text-[11px] font-black uppercase text-slate-500">General Ledger (Advance to Employees)</h5>
+                                <h5 class="text-[11px] font-black uppercase text-slate-500">{{ getGLHeader(v.category) }}</h5>
                                 <div class="border rounded-xl overflow-hidden dark:border-zinc-800 bg-white dark:bg-zinc-900 max-h-48 overflow-y-auto">
                                   <table class="w-full text-[11px]">
                                     <thead class="bg-slate-100 dark:bg-zinc-800 text-[10px] text-slate-500 font-bold">
@@ -416,29 +455,29 @@ const formatINR = (n: number) => {
                               </div>
                               <!-- Right: SL Entries -->
                               <div class="space-y-2">
-                                <h5 class="text-[11px] font-black uppercase text-slate-500">Sub-Ledger (Advance Collection)</h5>
+                                <h5 class="text-[11px] font-black uppercase text-slate-500">{{ getSLHeader(v.category) }}</h5>
                                 <div class="border rounded-xl overflow-hidden dark:border-zinc-800 bg-white dark:bg-zinc-900 max-h-48 overflow-y-auto">
                                   <table class="w-full text-[11px]">
                                     <thead class="bg-slate-100 dark:bg-zinc-800 text-[10px] text-slate-500 font-bold">
                                       <tr>
                                         <th class="p-1.5">Date</th>
-                                        <th class="p-1.5">Type</th>
+                                        <th class="p-1.5">Record / Type</th>
                                         <th class="p-1.5">Remarks</th>
                                         <th class="p-1.5 text-right">Amount</th>
                                       </tr>
                                     </thead>
                                     <tbody class="divide-y dark:divide-zinc-800">
-                                      <tr v-for="sl in detailData.advanceEntries" :key="sl._id">
+                                      <tr v-for="sl in (detailData.subledgerEntries || detailData.advanceEntries)" :key="sl._id">
                                         <td class="p-1.5 font-mono">{{ sl.date }}</td>
                                         <td class="p-1.5">
-                                          <span class="px-1.5 py-0.5 rounded text-[9px] font-bold" :class="sl.type === 'ADVANCE' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'">
-                                            {{ sl.type }}
+                                          <span class="px-1.5 py-0.5 rounded text-[9px] font-bold" :class="getBadgeClass(sl.type)">
+                                            {{ sl.bno ? `${sl.type} (${sl.bno})` : sl.type }}
                                           </span>
                                         </td>
                                         <td class="p-1.5 text-[9px] text-slate-400 truncate max-w-[140px]">{{ sl.remarks || sl.voucher_group_id || '-' }}</td>
-                                        <td class="p-1.5 text-right font-mono font-bold">{{ formatINR(sl.amount) }}</td>
+                                        <td class="p-1.5 text-right font-mono font-bold">{{ formatINR(sl.amount ?? sl.netTotal) }}</td>
                                       </tr>
-                                      <tr v-if="!detailData.advanceEntries?.length">
+                                      <tr v-if="!(detailData.subledgerEntries?.length || detailData.advanceEntries?.length)">
                                         <td colspan="4" class="p-2 text-center text-slate-400">No sub-ledger records found</td>
                                       </tr>
                                     </tbody>

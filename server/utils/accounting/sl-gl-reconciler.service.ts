@@ -242,7 +242,7 @@ export class SLGLReconcilerService {
       if (!canonicalName) {
         variances.push({
           category: 'LABOR',
-          entityName: `Unregistered Leader (${headKey})`,
+          entityName: `Untagged / Unmapped Labor Control Head (${headKey})`,
           entityId: headKey,
           glBalance: Math.abs(glNet),
           glBalanceType: glNet >= 0 ? 'DR' : 'CR',
@@ -455,7 +455,11 @@ export class SLGLReconcilerService {
     let glGrandTotal = 0;
 
     for (const row of glBalances) {
-      const net = (row.totalDebit || 0) - (row.totalCredit || 0);
+      // For AR (Debtors / Asset): positive net is Debit (what customers owe us).
+      // For AP (Creditors / Liability): positive net is Credit (what we owe suppliers).
+      const net = category === 'AP'
+        ? (row.totalCredit || 0) - (row.totalDebit || 0)
+        : (row.totalDebit || 0) - (row.totalCredit || 0);
       glMap.set(String(row._id), net);
       glGrandTotal += net;
     }
@@ -552,9 +556,9 @@ export class SLGLReconcilerService {
           entityName: `Untagged ${accountType} Control Account Entries (Missing partyId)`,
           entityId: 'UNTAGGED',
           glBalance: Math.abs(glNet),
-          glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+          glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
           slBalance: 0,
-          slBalanceType: 'DR',
+          slBalanceType: category === 'AP' ? 'CR' : 'DR',
           variance: Math.abs(glNet),
           status: 'CRITICAL',
         });
@@ -572,10 +576,10 @@ export class SLGLReconcilerService {
             entityName: `${partyName} (${partyId}) Operational Register Mismatch`,
             entityId: partyId,
             glBalance: Math.abs(glNet),
-            glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+            glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
             slBalance: Math.abs(slBal),
-            slBalanceType: slBal >= 0 ? 'DR' : 'CR',
-            variance: diff,
+            slBalanceType: category === 'AP' ? (slBal >= 0 ? 'CR' : 'DR') : (slBal >= 0 ? 'DR' : 'CR'),
+            variance: Math.round(diff * 100) / 100,
             status: 'CRITICAL',
           });
         }
@@ -586,12 +590,33 @@ export class SLGLReconcilerService {
           entityName: `Unknown Party (${partyId})`,
           entityId: partyId,
           glBalance: Math.abs(glNet),
-          glBalanceType: glNet >= 0 ? 'DR' : 'CR',
+          glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
           slBalance: 0,
-          slBalanceType: 'DR',
+          slBalanceType: category === 'AP' ? 'CR' : 'DR',
           variance: Math.abs(glNet),
           status: 'CRITICAL',
         });
+      }
+    }
+
+    // Check registered parties that have operational balances but no GL entries (F-05)
+    for (const p of parties) {
+      const pid = String(p._id);
+      if (!glMap.has(pid)) {
+        const slBal = partyOperationalMap.get(pid) || 0;
+        if (Math.abs(slBal) > 0.05) {
+          variances.push({
+            category,
+            entityName: `${p.name} (${pid}) Unposted Operational Register Balance`,
+            entityId: pid,
+            glBalance: 0,
+            glBalanceType: category === 'AP' ? 'CR' : 'DR',
+            slBalance: Math.abs(slBal),
+            slBalanceType: category === 'AP' ? (slBal >= 0 ? 'CR' : 'DR') : (slBal >= 0 ? 'DR' : 'CR'),
+            variance: Math.round(Math.abs(slBal) * 100) / 100,
+            status: 'CRITICAL',
+          });
+        }
       }
     }
 
@@ -697,7 +722,7 @@ export class SLGLReconcilerService {
       .reduce((sum, v) => sum + v.variance, 0);
 
     const hasMismatches = variances.some(v => v.category === category && v.status !== 'HEALTHY');
-    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + partyMismatchVarianceSum;
+    const totalVariance = Math.max(Math.abs(glGrandTotal - slGrandTotal), partyMismatchVarianceSum);
 
     return {
       summary: {

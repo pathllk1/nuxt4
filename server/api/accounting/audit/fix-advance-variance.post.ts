@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Ledger from '../../../models/Ledger';
 import Advance from '../../../models/Advance';
 import MasterRoll from '../../../models/MasterRoll';
+import Party from '../../../models/Party';
 import { requireAuthSession } from '../../../utils/auth';
 import { UnifiedPostingService } from '../../../utils/accounting/unified-posting.service';
 
@@ -23,6 +24,13 @@ export default defineEventHandler(async (event) => {
   // 1. Fetch employee
   const employee = await MasterRoll.findById(masterRollIdObj).lean();
   if (!employee) {
+    const party = await Party.findById(masterRollIdObj).lean();
+    if (party) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Entity "${party.name}" is a ${party.partyType === 'CUSTOMER' ? 'Trade Debtor' : 'Trade Creditor'}. Automated advance reconciliation is only applicable to Labor Leaders and Employee payroll advances.`
+      });
+    }
     throw createError({ statusCode: 404, statusMessage: 'Employee not found in Master Roll' });
   }
 
