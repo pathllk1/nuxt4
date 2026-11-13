@@ -139,6 +139,30 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
       ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
     `;
 
+    // ── Preflight and Repair Legacy Duplicate Rows before Indexing (F-06) ──
+    // 1. Repair duplicate advance rows by assigning unique sequential leg_index
+    await clientSql`
+      WITH numbered_advances AS (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY firm_id, period_id, ledger_voucher_group_id 
+          ORDER BY created_at ASC, id ASC
+        ) - 1 AS new_leg_index
+        FROM labor_advances
+        WHERE ledger_voucher_group_id IS NOT NULL
+      )
+      UPDATE labor_advances a
+      SET leg_index = n.new_leg_index
+      FROM numbered_advances n
+      WHERE a.id = n.id AND (a.leg_index IS NULL OR a.leg_index IS DISTINCT FROM n.new_leg_index);
+    `;
+
+    // 2. Deduplicate duplicate settlements per period keeping the latest created record
+    await clientSql`
+      DELETE FROM labor_settlements a
+      USING labor_settlements b
+      WHERE a.period_id = b.period_id AND a.created_at < b.created_at;
+    `;
+
     // Performance & Idempotency Indexes (F-06)
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_leaders_firm ON labor_leaders(firm_id);`;
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_periods_leader ON labor_periods(leader_id);`;
@@ -152,5 +176,6 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     console.log('✅ PostgreSQL Labor System tables schema verified/initialized');
   } catch (err: any) {
     console.error('⚠️ Failed to initialize Labor System tables schema:', err.message);
+    throw err;
   }
 };

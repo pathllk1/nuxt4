@@ -63,14 +63,18 @@ export class UnifiedPostingService {
     payload: IVoucherPayload,
     session?: mongoose.ClientSession
   ): Promise<IPostingResult> {
-    // ── Multi-Leg Transaction Enforcement (F-08) ──
+    // ── Multi-Leg Transaction Enforcement (F-01, F-08) ──
     // Require transactions for all multi-leg writes. If caller did not provide a session,
-    // start an internal transaction to guarantee atomic all-or-nothing writes.
+    // start an internal transaction and hold the distributed barrier ticket through commit.
     if (!session && payload.legs && payload.legs.length > 1) {
+      const firmIdObj = this.toObjectId(payload.firmId, 'firmId');
+      const barrierToken = !payload._bypassPeriodLock && !payload._bypassBarrier
+        ? await acquirePostingBarrier(firmIdObj, payload.transactionDate, null)
+        : null;
       const internalSession = await mongoose.startSession();
       internalSession.startTransaction();
       try {
-        const result = await this.postVoucher(payload, internalSession);
+        const result = await this.postVoucher({ ...payload, _bypassBarrier: true }, internalSession);
         await internalSession.commitTransaction();
         return result;
       } catch (internalErr) {
@@ -78,6 +82,7 @@ export class UnifiedPostingService {
         throw internalErr;
       } finally {
         internalSession.endSession();
+        barrierToken?.release();
       }
     }
 
@@ -93,9 +98,49 @@ export class UnifiedPostingService {
     }
 
     // ── Step 1: Period Lock Guard & In-Flight Posting Barrier (F-01) ──
-    const barrierToken = !payload._bypassPeriodLock
+    const barrierToken = !payload._bypassPeriodLock && !payload._bypassBarrier
       ? await acquirePostingBarrier(firmIdObj, payload.transactionDate, session)
       : null;
+
+    if (session && barrierToken) {
+      // Hold barrier ticket until caller actually commits or aborts their session (F-01)
+      const origCommit = session.commitTransaction.bind(session);
+      const origAbort = session.abortTransaction.bind(session);
+      const origEnd = session.endSession ? session.endSession.bind(session) : null;
+      let released = false;
+      const safeRelease = () => {
+        if (!released) {
+          released = true;
+          barrierToken.release();
+        }
+      };
+
+      session.commitTransaction = async function (...args: any[]) {
+        try {
+          return await origCommit(...args);
+        } finally {
+          safeRelease();
+        }
+      };
+
+      session.abortTransaction = async function (...args: any[]) {
+        try {
+          return await origAbort(...args);
+        } finally {
+          safeRelease();
+        }
+      };
+
+      if (origEnd) {
+        session.endSession = async function (...args: any[]) {
+          try {
+            return await origEnd(...args);
+          } finally {
+            safeRelease();
+          }
+        };
+      }
+    }
 
     try {
       // ── Step 2: Validate & Resolve Accounts ──
@@ -205,8 +250,21 @@ export class UnifiedPostingService {
         await (Ledger as any).insertMany(ledgerDocs, session ? { session } : {});
       } catch (insertError: any) {
         if (insertError.code === 11000) {
-          // Concurrency idempotency: if duplicate key hit for voucherGroupId, query outside session
-          // because MongoDB session may be marked aborted by duplicate key error
+          // F-08: If duplicate key occurs within an active caller-managed transaction,
+          // the transaction has been invalidated in MongoDB driver. We must NOT return success
+          // because the caller's transaction cannot be committed. Fail closed immediately.
+          if (session && session.inTransaction()) {
+            const dupErr: any = new Error(
+              `[ERP Concurrency Violation] Duplicate key collision on voucher "${payload.externalVoucherGroupId || voucherGroupId}" inside an active caller transaction. Caller transaction has been invalidated and cannot be committed.`
+            );
+            dupErr.code = 11000;
+            dupErr.statusCode = 409;
+            dupErr.voucherGroupId = payload.externalVoucherGroupId || voucherGroupId;
+            throw dupErr;
+          }
+
+          // Concurrency idempotency: if duplicate key hit for voucherGroupId without active session,
+          // query existing committed entries to verify exact payload equivalence (F-08)
           const targetVoucherGroupId = payload.externalVoucherGroupId || voucherGroupId;
           const existingDocs = await Ledger.find({
             $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
@@ -225,7 +283,32 @@ export class UnifiedPostingService {
               );
             }
 
-            // 2. Verify complete canonical per-leg payload identity (F-08)
+            // 2. Verify voucher-level header identity (F-08)
+            const firstEx = sortedExisting[0]!;
+            if (firstEx.voucherType !== payload.voucherType) {
+              throw new Error(
+                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": voucherType mismatch. Existing: "${firstEx.voucherType}", Requested: "${payload.voucherType}".`
+              );
+            }
+            if (firstEx.transactionDate !== payload.transactionDate) {
+              throw new Error(
+                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": transactionDate mismatch. Existing: "${firstEx.transactionDate}", Requested: "${payload.transactionDate}".`
+              );
+            }
+            if ((firstEx.refType || 'VOUCHER') !== (payload.refType || 'VOUCHER')) {
+              throw new Error(
+                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refType mismatch. Existing: "${firstEx.refType}", Requested: "${payload.refType}".`
+              );
+            }
+            const exRefId = firstEx.refId ? String(firstEx.refId) : '';
+            const reqRefId = payload.refId ? String(payload.refId) : '';
+            if (exRefId !== reqRefId) {
+              throw new Error(
+                `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refId mismatch. Existing: "${exRefId}", Requested: "${reqRefId}".`
+              );
+            }
+
+            // 3. Verify complete canonical per-leg payload identity (F-08)
             for (let i = 0; i < ledgerDocs.length; i++) {
               const exLeg = sortedExisting[i]!;
               const reqLeg = ledgerDocs[i]!;
@@ -268,6 +351,53 @@ export class UnifiedPostingService {
                 );
               }
 
+              const exStock = exLeg.stockId ? String(exLeg.stockId) : '';
+              const reqStock = reqLeg.stockId ? String(reqLeg.stockId) : '';
+              if (exStock !== reqStock) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} stockId mismatch. Existing: "${exStock}", Requested: "${reqStock}".`
+                );
+              }
+
+              const exStockReg = exLeg.stockRegId ? String(exLeg.stockRegId) : '';
+              const reqStockReg = reqLeg.stockRegId ? String(reqLeg.stockRegId) : '';
+              if (exStockReg !== reqStockReg) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} stockRegId mismatch. Existing: "${exStockReg}", Requested: "${reqStockReg}".`
+                );
+              }
+
+              const exPayMode = exLeg.paymentMode || '';
+              const reqPayMode = reqLeg.paymentMode || '';
+              if (exPayMode !== reqPayMode) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} paymentMode mismatch. Existing: "${exPayMode}", Requested: "${reqPayMode}".`
+                );
+              }
+
+              if (Boolean(exLeg.isWageEntry) !== Boolean(reqLeg.isWageEntry)) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} isWageEntry mismatch.`
+                );
+              }
+
+              const exRoll = exLeg.masterRollId ? String(exLeg.masterRollId) : '';
+              const reqRoll = reqLeg.masterRollId ? String(reqLeg.masterRollId) : '';
+              if (exRoll !== reqRoll) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} masterRollId mismatch. Existing: "${exRoll}", Requested: "${reqRoll}".`
+                );
+              }
+
+              const exNarr = (exLeg.narration || '').trim();
+              const reqNarr = (reqLeg.narration || '').trim();
+              if (exNarr !== reqNarr) {
+                throw new Error(
+                  `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} narration mismatch. Existing: "${exNarr}", Requested: "${reqNarr}".`
+                );
+              }
+
+              // Deep Statutory Metadata Equivalence (F-08)
               const exStat = exLeg.statutory;
               const reqStat = reqLeg.statutory;
               if (Boolean(exStat) !== Boolean(reqStat)) {
@@ -276,9 +406,44 @@ export class UnifiedPostingService {
                 );
               }
               if (exStat && reqStat) {
-                if (exStat.tdsSection !== reqStat.tdsSection || (exStat.pan || '') !== (reqStat.pan || '')) {
+                if ((exStat.tdsSection || '') !== (reqStat.tdsSection || '')) {
                   throw new Error(
-                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory metadata values mismatch.`
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsSection mismatch.`
+                  );
+                }
+                if ((exStat.pan || '').toUpperCase() !== (reqStat.pan || '').toUpperCase()) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory PAN mismatch.`
+                  );
+                }
+                if (Number(exStat.tdsRate || 0) !== Number(reqStat.tdsRate || 0)) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsRate mismatch.`
+                  );
+                }
+                if (Math.abs((Number(exStat.tdsAmount) || 0) - (Number(reqStat.tdsAmount) || 0)) > 0.01) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory tdsAmount mismatch.`
+                  );
+                }
+                if (Math.abs((Number(exStat.taxableAmount) || 0) - (Number(reqStat.taxableAmount) || 0)) > 0.01) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory taxableAmount mismatch.`
+                  );
+                }
+                if (String(exStat.deducteeId || '') !== String(reqStat.deducteeId || '')) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory deducteeId mismatch.`
+                  );
+                }
+                if ((exStat.deducteeName || '').trim().toLowerCase() !== (reqStat.deducteeName || '').trim().toLowerCase()) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory deducteeName mismatch.`
+                  );
+                }
+                if (Boolean(exStat.isGrossUp) !== Boolean(reqStat.isGrossUp)) {
+                  throw new Error(
+                    `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory isGrossUp mismatch.`
                   );
                 }
               }
@@ -310,7 +475,9 @@ export class UnifiedPostingService {
         totalCredit,
       };
     } finally {
-      barrierToken?.release();
+      if (!session) {
+        barrierToken?.release();
+      }
     }
   }
 

@@ -28,17 +28,23 @@ export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
     // Test connection
     await sql`SELECT 1`;
     console.log('✅ PostgreSQL (postgres-js) connected in Nuxt server');
-    pgReady = true;
 
-    // Auto-migrate Documents & Labor tables asynchronously (prevents DDL lock timeouts on cold starts)
+    // Auto-migrate Documents & Labor tables and wait for completion (F-06)
     if (!pgTablesInitialized) {
-      pgTablesInitialized = true;
-      Promise.all([
-        initDocumentsPgTable(sql),
-        initLaborPgTables(sql)
-      ]).catch((migErr) => {
-        console.warn('⚠️ Background PG schema verification notice:', migErr?.message);
-      });
+      try {
+        await Promise.all([
+          initDocumentsPgTable(sql),
+          initLaborPgTables(sql)
+        ]);
+        pgTablesInitialized = true;
+        pgReady = true;
+      } catch (migErr: any) {
+        pgReady = false;
+        console.error('⚠️ Critical: PostgreSQL schema verification failed:', migErr?.message);
+        throw migErr;
+      }
+    } else {
+      pgReady = true;
     }
 
   } catch (err: any) {

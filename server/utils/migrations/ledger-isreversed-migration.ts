@@ -38,6 +38,24 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     return { migrationId, status: 'ALREADY_COMPLETED' };
   }
 
+  // ── Step 0: Normalize firm identity aliases across legacy documents (F-07) ──
+  // The unique partial index strictly indexes `firmId`. Any document with `firm_id` but missing `firmId`
+  // must have `firmId` populated so the index key matches the document's true tenant identity.
+  await ledgerCol.updateMany(
+    {
+      firmId: null,
+      firm_id: { $ne: null }
+    },
+    [{ $set: { firmId: '$firm_id' } }]
+  );
+  await ledgerCol.updateMany(
+    {
+      firm_id: null,
+      firmId: { $ne: null }
+    },
+    [{ $set: { firm_id: '$firmId' } }]
+  );
+
   // ── Step 1: Preflight Duplicate Key Verification (F-07) ──
   // Check for any legacy duplicate keys across rows that would join the partial unique index:
   // (firmId, voucherGroupId, legIndex) where isReversed is null/false
@@ -51,7 +69,7 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     {
       $group: {
         _id: {
-          firmId: { $ifNull: ['$firmId', '$firm_id'] },
+          firmId: '$firmId', // Exact unique index key field (F-07)
           voucherGroupId: '$voucherGroupId',
           legIndex: { $ifNull: ['$legIndex', 0] }
         },
@@ -119,7 +137,30 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     );
   }
 
-  // ── Step 4: Record Completed Migration ──
+  // ── Step 4: Verify Unique Partial Index Presence on Collection (F-07) ──
+  const indexes = await ledgerCol.indexes();
+  const hasPartialUniqueIndex = indexes.some(idx => {
+    const key = idx.key || {};
+    return key.firmId === 1 && key.voucherGroupId === 1 && key.legIndex === 1 && idx.unique;
+  });
+
+  if (!hasPartialUniqueIndex) {
+    try {
+      await ledgerCol.createIndex(
+        { firmId: 1, voucherGroupId: 1, legIndex: 1 },
+        {
+          unique: true,
+          partialFilterExpression: { isReversed: false, voucherGroupId: { $type: 'string' } },
+          name: 'firmId_1_voucherGroupId_1_legIndex_1'
+        }
+      );
+      console.log('✅ [Migration] Created unique partial index firmId_1_voucherGroupId_1_legIndex_1 on ledgers');
+    } catch (idxErr: any) {
+      throw new Error(`[Migration Index Verification Failed] Could not create or verify unique index: ${idxErr.message}`);
+    }
+  }
+
+  // ── Step 5: Record Completed Migration ──
   await migrationsCol.updateOne(
     { migrationId },
     {

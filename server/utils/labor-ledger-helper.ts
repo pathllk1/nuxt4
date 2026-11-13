@@ -15,6 +15,7 @@ interface PostLaborAdvanceParams {
   tds_rate?: number;
   tds_amount?: number;
   gross_amount?: number;
+  external_voucher_group_id?: string;
 }
 
 interface PostLaborSettlementParams {
@@ -30,6 +31,7 @@ interface PostLaborSettlementParams {
   payment_mode?: string;
   leader_name: string;
   created_by?: string;
+  external_voucher_group_id?: string;
 }
 
 export const laborLedgerHelper = {
@@ -168,6 +170,7 @@ export const laborLedgerHelper = {
         legs,
         createdBy: created_by || 'system',
         refType: 'ADVANCE',
+        externalVoucherGroupId: params.external_voucher_group_id,
         tags: { laborLeaderName: leader_name, tdsMode: tds_mode, tdsRate: tds_rate, tdsAmount: tds_amount },
       }, session);
 
@@ -312,6 +315,7 @@ export const laborLedgerHelper = {
         legs,
         createdBy: created_by || 'system',
         refType: 'WAGE',
+        externalVoucherGroupId: params.external_voucher_group_id,
         tags: { laborLeaderName: leader_name },
       }, session);
 

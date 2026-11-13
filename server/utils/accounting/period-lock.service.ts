@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import PeriodLock from '../../models/PeriodLock';
+import PostingBarrier from '../../models/PostingBarrier';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Period Lock Service
@@ -88,6 +89,7 @@ export interface IPostingBarrierToken {
 /**
  * Acquires a posting barrier ticket before starting a ledger write operation.
  * Fails closed if the period is locked or closing is in progress.
+ * Backed by both local registry and distributed MongoDB PostingBarrier documents (F-01).
  */
 export async function acquirePostingBarrier(
   firmId: mongoose.Types.ObjectId | string,
@@ -100,13 +102,27 @@ export async function acquirePostingBarrier(
   // 1. Initial lock check
   await enforcePeriodLock(firmId, transactionDate, session);
 
-  // 2. Register in-flight writer ticket
+  // 2. Register in-flight writer ticket locally and in distributed collection (F-01)
   const key = `${firmIdStr}:${fy}`;
   const postingId = new mongoose.Types.ObjectId().toString();
   if (!inFlightPostings.has(key)) {
     inFlightPostings.set(key, new Set());
   }
   inFlightPostings.get(key)!.add(postingId);
+
+  // Distributed registration in MongoDB (independent of caller's transaction session)
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await PostingBarrier.create([{
+        firmId: firmIdStr,
+        financialYear: fy,
+        postingId,
+        expiresAt: new Date(Date.now() + 60000)
+      }]);
+    } catch (e: any) {
+      console.warn('[PeriodLock] Notice: Could not register distributed barrier ticket:', e?.message);
+    }
+  }
 
   let released = false;
   return {
@@ -120,6 +136,9 @@ export async function acquirePostingBarrier(
         if (set) {
           set.delete(postingId);
           if (set.size === 0) inFlightPostings.delete(key);
+        }
+        if (mongoose.connection.readyState === 1) {
+          PostingBarrier.deleteOne({ postingId }).catch(() => {});
         }
       }
     }
@@ -142,6 +161,7 @@ export async function verifyPostingBarrier(
 /**
  * Called by fiscal-year-closing.service.ts to ensure all in-flight posting
  * transactions have drained before the trial-balance snapshot is calculated (F-01).
+ * Fails closed by throwing an error if in-flight postings do not drain within timeout.
  */
 export async function drainInFlightPostings(
   firmId: mongoose.Types.ObjectId | string,
@@ -153,16 +173,41 @@ export async function drainInFlightPostings(
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
-    const set = inFlightPostings.get(key);
-    if (!set || set.size === 0) {
+    const localCount = inFlightPostings.get(key)?.size || 0;
+    let distributedCount = 0;
+    if (mongoose.connection.readyState === 1) {
+      try {
+        distributedCount = await PostingBarrier.countDocuments({
+          firmId: firmIdStr,
+          financialYear,
+          expiresAt: { $gt: new Date() }
+        });
+      } catch (_) {}
+    }
+    if (localCount === 0 && distributedCount === 0) {
       return; // Drained successfully
     }
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  const remaining = inFlightPostings.get(key)?.size || 0;
-  if (remaining > 0) {
-    console.warn(`[PeriodLock] ${remaining} in-flight postings did not drain within ${timeoutMs}ms for FY ${financialYear}. Fencing will block them at commit.`);
+  const remainingLocal = inFlightPostings.get(key)?.size || 0;
+  let remainingDistributed = 0;
+  if (mongoose.connection.readyState === 1) {
+    try {
+      remainingDistributed = await PostingBarrier.countDocuments({
+        firmId: firmIdStr,
+        financialYear,
+        expiresAt: { $gt: new Date() }
+      });
+    } catch (_) {}
+  }
+
+  const totalRemaining = Math.max(remainingLocal, remainingDistributed);
+  if (totalRemaining > 0) {
+    throw new Error(
+      `[PeriodLock] ${totalRemaining} in-flight posting transactions did not drain within ${timeoutMs}ms for FY ${financialYear}. ` +
+      `Year-end close snapshot aborted to prevent uncommitted or racing writes from entering the closed financial year.`
+    );
   }
 }
 

@@ -153,6 +153,11 @@ export interface IVoucherPayload {
    * This flag is stripped at the API boundary and CANNOT be set by end-users.
    */
   _bypassPeriodLock?: boolean;
+
+  /**
+   * Internal flag used by multi-leg transaction wrappers to prevent nested barrier acquisition (F-01).
+   */
+  _bypassBarrier?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

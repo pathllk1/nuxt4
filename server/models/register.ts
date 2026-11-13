@@ -16,6 +16,8 @@ import './MasterRoll';
 import './OpeningBalance';
 import './Party';
 import './PeriodLock';
+import './PostingBarrier';
+import './TdsExemptionCertificate';
 import './SecurityLog';
 import './Session';
 import './SiteExpenseClaim';

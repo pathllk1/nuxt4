@@ -53,17 +53,13 @@ export const connectDB = async (): Promise<boolean> => {
       console.log(`MongoDB Connected: ${mongoose.connection.host}`);
       cache.conn = mongoose;
 
-      // Versioned migration with duplicate detection and parity verification (F-07)
-      try {
-        const { runLedgerIsReversedMigration } = await import('../utils/migrations/ledger-isreversed-migration');
-        await runLedgerIsReversedMigration();
-      } catch (migrationErr: any) {
-        console.error('[MongoDB Migration Error] Ledger isReversed backfill failed or blocked:', migrationErr.message);
-      }
+      // Versioned migration with duplicate detection, parity verification, and index gating (F-07)
+      const { runLedgerIsReversedMigration } = await import('../utils/migrations/ledger-isreversed-migration');
+      await runLedgerIsReversedMigration();
 
       return true;
     } catch (error) {
-      console.error('MongoDB connection error:', (error as Error).message);
+      console.error('MongoDB connection / startup migration error:', (error as Error).message);
       cache.conn = null;
       return false;
     } finally {

@@ -33,6 +33,23 @@ export default defineEventHandler(async (event) => {
     if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found' });
     if (period.status === 'Settled') throw createError({ statusCode: 400, statusMessage: 'This work period is already settled' });
 
+    // 0. Preflight PostgreSQL check before posting any GL voucher (F-06)
+    const [existingSettlePreflight] = await sql`
+      SELECT * FROM labor_settlements
+      WHERE period_id = ${period_id}
+      LIMIT 1
+    `;
+    if (existingSettlePreflight) {
+      const existingPaid = Number(existingSettlePreflight.paid_amount) || 0;
+      if (Math.abs(existingPaid - numPaidAmount) > 0.01) {
+        throw createError({
+          statusCode: 409,
+          statusMessage: `Idempotency Conflict: Work period is already settled with paid amount ₹${existingPaid} (requested ₹${numPaidAmount}).`
+        });
+      }
+      return { success: true, data: existingSettlePreflight, isIdempotentReplay: true };
+    }
+
     // Calculate totals from PostgreSQL
     const [wagesRow] = await sql`
       SELECT COALESCE(SUM(total_wages), 0) as sum_wages FROM labor_workers WHERE period_id = ${period_id}
@@ -49,6 +66,12 @@ export default defineEventHandler(async (event) => {
     const totalAdvances = Number(advancesRow?.sum_advances || 0);
     const netPayable = totalWages + totalExpenses - totalAdvances;
 
+    // Stable settlement voucherGroupId to guarantee cross-retry idempotency (F-06)
+    const idempotencyKey = body.idempotency_key || body.idempotencyKey || null;
+    const stableSettlementVoucherId = idempotencyKey
+      ? `SETTLE-${period.firm_id}-${idempotencyKey}`
+      : `SETTLE-${period.firm_id}-${period_id}`;
+
     // 1. Post Settlement to MongoDB Ledger
     const voucherGroupId = await laborLedgerHelper.postLaborSettlement({
       firm_id: period.firm_id,
@@ -63,6 +86,7 @@ export default defineEventHandler(async (event) => {
       payment_mode: payment_mode,
       leader_name: period.leader_name,
       created_by: String(session._id),
+      external_voucher_group_id: stableSettlementVoucherId
     });
 
     // 2. Ensure schema has newly added columns before inserting
@@ -86,6 +110,24 @@ export default defineEventHandler(async (event) => {
         `;
         if (existingSettle && existingSettle.length > 0) {
           settlement = existingSettle[0];
+          // If a new voucher was posted during this request but PostgreSQL already had a committed settlement,
+          // void/reverse the redundant MongoDB voucher so no orphan voucher remains (F-06)
+          if (voucherGroupId && voucherGroupId !== settlement.ledger_voucher_group_id && !voucherGroupId.startsWith('SETTLED-NO-VOUCHER')) {
+            try {
+              const mongoose = (await import('mongoose')).default;
+              const Ledger = (await import('../../../models/Ledger')).default;
+              const firmOid = mongoose.Types.ObjectId.isValid(String(period.firm_id))
+                ? new mongoose.Types.ObjectId(String(period.firm_id))
+                : period.firm_id;
+              await Ledger.updateMany(
+                { voucherGroupId, $or: [{ firmId: firmOid }, { firm_id: firmOid }] },
+                { $set: { isReversed: true, reversedAt: new Date(), reversalReason: 'Voided duplicate voucher from concurrent settlement race' } }
+              );
+            } catch (vErr: any) {
+              console.warn('[Labor Settlement] Warning: Could not void concurrent duplicate voucher:', vErr?.message);
+            }
+          }
+
           // Assert payload equality on idempotent retry (F-06)
           const existingPaid = Number(settlement.paid_amount) || 0;
           if (Math.abs(existingPaid - numPaidAmount) > 0.01) {

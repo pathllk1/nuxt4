@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Ledger from '../../../models/Ledger';
 import Party from '../../../models/Party';
 import ChartOfAccounts from '../../../models/ChartOfAccounts';
+import TdsExemptionCertificate from '../../../models/TdsExemptionCertificate';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
 import { TdsCalculator } from '../../../utils/accounting/tds-calculator';
@@ -125,15 +126,26 @@ export default defineEventHandler(async (event) => {
     const fyString = `${fyStartYear}-${String(fyStartYear + 1).slice(-2)}`;
 
     // 2. Query Prior YTD Payments in General Ledger for this Financial Year
-    // Capped at paymentDate, strictly scoped to deductee, and positively restricted to 194C-eligible commercial/contractor transactions (F-04)
+    // Capped at paymentDate, strictly scoped to deductee, and positively restricted to canonical 194C-eligible commercial/contractor transactions (F-04)
     const matchFilter: any = {
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
       transactionDate: { $gte: fyStartDate, $lte: paymentDate },
       debitAmount: { $gt: 0 },
       isReversed: { $ne: true }, // Compatible with both legacy (null) and indexed (false) active rows (F-07)
       refType: { $ne: 'REVERSAL' },
-      // Positive definition of eligible commercial/contract expense account types (F-04)
-      accountType: { $in: ['EXPENSE', 'DIRECT_EXPENSES', 'INDIRECT_EXPENSES', 'OPERATING_EXPENSE', 'COST_OF_GOODS_SOLD', 'SUBCONTRACTOR', 'LABOR_LEADER', 'ADVANCE_TO_LABOR'] }
+      // Positive canonical accounting types from server/types/accounting.ts (F-04)
+      accountType: {
+        $in: [
+          'DIRECT_EXPENSE',
+          'INDIRECT_EXPENSE',
+          'COGS',
+          'EXPENSE',
+          'CASUAL_LABOR',
+          'LABOR_LEADER',
+          'SUNDRY_CREDITORS',
+          'CREDITOR'
+        ]
+      }
     };
 
     if (resolvedPartyId) {
@@ -148,6 +160,8 @@ export default defineEventHandler(async (event) => {
     // Compute how much prior payment has ALREADY suffered TDS for THIS deductee and section 194C (F-04)
     const vgIds = Array.from(new Set(priorEntries.map(e => e.voucherGroupId).filter((id): id is string => Boolean(id))));
     let priorAlreadyTaxedAmount = 0;
+    let hasIncompleteHistory = false;
+
     if (vgIds.length > 0) {
       const priorTdsLegs = await Ledger.find({
         $and: [
@@ -158,8 +172,7 @@ export default defineEventHandler(async (event) => {
           {
             $or: [
               { 'statutory.tdsSection': '194C' },
-              { 'statutory.isTds': true, 'statutory.tdsSection': { $in: ['194C', null] } },
-              { accountHead: { $regex: /\b(194c|tds payable|tax deducted at source)\b/i } }
+              { accountHead: { $regex: /\b(194c|tds on contractor|tds 194c)\b/i } }
             ]
           },
           {
@@ -180,14 +193,20 @@ export default defineEventHandler(async (event) => {
           const legRate = Number(tLeg.statutory?.tdsRate || tLeg.statutory?.rate) || 0;
           const crAmt = Number(tLeg.creditAmount) || 0;
           let calculatedBase = 0;
+          let isUnknownRate = false;
+
           if (statTaxable > 0) {
             calculatedBase = statTaxable;
           } else if (legRate > 0) {
             calculatedBase = Math.round((crAmt / (legRate / 100)) * 100) / 100;
           } else {
-            calculatedBase = crAmt * 100; // Fallback assumes 1%
+            // F-04: Do NOT assume 1% fallback (crAmt * 100)! Mark as unknown rate and report history incomplete.
+            calculatedBase = 0;
+            isUnknownRate = true;
+            hasIncompleteHistory = true;
           }
           (tLeg as any).remainingBase = calculatedBase;
+          (tLeg as any).isUnknownRate = isUnknownRate;
 
           if (!tdsLegsByVg.has(vgId)) tdsLegsByVg.set(vgId, []);
           tdsLegsByVg.get(vgId)!.push(tLeg);
@@ -277,8 +296,9 @@ export default defineEventHandler(async (event) => {
     const panResult = TdsCalculator.validatePan(detectedPan);
 
     // Section 206AA & Statutory Rate Enforcement (F-03)
-    const hasExemption = Boolean(query.exemptionCertificateNo || query.exemptionReason || query.certificateNumber);
     let applicableRate: number;
+    let certificateNumber: string | null = null;
+    let exemptionApplied = false;
 
     if (!panResult.isValid) {
       // Under Section 206AA, invalid or missing PAN mandates a 20% statutory TDS rate.
@@ -293,13 +313,34 @@ export default defineEventHandler(async (event) => {
     } else {
       // Valid PAN: default Section 194C statutory rate is 1% (Individual/HUF) or 2% (Other)
       if (customRate !== null && customRate !== panResult.default194CRate) {
-        if (!hasExemption) {
+        // F-03: Rate override requires an active, firm-scoped exemption certificate record (Section 197 / 194C(6)).
+        // Free-text query parameters are rejected.
+        const cert = await TdsExemptionCertificate.findOne({
+          firmId: firmIdObj,
+          pan: panResult.pan,
+          section: '194C',
+          status: 'ACTIVE',
+          validFrom: { $lte: paymentDate },
+          validTo: { $gte: paymentDate }
+        }).lean();
+
+        if (!cert) {
           throw createError({
             statusCode: 400,
-            statusMessage: `Rate override (${customRate}%) does not match statutory Section 194C rate (${panResult.default194CRate}% for ${panResult.entityType}). Explicit exemption certificate (Sec 197 / 194C(6)) is required.`
+            statusMessage: `Rate override (${customRate}%) rejected. Section 194C statutory rate is ${panResult.default194CRate}% for ${panResult.entityType}. No active, firm-scoped Section 197 / 194C(6) exemption certificate found for PAN "${panResult.pan}" on ${paymentDate}. Free-text exemption parameters cannot authorize rate overrides.`
           });
         }
+
+        if (Number(cert.permittedRate) !== customRate) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: `Rate override (${customRate}%) does not match certificate permitted rate (${cert.permittedRate}%) for certificate "${cert.certificateNumber}".`
+          });
+        }
+
         applicableRate = customRate;
+        certificateNumber = cert.certificateNumber;
+        exemptionApplied = true;
       } else {
         applicableRate = panResult.default194CRate;
       }
@@ -334,6 +375,11 @@ export default defineEventHandler(async (event) => {
         isIndividual: panResult.isIndividual,
         entityType: panResult.entityType,
         applicableRate,
+        exemption: {
+          isApplied: exemptionApplied,
+          certificateNumber,
+        },
+        incompleteHistory: hasIncompleteHistory,
         priorYtd: thresholdResult.priorYtd,
         currentAmount,
         newYtd: thresholdResult.newYtd,

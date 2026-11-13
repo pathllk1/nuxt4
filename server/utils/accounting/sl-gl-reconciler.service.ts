@@ -197,7 +197,9 @@ export class SLGLReconcilerService {
         }
 
         // Independent operational sub-ledger totals derived from PostgreSQL operational records (F-05)
-        // Net Labor Balance = Gross Advances minus Advances Recovered/Settled in Settlements through cutoff
+        // Complete operational accounting without arbitrary zero-clamps:
+        // Debits: Total advances + Total settlement payouts + Settlement discount adjustments
+        // Credits: Total settlement gross liabilities (wages + expenses)
         const [advSumRow] = await sql`
           SELECT COALESCE(SUM(amount), 0) AS total_adv
           FROM labor_advances
@@ -206,14 +208,28 @@ export class SLGLReconcilerService {
         const totalAdv = Number(advSumRow?.total_adv || 0);
 
         const [settleSumRow] = await sql`
-          SELECT COALESCE(SUM(s.total_advances), 0) AS total_settled_adv
+          SELECT 
+            COALESCE(SUM(s.total_wages), 0) AS sum_wages,
+            COALESCE(SUM(s.total_expenses), 0) AS sum_expenses,
+            COALESCE(SUM(s.total_advances), 0) AS sum_settled_adv,
+            COALESCE(SUM(s.paid_amount), 0) AS sum_paid,
+            COALESCE(SUM(s.net_payable), 0) AS sum_net_payable
           FROM labor_settlements s
           JOIN labor_periods p ON s.period_id = p.id
           WHERE p.firm_id = ${String(firmId)} AND s.payment_date <= ${toDate}
         `;
-        const totalSettledAdv = Number(settleSumRow?.total_settled_adv || 0);
+        const sumWages = Number(settleSumRow?.sum_wages || 0);
+        const sumExpenses = Number(settleSumRow?.sum_expenses || 0);
+        const sumPaid = Number(settleSumRow?.sum_paid || 0);
+        const sumNetPayable = Number(settleSumRow?.sum_net_payable || 0);
 
-        slOperationalTotal = Math.max(0, totalAdv - totalSettledAdv);
+        let sumAdjustments = 0;
+        if (sumNetPayable > 0) {
+          sumAdjustments = sumNetPayable - sumPaid;
+        }
+
+        // Net operational labor balance reflecting complete operational state without artificial clamping (F-05)
+        slOperationalTotal = (totalAdv + sumPaid + sumAdjustments) - (sumWages + sumExpenses);
       }
     } catch (pgErr: any) {
       console.warn('[SL-GL Reconciler] Postgres labor leader sync notice:', pgErr.message);
@@ -499,6 +515,31 @@ export class SLGLReconcilerService {
       }
     }
 
+    // Query independent payment, receipt, and adjustment vouchers for these parties up to cutoff (F-05)
+    // Subtract customer receipts from AR outstanding; subtract supplier payments from AP payable
+    const partyIds = parties.map(p => p._id);
+    const nonBillLegs = await Ledger.find({
+      $or: [{ firmId }, { firm_id: firmId }],
+      partyId: { $in: partyIds },
+      accountType,
+      refType: { $ne: 'BILL' },
+      isReversed: { $ne: true },
+      transactionDate: { $lte: toDate }
+    }, 'partyId debitAmount creditAmount voucherType').lean();
+
+    for (const leg of nonBillLegs) {
+      const pid = String(leg.partyId);
+      if (partyOperationalMap.has(pid)) {
+        const dr = Number(leg.debitAmount) || 0;
+        const cr = Number(leg.creditAmount) || 0;
+        if (category === 'AR') {
+          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + (dr - cr));
+        } else {
+          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + (cr - dr));
+        }
+      }
+    }
+
     // Independent operational SL Grand Total derived strictly from operational registers (F-05)
     let slGrandTotal = 0;
     for (const [_, opBal] of partyOperationalMap) {
@@ -531,14 +572,14 @@ export class SLGLReconcilerService {
         if (diff > 0.05) {
           variances.push({
             category,
-            entityName: `${partyName} (${partyId}) Operational Billing Register Mismatch`,
+            entityName: `${partyName} (${partyId}) Operational Register Mismatch`,
             entityId: partyId,
             glBalance: Math.abs(glNet),
             glBalanceType: glNet >= 0 ? 'DR' : 'CR',
             slBalance: Math.abs(slBal),
             slBalanceType: slBal >= 0 ? 'DR' : 'CR',
             variance: diff,
-            status: 'WARNING',
+            status: 'CRITICAL',
           });
         }
       } else {
@@ -653,23 +694,20 @@ export class SLGLReconcilerService {
       }
     }
 
-    const billVarianceSum = variances
-      .filter(v => v.category === category && (v.entityName.includes('Missing or Unposted GL') || v.entityName.includes('Control Leg') || v.entityName.includes('Bill Amount Mismatch') || v.entityName.includes('Wrong Party Tag')))
+    // Include the sum of ALL per-party variances in category totalVariance so offsetting differences do NOT mask mismatches (F-05)
+    const partyMismatchVarianceSum = variances
+      .filter(v => v.category === category && v.status !== 'HEALTHY')
       .reduce((sum, v) => sum + v.variance, 0);
 
-    const partyOrphanSum = variances
-      .filter(v => v.category === category && (v.entityName.includes('Unknown Party') || v.entityName.includes('Untagged')))
-      .reduce((sum, v) => sum + v.variance, 0);
-
-    const hasCriticalCategory = variances.some(v => v.category === category && v.status === 'CRITICAL');
-    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + billVarianceSum + partyOrphanSum;
+    const hasMismatches = variances.some(v => v.category === category && v.status !== 'HEALTHY');
+    const totalVariance = Math.abs(glGrandTotal - slGrandTotal) + partyMismatchVarianceSum;
 
     return {
       summary: {
         glTotal: glGrandTotal,
         slTotal: slGrandTotal,
         variance: totalVariance,
-        status: hasCriticalCategory || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
+        status: hasMismatches || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
       },
       variances,
     };

@@ -261,6 +261,15 @@ export class FiscalYearClosingService {
       }
     };
 
+    // Continuous lease heartbeat timer during close execution (F-01)
+    let heartbeatTimer: NodeJS.Timeout | null = setInterval(async () => {
+      try {
+        await renewCloseLease();
+      } catch (hbErr: any) {
+        console.warn('[FiscalYearClosing] Continuous heartbeat lease renewal error:', hbErr?.message);
+      }
+    }, 30000);
+
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -478,6 +487,7 @@ export class FiscalYearClosingService {
 
       throw err;
     } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       session.endSession();
     }
   }

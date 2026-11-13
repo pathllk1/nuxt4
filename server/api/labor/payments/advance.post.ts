@@ -42,7 +42,34 @@ export default defineEventHandler(async (event) => {
     // When TDS is DEDUCT (borne by leader), the leader's wage bill is deducted by gross amount.
     const periodDeductionAmount = tds_mode === 'DEDUCT' ? numGrossAmount : numAmount;
 
-    // 1. Post to MongoDB Ledger
+    // Establish stable request idempotency key before posting (F-06)
+    const idempotencyKey = body.idempotency_key || body.idempotencyKey || body.client_reference || body.request_id || null;
+    const stableVoucherGroupId = idempotencyKey
+      ? `ADV-${String(period.firm_id)}-${idempotencyKey}`
+      : undefined;
+
+    // 1. Preflight PostgreSQL idempotency check before creating GL vouchers (F-06)
+    if (stableVoucherGroupId) {
+      const [existingPg] = await sql`
+        SELECT * FROM labor_advances
+        WHERE firm_id = ${period.firm_id}
+          AND period_id = ${period_id}
+          AND ledger_voucher_group_id = ${stableVoucherGroupId}
+        LIMIT 1
+      `;
+      if (existingPg) {
+        const existingAmt = Number(existingPg.amount) || 0;
+        if (Math.abs(existingAmt - periodDeductionAmount) > 0.01) {
+          throw createError({
+            statusCode: 409,
+            statusMessage: `Idempotency Conflict: Existing advance record amount ₹${existingAmt} does not match requested amount ₹${periodDeductionAmount}.`
+          });
+        }
+        return { success: true, data: existingPg, isIdempotentReplay: true };
+      }
+    }
+
+    // 2. Post to MongoDB Ledger with stable voucher group ID (F-06)
     const voucherGroupId = await laborLedgerHelper.postLaborAdvance({
       firm_id: period.firm_id,
       amount: numAmount,
@@ -54,7 +81,8 @@ export default defineEventHandler(async (event) => {
       tds_mode,
       tds_rate: Number(tds_rate) || 1,
       tds_amount: numTdsAmount,
-      gross_amount: numGrossAmount
+      gross_amount: numGrossAmount,
+      external_voucher_group_id: stableVoucherGroupId
     });
 
     // Ensure schema has newly added columns before inserting
@@ -70,7 +98,7 @@ export default defineEventHandler(async (event) => {
       `;
     } catch (_) {}
 
-    // 2. Insert into PostgreSQL labor_advances (with idempotent check and compensating rollback on failure)
+    // 3. Insert into PostgreSQL labor_advances (with idempotent check and compensating rollback on failure)
     let advance: any = null;
     try {
       const existingAdv = await sql`
