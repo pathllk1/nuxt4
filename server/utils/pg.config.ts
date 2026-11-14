@@ -9,7 +9,17 @@ let pgTablesInitialized = false;
  * Initialize PostgreSQL connection using postgres-js
  */
 export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
-  if (sql) return sql;
+  if (sql && pgReady) {
+    try {
+      await sql`SELECT 1`;
+      return sql;
+    } catch (testErr) {
+      console.warn('⚠️ Existing PostgreSQL connection stale/dropped, reconnecting...', testErr);
+      try { await sql.end({ timeout: 2 }); } catch (_) {}
+      sql = null;
+      pgReady = false;
+    }
+  }
 
   const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
@@ -22,6 +32,8 @@ export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
     sql = postgres(connectionString, {
       ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1') ? false : { rejectUnauthorized: false },
       connect_timeout: 15,
+      idle_timeout: 30,
+      max_lifetime: 60 * 30,
       onnotice: () => {},
     });
 

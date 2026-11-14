@@ -186,8 +186,11 @@ export class SLGLReconcilerService {
     let slOperationalTotal = 0;
     let laborSourceAvailable = true;
     try {
-      const { getSql, isPgReady } = await import('../pg.config');
-      const sql = getSql();
+      const { getSql, connectPostgres, isPgReady } = await import('../pg.config');
+      let sql = getSql();
+      if (!sql || !isPgReady()) {
+        sql = await connectPostgres();
+      }
       if (sql && isPgReady()) {
         const pgLeaders = await sql`
           SELECT id, name
@@ -266,8 +269,11 @@ export class SLGLReconcilerService {
     // Cross-Database: Verify that all PostgreSQL labor advances are reflected in GL with exact cutoff & leader parity (A-04, A-07, F-03, F-05)
     let pgAdvancesVarianceSum = 0;
     try {
-      const { getSql, isPgReady } = await import('../pg.config');
-      const sql = getSql();
+      const { getSql, connectPostgres, isPgReady } = await import('../pg.config');
+      let sql = getSql();
+      if (!sql || !isPgReady()) {
+        sql = await connectPostgres();
+      }
       if (sql && isPgReady()) {
         const pgAdvances = await sql`
           SELECT a.id, a.period_id, a.amount, a.payment_date, a.ledger_voucher_group_id,
