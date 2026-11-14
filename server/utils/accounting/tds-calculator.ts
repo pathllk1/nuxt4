@@ -107,10 +107,18 @@ export const TdsCalculator = {
    * 1. Single payment <= ₹30,000
    * 2. Aggregate in financial year <= ₹1,00,000
    */
-  check194CThreshold(priorYtd: number, currentPayment: number, priorAlreadyTaxedAmount: number = 0): ThresholdCheckResult {
-    const prior = Math.max(0, Number(priorYtd) || 0);
-    const curr = Math.max(0, Number(currentPayment) || 0);
-    const taxedPrior = Math.max(0, Number(priorAlreadyTaxedAmount) || 0);
+  check194CThreshold(priorYtd: number, currentPayment: number, priorAlreadyTaxedAmount: number): ThresholdCheckResult {
+    if (
+      !Number.isFinite(priorYtd) || priorYtd < 0 ||
+      !Number.isFinite(currentPayment) || currentPayment < 0 ||
+      !Number.isFinite(priorAlreadyTaxedAmount) || priorAlreadyTaxedAmount < 0 ||
+      priorAlreadyTaxedAmount > priorYtd
+    ) {
+      throw new Error('Invalid 194C threshold history amounts.');
+    }
+    const prior = priorYtd;
+    const curr = currentPayment;
+    const taxedPrior = priorAlreadyTaxedAmount;
     const newYtd = prior + curr;
 
     const singleExceeded = curr > 30000;
@@ -143,15 +151,22 @@ export const TdsCalculator = {
     netAmount: number;
     ratePercent: number;
     isGrossUp: boolean;
-    catchUpBaseAmount?: number;
+    catchUpBaseAmount: number;
   }): TdsComputationResult {
-    const net = Math.max(0, Number(params.netAmount) || 0);
-    const rate = Math.max(0, Number(params.ratePercent) || 0);
-    const catchUpBase = Math.max(0, Number(params.catchUpBaseAmount) || 0);
+    const net = params.netAmount;
+    const rate = params.ratePercent;
+    const catchUpBase = params.catchUpBaseAmount;
+    if (
+      !Number.isFinite(net) || net < 0 ||
+      !Number.isFinite(rate) || rate < 0 || rate > 20 ||
+      !Number.isFinite(catchUpBase) || catchUpBase < 0
+    ) {
+      throw new Error('Invalid 194C TDS calculation inputs.');
+    }
 
     const r = rate / 100;
 
-    if (r <= 0 || r >= 1) {
+    if (r === 0) {
       return {
         netPayout: net,
         grossAmount: net,
@@ -212,7 +227,10 @@ export const TdsCalculator = {
       const regularTds = gross * r;
       const catchUpTds = catchUpBase > 0 ? catchUpBase * r : 0;
       const totalTds = regularTds + catchUpTds;
-      const netPayout = Math.max(0, gross - totalTds);
+      const netPayout = gross - totalTds;
+      if (netPayout < 0) {
+        throw new Error('Current payment is insufficient to withhold the accrued Section 194C TDS.');
+      }
 
       return {
         netPayout: Number(netPayout.toFixed(2)),

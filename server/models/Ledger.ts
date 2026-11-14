@@ -29,6 +29,7 @@ export interface ILedger extends Document {
   reversedBy?: string | null;
   replacesVoucherGroupId?: string | null;
   statutory?: Record<string, any> | null;
+  sourcePaymentRef?: string | null;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -168,6 +169,11 @@ const LedgerSchema = new Schema<ILedger>(
     statutory: {
       type: Schema.Types.Mixed,
       default: null,
+    },
+    sourcePaymentRef: {
+      type: String,
+      default: null,
+      index: true,
     },
     createdBy: {
       type: String,

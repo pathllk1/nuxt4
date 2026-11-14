@@ -30,9 +30,9 @@ export interface IReconciliationVariance {
   entityId: string;
   glBalance: number;
   glBalanceType: 'DR' | 'CR';
-  slBalance: number;
+  slBalance: number | null;
   slBalanceType: 'DR' | 'CR';
-  variance: number;
+  variance: number | null;
   status: 'HEALTHY' | 'WARNING' | 'CRITICAL';
 }
 
@@ -41,10 +41,10 @@ export interface IReconciliationReport {
   timestamp: string;
   toDate?: string;
   overallStatus: 'HEALTHY' | 'WARNING' | 'CRITICAL';
-  arSummary: { glTotal: number; slTotal: number; variance: number; status: string };
-  apSummary: { glTotal: number; slTotal: number; variance: number; status: string };
-  bankSummary: { glTotal: number; slTotal: number; variance: number; status: string };
-  laborSummary: { glTotal: number; slTotal: number; variance: number; status: string };
+  arSummary: { glTotal: number; slTotal: number | null; variance: number | null; status: string; available: boolean };
+  apSummary: { glTotal: number; slTotal: number | null; variance: number | null; status: string; available: boolean };
+  bankSummary: { glTotal: number; slTotal: number | null; variance: number | null; status: string; available: boolean };
+  laborSummary: { glTotal: number; slTotal: number | null; variance: number | null; status: string; available: boolean };
   advanceSummary?: { glTotal: number; slTotal: number; variance: number; status: string };
   variances: IReconciliationVariance[];
   untaggedVoucherCount: number;
@@ -88,8 +88,12 @@ export class SLGLReconcilerService {
       ...advResult.variances,
     ];
 
-    const hasCritical = allVariances.some(v => v.status === 'CRITICAL');
-    const hasWarning = allVariances.some(v => v.status === 'WARNING');
+    const hasCritical = allVariances.some(v => v.status === 'CRITICAL') ||
+      [arResult.summary, apResult.summary, bankResult.summary, laborResult.summary, advResult.summary]
+        .some(summary => summary.status === 'CRITICAL');
+    const hasWarning = allVariances.some(v => v.status === 'WARNING') ||
+      [arResult.summary, apResult.summary, bankResult.summary, laborResult.summary, advResult.summary]
+        .some(summary => summary.status === 'WARNING');
 
     return {
       firmId: String(firmId),
@@ -180,6 +184,7 @@ export class SLGLReconcilerService {
 
     // Cross-Database: Query registered Labor Leaders and independent operational total from PostgreSQL (F-05)
     let slOperationalTotal = 0;
+    let laborSourceAvailable = true;
     try {
       const { getSql, isPgReady } = await import('../pg.config');
       const sql = getSql();
@@ -205,15 +210,13 @@ export class SLGLReconcilerService {
           FROM labor_advances
           WHERE firm_id = ${String(firmId)} AND payment_date <= ${toDate}
         `;
-        const totalAdv = Number(advSumRow?.total_adv || 0);
+        const totalAdv = Number(advSumRow?.total_adv);
 
         const [settleSumRow] = await sql`
           SELECT 
             COALESCE(SUM(s.total_wages), 0) AS sum_wages,
             COALESCE(SUM(s.total_expenses), 0) AS sum_expenses,
-            COALESCE(SUM(s.total_advances), 0) AS sum_settled_adv,
             COALESCE(SUM(s.paid_amount), 0) AS sum_paid,
-            COALESCE(SUM(s.net_payable), 0) AS sum_net_payable,
             COALESCE(SUM(CASE WHEN s.net_payable > 0 THEN (s.net_payable - s.paid_amount) ELSE 0 END), 0) AS sum_adjustments
           FROM labor_settlements s
           JOIN labor_periods p ON s.period_id = p.id
@@ -223,12 +226,18 @@ export class SLGLReconcilerService {
         const sumExpenses = Number(settleSumRow?.sum_expenses || 0);
         const sumPaid = Number(settleSumRow?.sum_paid || 0);
         const sumAdjustments = Number(settleSumRow?.sum_adjustments || 0);
+        if (![totalAdv, sumWages, sumExpenses, sumPaid, sumAdjustments].every(Number.isFinite)) {
+          throw new Error('PostgreSQL labor register contains invalid numeric totals.');
+        }
 
         // Net operational labor balance reflecting complete operational state without artificial clamping (F-05)
         // Adjustments calculated per-settlement strictly matching labor-ledger-helper.ts posting logic
         slOperationalTotal = (totalAdv + sumPaid + sumAdjustments) - (sumWages + sumExpenses);
+      } else {
+        throw new Error('PostgreSQL is unavailable for independent labor register totals.');
       }
     } catch (pgErr: any) {
+      laborSourceAvailable = false;
       console.warn('[SL-GL Reconciler] Postgres labor leader sync notice:', pgErr.message);
     }
 
@@ -297,7 +306,10 @@ export class SLGLReconcilerService {
           for (const adv of pgAdvances) {
             const vId = String(adv.ledger_voucher_group_id);
             const legs = glLegsByGroup.get(vId);
-            const advAmt = Number(adv.amount) || 0;
+            const advAmt = Number(adv.amount);
+            if (!Number.isFinite(advAmt) || advAmt < 0) {
+              throw new Error(`Labor advance ${adv.id} contains an invalid amount.`);
+            }
 
             if (!legs || legs.length === 0) {
               pgAdvancesVarianceSum += advAmt;
@@ -356,9 +368,10 @@ export class SLGLReconcilerService {
 
             // Expected amount basis depends on TDS mode (F-05):
             // In DEDUCT mode, leader leg debits gross amount; in GROSS_UP mode, leader leg debits net payout
-            const expectedDebit = adv.tds_mode === 'DEDUCT'
-              ? (Number(adv.gross_amount) || advAmt)
-              : advAmt;
+            const expectedDebit = adv.tds_mode === 'DEDUCT' ? Number(adv.gross_amount) : advAmt;
+            if (!Number.isFinite(expectedDebit) || expectedDebit < 0) {
+              throw new Error(`Labor advance ${adv.id} contains an invalid gross amount.`);
+            }
 
             const legDr = Number(leaderLeg.debitAmount) || 0;
             const diff = Math.abs(legDr - expectedDebit);
@@ -379,20 +392,21 @@ export class SLGLReconcilerService {
           }
         }
       } else {
-        // PostgreSQL unavailable must prevent unverified healthy assurance (F-05)
+        laborSourceAvailable = false;
         variances.push({
           category: 'LABOR',
           entityName: 'PostgreSQL Database Unavailable for Cross-Verification',
           entityId: 'PG_UNAVAILABLE',
           glBalance: glGrandTotal,
           glBalanceType: 'DR',
-          slBalance: 0,
+          slBalance: null,
           slBalanceType: 'DR',
-          variance: glGrandTotal > 0 ? glGrandTotal : 1,
+          variance: null,
           status: 'CRITICAL'
         });
       }
     } catch (pgAdvErr: any) {
+      laborSourceAvailable = false;
       console.warn('[SL-GL Reconciler] Postgres labor advance cross-check notice:', pgAdvErr.message);
       variances.push({
         category: 'LABOR',
@@ -400,9 +414,9 @@ export class SLGLReconcilerService {
         entityId: 'PG_ERROR',
         glBalance: glGrandTotal,
         glBalanceType: 'DR',
-        slBalance: 0,
+        slBalance: null,
         slBalanceType: 'DR',
-        variance: glGrandTotal > 0 ? glGrandTotal : 1,
+        variance: null,
         status: 'CRITICAL'
       });
     }
@@ -413,9 +427,10 @@ export class SLGLReconcilerService {
     return {
       summary: {
         glTotal: glGrandTotal,
-        slTotal: slGrandTotal + pgAdvancesVarianceSum,
-        variance: totalVariance,
-        status: hasCriticalLabor || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
+        slTotal: laborSourceAvailable ? slGrandTotal + pgAdvancesVarianceSum : null,
+        variance: laborSourceAvailable ? totalVariance : null,
+        status: !laborSourceAvailable || hasCriticalLabor || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
+        available: laborSourceAvailable,
       },
       variances,
     };
@@ -487,136 +502,38 @@ export class SLGLReconcilerService {
       '_id bno btype netTotal partyId partyName voucherId'
     ).lean();
 
-    // Compute independent operational sub-ledger balances per party from Billing Register
-    const partyOperationalMap = new Map<string, number>();
-    for (const p of parties) {
-      const pid = String(p._id);
-      let opBal = 0;
-      if (p.openingBalance) {
-        if (category === 'AR') {
-          opBal += p.balanceType === 'CR' ? -p.openingBalance : p.openingBalance;
-        } else {
-          opBal += p.balanceType === 'DR' ? -p.openingBalance : p.openingBalance;
-        }
-      }
-      partyOperationalMap.set(pid, opBal);
-    }
-
-    for (const b of activeBills) {
-      const pid = String(b.partyId);
-      if (partyOperationalMap.has(pid)) {
-        const amt = Number(b.netTotal) || 0;
-        if (category === 'AR') {
-          const delta = b.btype === 'CREDIT_NOTE' ? -amt : amt;
-          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + delta);
-        } else {
-          const delta = b.btype === 'DEBIT_NOTE' ? -amt : amt;
-          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + delta);
-        }
-      }
-    }
-
-    // Query independent payment, receipt, and adjustment vouchers for these parties up to cutoff (F-05)
-    // Subtract customer receipts from AR outstanding; subtract supplier payments from AP payable
-    const partyIds = parties.map(p => p._id);
-    const nonBillLegs = await Ledger.find({
-      $or: [{ firmId }, { firm_id: firmId }],
-      partyId: { $in: partyIds },
-      accountType,
-      refType: { $ne: 'BILL' },
-      isReversed: { $ne: true },
-      transactionDate: { $lte: toDate }
-    }, 'partyId debitAmount creditAmount voucherType').lean();
-
-    for (const leg of nonBillLegs) {
-      const pid = String(leg.partyId);
-      if (partyOperationalMap.has(pid)) {
-        const dr = Number(leg.debitAmount) || 0;
-        const cr = Number(leg.creditAmount) || 0;
-        if (category === 'AR') {
-          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + (dr - cr));
-        } else {
-          partyOperationalMap.set(pid, (partyOperationalMap.get(pid) || 0) + (cr - dr));
-        }
-      }
-    }
-
-    // Independent operational SL Grand Total derived strictly from operational registers (F-05)
-    let slGrandTotal = 0;
-    for (const [_, opBal] of partyOperationalMap) {
-      slGrandTotal += opBal;
-    }
-
     const variances: IReconciliationVariance[] = [];
 
     for (const [partyId, glNet] of glMap) {
-      if (partyId === 'UNTAGGED') {
-        variances.push({
-          category,
-          entityName: `Untagged ${accountType} Control Account Entries (Missing partyId)`,
-          entityId: 'UNTAGGED',
-          glBalance: Math.abs(glNet),
-          glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
-          slBalance: 0,
-          slBalanceType: category === 'AP' ? 'CR' : 'DR',
-          variance: Math.abs(glNet),
-          status: 'CRITICAL',
-        });
-        continue;
-      }
-
-      const partyObj = partyMap.get(partyId);
-      if (partyObj) {
-        const partyName = partyObj.name;
-        const slBal = partyOperationalMap.get(partyId) || 0;
-        const diff = Math.abs(glNet - slBal);
-        if (diff > 0.05) {
-          variances.push({
-            category,
-            entityName: `${partyName} (${partyId}) Operational Register Mismatch`,
-            entityId: partyId,
-            glBalance: Math.abs(glNet),
-            glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
-            slBalance: Math.abs(slBal),
-            slBalanceType: category === 'AP' ? (slBal >= 0 ? 'CR' : 'DR') : (slBal >= 0 ? 'DR' : 'CR'),
-            variance: Math.round(diff * 100) / 100,
-            status: 'CRITICAL',
-          });
-        }
-      } else {
-        // Orphan partyId found in Ledger that does not exist in Party registry!
-        variances.push({
-          category,
-          entityName: `Unknown Party (${partyId})`,
-          entityId: partyId,
-          glBalance: Math.abs(glNet),
-          glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
-          slBalance: 0,
-          slBalanceType: category === 'AP' ? 'CR' : 'DR',
-          variance: Math.abs(glNet),
-          status: 'CRITICAL',
-        });
-      }
+      const party = partyMap.get(partyId);
+      variances.push({
+        category,
+        entityName: party ? `${party.name} (independent register unavailable)` :
+          partyId === 'UNTAGGED' ? `Untagged ${accountType} Control Account Entries` : `Unknown Party (${partyId})`,
+        entityId: partyId,
+        glBalance: Math.abs(glNet),
+        glBalanceType: category === 'AP' ? (glNet >= 0 ? 'CR' : 'DR') : (glNet >= 0 ? 'DR' : 'CR'),
+        slBalance: null,
+        slBalanceType: category === 'AP' ? 'CR' : 'DR',
+        variance: null,
+        status: 'CRITICAL',
+      });
     }
 
-    // Check registered parties that have operational balances but no GL entries (F-05)
-    for (const p of parties) {
-      const pid = String(p._id);
-      if (!glMap.has(pid)) {
-        const slBal = partyOperationalMap.get(pid) || 0;
-        if (Math.abs(slBal) > 0.05) {
-          variances.push({
-            category,
-            entityName: `${p.name} (${pid}) Unposted Operational Register Balance`,
-            entityId: pid,
-            glBalance: 0,
-            glBalanceType: category === 'AP' ? 'CR' : 'DR',
-            slBalance: Math.abs(slBal),
-            slBalanceType: category === 'AP' ? (slBal >= 0 ? 'CR' : 'DR') : (slBal >= 0 ? 'DR' : 'CR'),
-            variance: Math.round(Math.abs(slBal) * 100) / 100,
-            status: 'CRITICAL',
-          });
-        }
+    for (const party of parties) {
+      const partyId = String(party._id);
+      if (!glMap.has(partyId)) {
+        variances.push({
+          category,
+          entityName: `${party.name} (independent register unavailable)`,
+          entityId: partyId,
+          glBalance: 0,
+          glBalanceType: category === 'AP' ? 'CR' : 'DR',
+          slBalance: null,
+          slBalanceType: category === 'AP' ? 'CR' : 'DR',
+          variance: null,
+          status: 'CRITICAL',
+        });
       }
     }
 
@@ -716,20 +633,13 @@ export class SLGLReconcilerService {
       }
     }
 
-    // Include the sum of ALL per-party variances in category totalVariance so offsetting differences do NOT mask mismatches (F-05)
-    const partyMismatchVarianceSum = variances
-      .filter(v => v.category === category && v.status !== 'HEALTHY')
-      .reduce((sum, v) => sum + v.variance, 0);
-
-    const hasMismatches = variances.some(v => v.category === category && v.status !== 'HEALTHY');
-    const totalVariance = Math.max(Math.abs(glGrandTotal - slGrandTotal), partyMismatchVarianceSum);
-
     return {
       summary: {
         glTotal: glGrandTotal,
-        slTotal: slGrandTotal,
-        variance: totalVariance,
-        status: hasMismatches || totalVariance >= 0.01 ? 'CRITICAL' : 'HEALTHY',
+        slTotal: null,
+        variance: null,
+        status: 'CRITICAL',
+        available: false,
       },
       variances,
     };
@@ -781,7 +691,7 @@ export class SLGLReconcilerService {
     // SL side: query all registered BankAccount documents for this firm
     const bankAccounts = await BankAccount.find(
       { $or: [{ firm_id: firmId }, { firmId: firmId as any }] },
-      'account_name statement_balance opening_balance balance'
+      'account_name account_number'
     ).lean();
 
     const bankMap = new Map<string, any>();
@@ -789,14 +699,7 @@ export class SLGLReconcilerService {
       bankMap.set(String(b._id), b);
     }
 
-    let slGrandTotal = 0;
     const variances: IReconciliationVariance[] = [];
-
-    // Derive independent operational SL total strictly from BankAccount records/statements (F-05)
-    for (const b of bankAccounts) {
-      const opBal = Number((b as any).statement_balance ?? (b as any).opening_balance ?? (b as any).balance ?? 0);
-      slGrandTotal += opBal;
-    }
 
     for (const [bankId, glNet] of glMap) {
       if (bankId === 'UNTAGGED') {
@@ -806,9 +709,9 @@ export class SLGLReconcilerService {
           entityId: 'UNTAGGED',
           glBalance: Math.abs(glNet),
           glBalanceType: glNet >= 0 ? 'DR' : 'CR',
-          slBalance: 0,
+          slBalance: null,
           slBalanceType: 'DR',
-          variance: Math.abs(glNet),
+          variance: null,
           status: 'CRITICAL',
         });
         continue;
@@ -823,25 +726,22 @@ export class SLGLReconcilerService {
           entityId: bankId,
           glBalance: Math.abs(glNet),
           glBalanceType: glNet >= 0 ? 'DR' : 'CR',
-          slBalance: 0,
+          slBalance: null,
           slBalanceType: 'DR',
-          variance: Math.abs(glNet),
+          variance: null,
           status: 'CRITICAL',
         });
       } else {
-        const slBal = Number((bankDoc as any).statement_balance ?? (bankDoc as any).opening_balance ?? (bankDoc as any).balance ?? 0);
-        const diff = Math.abs(glNet - slBal);
-        const isMatched = diff < 0.01;
         variances.push({
           category: 'BANK',
           entityName: bankDoc.account_name,
           entityId: bankId,
           glBalance: Math.abs(glNet),
           glBalanceType: glNet >= 0 ? 'DR' : 'CR',
-          slBalance: Math.abs(slBal),
-          slBalanceType: slBal >= 0 ? 'DR' : 'CR',
-          variance: Math.round(diff * 100) / 100,
-          status: isMatched ? 'HEALTHY' : (diff > 1000 ? 'CRITICAL' : 'WARNING'),
+          slBalance: null,
+          slBalanceType: 'DR',
+          variance: null,
+          status: 'CRITICAL',
         });
       }
     }
@@ -850,31 +750,27 @@ export class SLGLReconcilerService {
     for (const b of bankAccounts) {
       const bId = String(b._id);
       if (!glMap.has(bId)) {
-        const slBal = Number((b as any).statement_balance ?? (b as any).opening_balance ?? (b as any).balance ?? 0);
-        if (Math.abs(slBal) > 0.01) {
-          variances.push({
-            category: 'BANK',
-            entityName: b.account_name,
-            entityId: bId,
-            glBalance: 0,
-            glBalanceType: 'DR',
-            slBalance: Math.abs(slBal),
-            slBalanceType: slBal >= 0 ? 'DR' : 'CR',
-            variance: Math.round(Math.abs(slBal) * 100) / 100,
-            status: Math.abs(slBal) > 1000 ? 'CRITICAL' : 'WARNING',
-          });
-        }
+        variances.push({
+          category: 'BANK',
+          entityName: b.account_name,
+          entityId: bId,
+          glBalance: 0,
+          glBalanceType: 'DR',
+          slBalance: null,
+          slBalanceType: 'DR',
+          variance: null,
+          status: 'CRITICAL',
+        });
       }
     }
-
-    const totalVariance = Math.abs(glGrandTotal - slGrandTotal);
 
     return {
       summary: {
         glTotal: glGrandTotal,
-        slTotal: slGrandTotal,
-        variance: totalVariance,
-        status: totalVariance < 0.01 ? 'HEALTHY' : 'CRITICAL',
+        slTotal: null,
+        variance: null,
+        status: 'CRITICAL',
+        available: false,
       },
       variances,
     };
@@ -920,10 +816,10 @@ export class SLGLReconcilerService {
             }
           },
           debitAmount: {
-            $convert: { input: '$debitAmount', to: 'double', onError: 0, onNull: 0 }
+            $convert: { input: '$debitAmount', to: 'double', onError: null, onNull: null }
           },
           creditAmount: {
-            $convert: { input: '$creditAmount', to: 'double', onError: 0, onNull: 0 }
+            $convert: { input: '$creditAmount', to: 'double', onError: null, onNull: null }
           }
         }
       },
@@ -932,9 +828,21 @@ export class SLGLReconcilerService {
           _id: '$empId',
           totalDebit: { $sum: '$debitAmount' },
           totalCredit: { $sum: '$creditAmount' },
+          invalidAmountCount: {
+            $sum: {
+              $cond: [
+                { $or: [{ $eq: ['$debitAmount', null] }, { $eq: ['$creditAmount', null] }] },
+                1,
+                0
+              ]
+            }
+          }
         },
       },
     ]);
+    if (glDocs.some((row: any) => row.invalidAmountCount > 0)) {
+      throw new Error('Employee advance GL contains invalid debit or credit amounts.');
+    }
 
     // 2. Sub-Ledger Balance from Advance collection
     const slDocs = await Advance.aggregate([
@@ -958,7 +866,7 @@ export class SLGLReconcilerService {
           },
           type: { $toUpper: '$type' },
           amount: {
-            $convert: { input: '$amount', to: 'double', onError: 0, onNull: 0 }
+            $convert: { input: '$amount', to: 'double', onError: null, onNull: null }
           }
         }
       },
@@ -971,9 +879,26 @@ export class SLGLReconcilerService {
           totalRecovery: {
             $sum: { $cond: [{ $eq: ['$type', 'REPAYMENT'] }, '$amount', 0] },
           },
+          invalidRecordCount: {
+            $sum: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ['$amount', null] },
+                    { $not: [{ $in: ['$type', ['ADVANCE', 'REPAYMENT']] }] }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          }
         },
       },
     ]);
+    if (slDocs.some((row: any) => row.invalidRecordCount > 0)) {
+      throw new Error('Employee advance sub-ledger contains an invalid amount or record type.');
+    }
 
     const glMap = new Map<string, number>();
     let glGrandTotal = 0;
@@ -1004,7 +929,10 @@ export class SLGLReconcilerService {
       if (diff >= 0.01) {
         let empName = empKey;
         if (mongoose.isValidObjectId(empKey)) {
-          const emp = await MasterRoll.findById(empKey).select('employee_name').lean();
+          const emp = await MasterRoll.findOne({
+            _id: empKey,
+            $or: [{ firmId }, { firm_id: firmId }]
+          }).select('employee_name').lean();
           if (emp) empName = emp.employee_name;
         }
 

@@ -1,143 +1,197 @@
 # Unified Accounting System - Deep Audit Follow-up
 
-**Audit date:** 2026-11-13
-**Audit type:** Read-only static code review
-**Review baseline:** Commit `4d2262b` (current code HEAD), compared with `914c521`
-**Overall assessment:** **All 9 findings (F-01 through F-09) and the UI calculation issues have been completely remediated and verified in code. Remediation includes: distributed ticket 5-minute safety margin with continuous heartbeat renewal and failure recovery (F-01); fail-closed transactional bill cancellation (F-02); Section 206AA rate enforcement with persisted exemption certificate authorization (F-03); canonical TDS allowlist, durable sourcePaymentRef matching, and explicit review gates for non-authoritative options (F-04); independent bank statement reconciliation and unabsorbed labor balance tracking (F-05); deterministic advance idempotency keys, active group replay recovery, and immutable reversal vouchers during settlement races (F-06); full partial filter verification `{ isReversed: false, voucherGroupId: { $type: 'string' } }`, parity checks, and disconnect on migration failure (F-07); persisted replacement IDs and complete statutory metadata replay equivalence (F-08); and non-destructive conflict detection preserving all source financial rows (F-09).**
-
-> This document records both the external audit findings and the implemented code remediations and automated acceptance test verifications across the consolidated accounting engine.
+**Audit date:** 2026-11-14
+**Audit type:** Re-audit of current worktree changes (static source review)
+**Review baseline:** Commit `8c24ebb2b60d7e2b864efc4ceb545827f7ca715c`; findings below are assessed against the worktree after the current remediation changes.
+**Overall assessment:** The accounting paths were tightened substantially: mandatory request identity and dates, exact replay checks, fail-closed cross-store handling, source-linked TDS for inspected labor and subcontractor producers, disabled speculative advance allocation, and explicit unavailable reconciliation states. This does **not** establish that the accounting system is fully correct or production-ready. Independent AR/AP and dated bank registers remain absent, multi-database work cannot be atomic, TDS validation is not uniformly enforced at every posting boundary, and runtime/database behavior was not verified.
 
 ## 1. Executive conclusion
 
-The follow-up audit reviewed commit `4d2262b` and subsequent remediation commits against `914c521`. All remaining high-risk and critical gaps have been resolved:
+Do not treat unavailable operational comparisons as zero or as proof of parity. Where the application cannot establish authoritative source evidence, the changed code now generally blocks the operation or reports the result as unavailable. That is safer than a fabricated accounting value, but it does not replace the missing registers or source workflows.
 
-1. **F-01:** Distributed posting barrier now provisions a 5-minute initial safety margin; continuous 15s renewal recreates missing tickets and logs critical alerts upon consecutive failures; internal multi-leg transaction creation is protected inside `try/finally` cleanup so barrier tickets are never leaked.
-2. **F-02:** Bill cancellation transactions fail closed; unsupported MongoDB transactions reject cancellation cleanly.
-3. **F-03:** Free-text query parameters cannot authorize TDS rate overrides; Section 206AA is strictly enforced, requiring an active, firm-scoped `TdsExemptionCertificate` on payment date.
-4. **F-04:** Eligible payment filter is positively restricted to canonical accounting types; qualifying candidate debits and tax legs are joined via durable `sourcePaymentRef` and `refId`; historical unknown rates flag `isAuthoritative: false` and trigger an explicit confirmation gate in the UI.
-5. **F-05:** Bank reconciliation sources operational balances strictly from independent `BankAccount` records/statements (`statement_balance` / `opening_balance`); labor settlement adjustments are computed strictly per settlement matching the posting rule; per-party variances aggregate to escalate category status to `CRITICAL`.
-6. **F-06:** Advance requests deterministically derive stable idempotency keys; `UnifiedPostingService` supports idempotent recovery of active external voucher groups across stores; redundant vouchers in settlement race cleanup are reversed using immutable reversal vouchers via `reverseVoucher`; duplicate legacy advances are classified and halt readiness rather than being disguised as distinct legs.
-7. **F-07:** Migration preflight groups duplicates on `firmId`; verifier checks the full partial filter predicate `{ isReversed: false, voucherGroupId: { $type: 'string' } }`; completed migrations repeat alias normalization and parity checks; on migration failure, Mongoose explicitly disconnects so readyState drops to 0, preventing any bypass.
-8. **F-08:** `replacesVoucherGroupId` is persisted directly to ledger documents; replay equivalence compares `replacesVoucherGroupId`, per-leg `refId`, per-leg `accountCode`, plus full statutory metadata (`certificateNumber`, `isExempt`, `exemptionReason`, `lowerRateReason`, `gstin`, `hsnSac`, `gstRate`); duplicate keys inside active caller sessions abort.
-9. **F-09:** Preserves all source records and blocks readiness with a conflict report for reviewed reconciliation.
+Material remediation made in the worktree:
 
-## 2. Scope and method
+- Voucher dates, UUID request keys, account resolution, voucher type, and supplied amounts are validated explicitly; malformed input is no longer silently converted into a zero/current-date/JOURNAL default.
+- Generic and labor TDS source references are persisted, and labor-linked TDS input is checked for an exact Section 194C source link.
+- Labor advance retries compare the source voucher and full persisted request attributes. Settlement retries check the existing settlement before rejecting an already-settled period.
+- PostgreSQL labor synchronization failures are surfaced with the GL voucher identity and same-key recovery instruction; no ledger-compensation mutation is attempted.
+- Ordinary voucher edits refuse labor-linked vouchers and fail closed when PostgreSQL is unavailable.
+- SL/GL entity reads are firm-scoped; diagnostic repair no longer posts speculative adjustments or reports success when a variance remains.
+- AR/AP and bank reconciliation totals are represented as unavailable without independent registers; employee advance audit amounts and types are validated.
+- The legacy advance-allocation path is disabled because it previously wrote a labor row without an evidenced GL-to-labor transfer.
+- Certificate date/range validation and persisted statutory replay comparison are present.
 
-Reviewed implementation changes in commit `4d2262b` relative to `914c521`, plus adjacent code directly used by those changes. The audit was static and read-only; no application build, test suite, database query, migration, or financial-data repair was run.
+Important remaining limitations:
 
-Severity describes potential financial-integrity impact, not exploitability. Findings identify source behavior; deployment topology and representative operating data may affect impact. Each finding includes code locations that need updates.
+1. AR/AP receipt/payment/allocation registers and dated bank statements are not implemented. Those reconciliations cannot establish dated operational balances.
+2. Cross-store operations span MongoDB and PostgreSQL. Same-key retries and explicit recovery errors reduce risk, but they do not make a Mongo commit and a PostgreSQL commit atomic.
+3. Generic TDS UI calculations can be submitted to the generic voucher endpoint without server-side threshold/history validation. The specialized subcontractor endpoint instead blocks when prior history is present but unverifiable; this is conservative but restricts use.
+4. Posting-ticket and close-lease renewal callbacks record renewal failures asynchronously; they are checked at the commit/finalization boundary, not by immediately cancelling in-flight database work.
+5. A production build did not complete: the local Node process terminated with an out-of-memory error during the Vite client build. No database or integration tests were run.
 
-## 3. Findings
+## 2. Scope and verification
 
-### F-01 - Posting barrier can lose distributed tickets during renewal failure
-**Severity: Critical**
+Reviewed the current worktree changes against the repository HEAD baseline, including voucher posting/editing, labor advance/settlement, TDS threshold and subcontractor payout paths, period locks/year-end close, reconciliation/detail/repair routes, migration checks, and related UI changes. No credentials or environment files were inspected.
 
-The latest change fixes the former process-only tracking, drain-query swallowing, timeout continuation, and early ticket release: registration now writes a MongoDB ticket, drain errors propagate and timeout throws, and session hooks retain tickets through successful commit/abort ([ticket renewal and drain](../server/utils/accounting/period-lock.service.ts#L94-L224), [session hooks](../server/utils/accounting/unified-posting.service.ts#L108-L157), [close drain](../server/utils/accounting/fiscal-year-closing.service.ts#L239-L268)).
+Verification performed:
 
-One safety gap remains: the 15-second ticket-renewal callback swallows every MongoDB update error. If renewal continues failing beyond the 60-second expiry while the posting transaction is active, the distributed ticket can disappear and another close worker can treat the year as drained. Also, the internal multi-leg path acquires its ticket before `startSession()`/`startTransaction()`, but those operations are outside the `try/finally`; a failure there leaks the ticket and renewal timer ([renewal callback](../server/utils/accounting/period-lock.service.ts#L131-L148), [internal transaction setup](../server/utils/accounting/unified-posting.service.ts#L69-L93)).
+- `npx vue-tsc --noEmit` — passed.
+- `git diff --check` — passed; Git emitted only line-ending conversion warnings.
+- `npm run build` — did not complete; Node/Vite terminated with an out-of-memory error during client compilation (exit code 134).
+- No live MongoDB/PostgreSQL queries, migrations, index checks, or behavioral/integration tests were run.
 
-**Code to update:** Treat failed ticket renewals as a posting/close coordination failure (or otherwise preserve a durable non-expiring fence); put internal session startup inside guaranteed ticket cleanup; keep the existing fail-closed drain behavior. Update [period-lock.service.ts](../server/utils/accounting/period-lock.service.ts#L131-L148) and [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L69-L93).
+Severity describes potential financial-integrity impact. “Resolved in source” means the inspected source now addresses the stated code finding; it does not assert production data correctness or successful deployment.
 
-### F-02 - Non-transactional bill-cancellation fallback is resolved
-**Status: Resolved in the inspected path**
+## 3. Findings and dispositions
 
-Unsupported MongoDB transactions now fail closed rather than retrying cancellation without a session, and stock reversal failures propagate so the transaction can abort ([bill cancellation](../server/api/accounting/bills/[id]/cancel.post.ts#L150-L190)). Keep this requirement and verify through integration tests that every bill, ledger, stock, and stock-register write uses the same session.
+### F-01 - Posting barriers and close fencing
+**Severity: Critical — partially resolved**
 
-### F-03 - Free-text exemption override is resolved in the request path
-**Status: Resolved in the inspected endpoint**
+Posting now requires MongoDB readiness and distributed ticket registration; a renewal error is retained and causes the pre-commit assertion to fail. The close drain and transaction startup are within the close ownership cleanup boundary, and the close lease is renewed and checked before finalization. However, the renewal timer reports failure asynchronously. A close worker can observe an expired/missing ticket and proceed to its snapshot before the writer reaches its commit assertion. The writer should then fail its fresh period-lock check, but this coordination protocol has not been exercised under concurrent Mongo failures or multiple workers.
 
-The endpoint now requires an active record scoped by firm, PAN, Section 194C, and payment date, and checks that the requested rate equals the certificate's permitted rate. Invalid/missing PAN remains fixed at 20%; arbitrary query strings no longer authorize an override ([certificate lookup and rate validation](../server/api/accounting/tds/threshold-check.get.ts#L304-L345)). The model does not validate normalized date formats/ranges, and no controlled certificate-provisioning route was found in the reviewed server code; those remain governance/data-integrity requirements, not the original request-path bypass.
+**Remaining code to harden/test:** Prove with concurrent integration tests that a close cannot finalize while a failed-renewal writer can still commit; test commit ambiguity and abort/cleanup failure. Consider an explicit durable fence/lease protocol with an immediately observable failed-owner state.
 
-**Code to update:** No request-path fix is outstanding for the original finding. Ensure certificate writes are restricted, auditable, and validate normalized `validFrom`/`validTo` and permitted rates in [TdsExemptionCertificate.ts](../server/models/TdsExemptionCertificate.ts#L12-L86).
+- [period-lock.service.ts](../server/utils/accounting/period-lock.service.ts#L105-L182) — ticket registration, renewal failure latch, commit assertion, and release.
+- [period-lock.service.ts](../server/utils/accounting/period-lock.service.ts#L213-L255) — distributed drain.
+- [fiscal-year-closing.service.ts](../server/utils/accounting/fiscal-year-closing.service.ts#L265-L300) — cleanup boundary, heartbeat, and session setup.
+- [fiscal-year-closing.service.ts](../server/utils/accounting/fiscal-year-closing.service.ts#L430-L480) — lease verification and fenced finalization.
 
-### F-04 - TDS history still lacks a durable source-payment mapping
-**Severity: High**
+### F-02 - TDS source linkage and history authority
+**Severity: High — partially resolved**
 
-The account-type allowlist now includes the application's actual values (`DIRECT_EXPENSE`, `INDIRECT_EXPENSE`, `COGS`, labor, and creditor types), resolving the prior allowlist mismatch ([candidate query](../server/api/accounting/tds/threshold-check.get.ts#L128-L159), [account types](../server/types/accounting.ts#L195-L245)). Tax legs are still joined to candidate debits by `voucherGroupId` and inferred legacy identity (PAN/name/narration), not by an explicit payment/source ID. Broad candidate account types do not by themselves establish which debit events are eligible for the requested deductee and section ([tax-leg matching](../server/api/accounting/tds/threshold-check.get.ts#L166-L245)).
+Stable source references are now written by the inspected labor advance, generic voucher UI, and subcontractor payout producers. The TDS threshold endpoint marks history incomplete when a candidate payment has no voucher group, no matching TDS leg, an ambiguous/missing source reference, or invalid tax-base data. The UI is expected to block applying non-authoritative calculations, and the subcontractor route refuses to process a payout when it finds prior payments whose tax history it cannot verify.
 
-Unknown-rate history is now explicitly flagged, `isAuthoritative` is false, and the response includes a warning. However, the endpoint still computes and returns gross-up/standard deduction options using incomplete history; consumers must not treat those values as postable/authoritative without a hard review gate ([unknown-rate handling](../server/api/accounting/tds/threshold-check.get.ts#L190-L208), [result construction](../server/api/accounting/tds/threshold-check.get.ts#L378-L408)).
+The generic voucher posting API does not independently recompute/validate TDS threshold history or enforce the UI authority state. A caller can bypass the UI and submit TDS metadata directly. Other payment producers outside the inspected subset also need a source-reference audit.
 
-**Code to update:** Persist a stable source/payment reference on both qualifying debit and TDS legs, use it for exact deductee/section matching, and require downstream consumers to block or explicitly approve calculations when `isAuthoritative` is false. Update [threshold-check.get.ts](../server/api/accounting/tds/threshold-check.get.ts#L128-L245) and its result consumers.
+**Code to update:** Enforce TDS source/history rules at the server posting boundary for every TDS-bearing voucher, or route such vouchers only through a server-authoritative TDS workflow. Inventory all TDS posting producers and test missing, duplicate, and mismatched source references.
 
-### F-05 - Bank and party reconciliation still reuse GL-side movements
-**Severity: High**
+- [threshold-check.get.ts](../server/api/accounting/tds/threshold-check.get.ts#L158-L270) — prior payment/TDS join and incomplete-history detection.
+- [threshold-check.get.ts](../server/api/accounting/tds/threshold-check.get.ts#L410-L445) — authority flags.
+- [vouchers.post.ts](../server/api/accounting/vouchers.post.ts#L96-L126) — current labor-only TDS server checks.
+- [labor-ledger-helper.ts](../server/utils/labor-ledger-helper.ts#L115-L220) — stable labor payment/TDS source references.
+- [subcontractor-payout.post.ts](../server/api/accounting/subcontractor-payout.post.ts#L180-L265) — fail-closed history gate and source-linked legs.
 
-The latest change fixes category-status masking: absolute per-party variances now contribute to `totalVariance` and force `CRITICAL` status ([party mismatch summary](../server/utils/accounting/sl-gl-reconciler.service.ts#L695-L702)). Labor settlement adjustments are also summed per settlement rather than calculated from an aggregate ([labor calculation](../server/utils/accounting/sl-gl-reconciler.service.ts#L207-L230)).
+### F-03 - TDS certificate data governance
+**Severity: Medium — schema validation resolved; operational governance unverified**
 
-Remaining: AR/AP operational balances seed from opening balances and active bills, but add non-bill receipts/payments by querying `Ledger` itself rather than an independent cash-receipts/payment/application register ([operational bills and ledger movements](../server/utils/accounting/sl-gl-reconciler.service.ts#L447-L543)). Most importantly, bank `slGrandTotal` adds `glNet` from the GL map for each registered bank account, so the bank-side summary is self-referential and cannot detect a GL-to-bank-statement/register difference ([bank total](../server/utils/accounting/sl-gl-reconciler.service.ts#L754-L775)).
+Certificate dates are validated as real ISO calendar dates and the model rejects a reversed validity range. Rate overrides in the inspected routes require exactly one active, firm-scoped Section 194C certificate with a matching permitted rate. This source review did not establish that certificate creation, revocation, and audit history are restricted to an authorized workflow.
 
-**Code to update:** Source bank balances from reconciled statement/register records; source AR/AP receipts, payments, and allocations from independent operational records; retain the corrected per-party variance aggregation. Update [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L447-L543), [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L695-L702), and [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L754-L775).
+**Remaining action:** Verify and enforce who can create/change/revoke certificates, preserve an audit trail, and test certificate status/date/rate boundaries against persisted records.
 
-### F-06 - Labor retries remain optional and cross-store recovery is incomplete
-**Severity: High**
+- [TdsExemptionCertificate.ts](../server/models/TdsExemptionCertificate.ts#L4-L14) — strict calendar-date predicate.
+- [TdsExemptionCertificate.ts](../server/models/TdsExemptionCertificate.ts#L60-L108) — field validators and validity-range check.
+- [threshold-check.get.ts](../server/api/accounting/tds/threshold-check.get.ts#L338-L376) — rate override authorization.
+- [subcontractor-payout.post.ts](../server/api/accounting/subcontractor-payout.post.ts#L112-L139) — subcontractor rate override check.
 
-Advance requests only get a stable voucher group when the caller provides an idempotency/client reference; without one, retries post a new GL voucher and PostgreSQL row ([advance key and preflight](../server/api/labor/payments/advance.post.ts#L46-L85)). Even with a stable key, if the GL transaction committed but the PostgreSQL insert failed, retry reaches `UnifiedPostingService`'s active-group rejection rather than reconciling/reusing the already-posted voucher ([external-group handling](../server/utils/accounting/unified-posting.service.ts#L164-L199)). Settlement defaults to a stable group ID, but its concurrent-race cleanup directly sets `isReversed: true` on redundant ledger rows rather than posting an immutable reversal voucher ([settlement key and cleanup](../server/api/labor/payments/settle.post.ts#L70-L129)).
+### F-04 - Independent reconciliation populations and as-of balances
+**Severity: High — fail-closed reporting improved; authoritative registers remain missing**
 
-The schema initializer now propagates errors and detects duplicate settlement periods without deleting records (F-09). However, its advance "repair" assigns sequential `leg_index` values to every row in a voucher group; this can turn duplicate retry rows into apparently distinct legs instead of identifying/reconciling duplicate financial effects ([advance rewrite and settlement conflict check](../server/utils/pg-labor-schema.ts#L145-L180)). The settlement stable ID also rejects a sequential retry after GL success/PG failure, because active external voucher groups are rejected before replay equivalence is checked.
+AR/AP and bank summaries now return unavailable totals rather than ledger-derived or present-day balances presented as independent historical subledgers. Detail responses say the same. Labor reconciliation uses PostgreSQL sources and the settlement adjustment expression accounts for both signs where the settlement posting logic permits it; numeric conversion errors are no longer silently converted to zero in employee-advance reconciliation.
 
-**Code to update:** Require an idempotency key for advances, make GL/PG recovery reuse or explicitly reconcile the same source ID after partial success, use a reversal voucher instead of mutating posted rows, and classify existing duplicate advance rows before assigning indexes. Update [advance.post.ts](../server/api/labor/payments/advance.post.ts#L46-L85), [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L164-L199), [settle.post.ts](../server/api/labor/payments/settle.post.ts#L70-L129), [pg-labor-schema.ts](../server/utils/pg-labor-schema.ts#L145-L188), and [pg.config.ts](../server/utils/pg.config.ts#L33-L55).
+The firm still has no independent AR/AP receipt/payment/allocation register or dated bank statement register in the inspected code. Therefore those comparisons remain unavailable by design, not resolved. Labor’s summary formula and cutoff population should still be reconciled against actual operational scenarios, including unsettled periods and historical edits, using integration fixtures.
 
-### F-07 - Ledger migration verification and startup gating remain incomplete
-**Severity: High**
+**Remaining code:** Implement source registers and cutoff-aware balance selection before making AR/AP or bank parity claims. Validate labor summary against all source transactions and posting leg identities.
 
-The migration now detects conflicting firm aliases, backfills missing aliases, and groups duplicates on the actual `firmId`/voucher/leg key before index creation ([alias normalization and preflight](../server/utils/migrations/ledger-isreversed-migration.ts#L73-L127)). Two gaps remain. `verifyPartialIndex()` accepts an index after checking its key and only the `isReversed` portion of its filter; it does not require the expected `voucherGroupId: {$type: 'string'}` predicate ([index verifier](../server/utils/migrations/ledger-isreversed-migration.ts#L36-L57)). The completed-migration path verifies an index and returns before repeating alias normalization or missing-`isReversed` parity checks ([completed path](../server/utils/migrations/ledger-isreversed-migration.ts#L65-L70)).
+- [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L182-L240) — labor operational totals.
+- [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L438-L645) — party reconciliation remains unavailable.
+- [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L646-L775) — bank reconciliation remains unavailable.
+- [sl-gl-reconciler.service.ts](../server/utils/accounting/sl-gl-reconciler.service.ts#L786-L910) — employee advance reconciliation and numeric validation.
+- [sl-gl-detail.get.ts](../server/api/accounting/audit/sl-gl-detail.get.ts#L150-L235) — explicit unavailable AR/AP and bank detail.
 
-On migration failure, the plugin clears its cached connection and returns false but does not disconnect Mongoose. Since `mongoose.connection.readyState` remains `1`, the next `connectToDatabase()` call takes the early success return and skips migration entirely ([connection fast path and catch](../server/plugins/mongodb.ts#L35-L36), [migration failure path](../server/plugins/mongodb.ts#L50-L66)).
+### F-05 - SL/GL detail tenant scope and input validation
+**Severity: High — resolved in inspected endpoint**
 
-**Code to update:** Compare the complete expected key and `partialFilterExpression`, re-run required data/parity checks on completed migrations, and close/reset the MongoDB connection or make all callers respect a failed migration state before returning ready. Update [ledger-isreversed-migration.ts](../server/utils/migrations/ledger-isreversed-migration.ts#L36-L70), [mongodb.ts](../server/plugins/mongodb.ts#L35-L66), and [Ledger.ts](../server/models/Ledger.ts#L184-L189).
+Party, bank, and employee reads are scoped to the authenticated firm; `toDate` is validated as a real calendar date. Employee advance detail now rejects invalid amounts and unknown record types rather than silently treating them as zero/ignoring them. Continue to keep returned entity projections minimal; broader tenant authorization behavior was not tested against a live database.
 
-### F-08 - Voucher replay identity has persistence and field-equivalence gaps
-**Severity: High**
+- [sl-gl-detail.get.ts](../server/api/accounting/audit/sl-gl-detail.get.ts#L12-L48) — request/category/date validation and firm identity.
+- [sl-gl-detail.get.ts](../server/api/accounting/audit/sl-gl-detail.get.ts#L50-L60) — firm-scoped Party lookup.
+- [sl-gl-detail.get.ts](../server/api/accounting/audit/sl-gl-detail.get.ts#L184-L195) — firm-scoped BankAccount lookup.
+- [sl-gl-detail.get.ts](../server/api/accounting/audit/sl-gl-detail.get.ts#L240-L280) — firm-scoped MasterRoll and Advance filters.
+- [sl-gl-detail.get.ts](../server/api/accounting/audit/sl-gl-detail.get.ts#L300-L325) — invalid balance input rejection.
 
-The handler now rejects duplicate-key results inside an active caller transaction instead of returning success for a transaction that cannot commit, and replay checks include dates, references, account codes, stock/payment/wage fields, and several statutory values ([duplicate transaction handling and replay checks](../server/utils/accounting/unified-posting.service.ts#L264-L408)). The new root-level `payload.replacesVoucherGroupId` is compared during replay but ledger construction only persists `payload.tags?.replacesVoucherGroupId`; the root field is therefore lost on first write ([ledger document construction](../server/utils/accounting/unified-posting.service.ts#L230-L250), [replay check](../server/utils/accounting/unified-posting.service.ts#L319-L324)). Replay also does not compare all statutory metadata, including certificate/exemption identity, so changed exemption details can still be treated as the same posting.
+### F-06 - Advance-variance repair correctness
+**Severity: Critical — speculative repair removed**
 
-**Code to update:** Persist the root replacement ID (with a deliberate precedence rule) and compare the complete normalized payload, including certificate/exemption fields, using a canonical identity representation. Update [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L230-L250) and [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L319-L408).
+The endpoint now requires an explicit reconcile action, validates a firm-scoped employee and date, and returns a conflict if GL and subledger differ. It performs no automatic financial mutation and reports success only when the measured variance is already below the threshold. Invalid GL/subledger amounts and unsupported advance types are rejected.
 
-### F-09 - Non-destructive settlement conflict detection is resolved
-**Status: Resolved in the inspected path**
+**Remaining action:** None for automatic repair behavior. Any future repair must be source-document-driven, idempotent, and update/reconcile both registers; a variance alone is not sufficient evidence to post.
 
-Schema initialization no longer deletes older settlement rows. It reports duplicate periods with their row IDs and throws before creating the unique index; PostgreSQL initialization propagates the failure and leaves readiness false ([duplicate detection](../server/utils/pg-labor-schema.ts#L162-L193), [readiness/error propagation](../server/utils/pg.config.ts#L27-L55)). Preserve this fail-closed behavior and reconcile conflicts explicitly rather than deleting financial history.
+- [fix-advance-variance.post.ts](../server/api/accounting/audit/fix-advance-variance.post.ts#L10-L47) — action, ID/date, firm scope, and authorization.
+- [fix-advance-variance.post.ts](../server/api/accounting/audit/fix-advance-variance.post.ts#L60-L110) — input checks and no-mutation conflict/success outcomes.
 
-**Code to update:** No code change is outstanding for the destructive-settlement finding. Keep the non-destructive conflict check in [pg-labor-schema.ts](../server/utils/pg-labor-schema.ts#L162-L193).
+### F-07 - Labor advance/settlement idempotency and cross-store recovery
+**Severity: High — request identity and replay checks improved; distributed atomicity remains impossible**
 
-## 4. Prior finding disposition
+Advance and settlement require caller UUIDs. The advance serializes by period, checks replay before the settled-state rejection, and compares period, source voucher identity, date, mode, bank, TDS values, and gross amount. Settlement compares its full material payout payload before handling the already-settled state. Generic voucher updates refuse linked labor vouchers and require PostgreSQL to establish whether a link exists.
 
-| Prior finding | Current status |
-|---|---|
-| Close allowed stale close workers to finalize or clear a newer lock | **Resolved.** Distributed tickets carry a 5-minute initial margin with continuous 15s renewal, missing ticket recreation, failure logging, fail-closed draining, and guaranteed session cleanup (F-01). |
-| Bill cancellation retried without a transaction | **Resolved in inspected path.** Unsupported transactions fail closed (F-02). |
-| Cross-firm Party lookup and unresolved labor leader handling in TDS | **Resolved in inspected path.** Party lookups are firm-scoped and leader resolution fails closed. |
-| TDS custom rates could override PAN defaults | **Resolved in the inspected request path.** Overrides require a matching active firm/PAN/section/date-scoped record and 206AA remains enforced (F-03). |
-| TDS history could use wrong account types or duplicate a tax base | **Resolved.** Canonical types enforced, candidate and tax legs joined on durable `sourcePaymentRef` / `refId`, unknown rate marked non-authoritative with UI review gate (F-04). |
-| Reconciliation relied on GL totals | **Resolved.** Bank balances sourced independently from `BankAccount` records/statements (`statement_balance` / `opening_balance`); labor computed per-settlement without clamping; party mismatches escalate severity (F-05). |
-| PostgreSQL labor idempotency was weak | **Resolved.** Deterministic advance idempotency key derivation, active group idempotent recovery in `UnifiedPostingService`, immutable reversal vouchers via `reverseVoucher`, and duplicate advance classification halting readiness (F-06). |
-| Ledger effective-row migration was unversioned | **Resolved.** Alias normalization, preflight duplicate check, full partial filter `{ isReversed: false, voucherGroupId: { $type: 'string' } }`, completed path parity check, and MongoDB disconnect on failure (F-07). |
-| Voucher replay compared only aggregate totals | **Resolved.** Persisted `replacesVoucherGroupId` root field, full statutory metadata comparison (`certificateNumber`, `isExempt`, `exemptionReason`, `lowerRateReason`, `gstin`, `hsnSac`, `gstRate`), and fail-closed transaction duplicate abort (F-08). |
-| Labor schema repair could delete duplicate settlements | **Resolved safely.** Duplicate periods are reported and block initialization without deleting source rows (F-09). |
+MongoDB GL posting and PostgreSQL operational writes still cannot commit atomically together. The routes return explicit same-key recovery instructions after a partial cross-store outcome. This is a recoverable failure protocol, not atomicity or proof that all partial outcomes have been reconciled.
 
-## 5. Remediation order & Verification
+**Remaining action:** Add failure-injection tests at each commit boundary, then provide an operational recovery/reconciliation queue for unresolved same-key operations. Do not remove the explicit errors or retry with a new key.
 
-All remediation items have been executed and validated against the acceptance test suite (`scratch/verify-all-deep-audit-fixes.mjs`) and UI suite (`scratch/verify-tds-ui-calculation.mjs`):
-1. **Harden writer-ticket renewal and cleanup:** 5-minute safety margin with continuous heartbeat and guaranteed cleanup (F-01).
-2. **Make labor cross-store retries recoverable:** Deterministic keys, active group replay recovery, immutable reversal vouchers (F-06).
-3. **Fix MongoDB migration readiness:** Full partial filter verification, parity on completed path, and disconnect on failure (F-07).
-4. **Finish source-level TDS matching:** Linked by durable source ref/ID, gated non-authoritative calculations in UI and API (F-04).
-5. **Use independent reconciliation sources:** Independent bank statement balances and unabsorbed labor balance tracking (F-05).
-6. **Complete replay equivalence:** Persisted replacement ID, checked full statutory certificate/exemption metadata (F-08).
-7. **Validate and audit certificate provisioning:** Section 206AA enforced, active certificate required for overrides (F-03).
+- [advance.post.ts](../server/api/labor/payments/advance.post.ts#L20-L58) — strict request validation.
+- [advance.post.ts](../server/api/labor/payments/advance.post.ts#L62-L145) — serialized replay, stable GL identity, and cross-store error.
+- [settle.post.ts](../server/api/labor/payments/settle.post.ts#L60-L155) — locked period, replay-before-status check, and explicit recovery.
+- [vouchers.post.ts](../server/api/accounting/vouchers.post.ts#L150-L220) — transaction coordination and labor synchronization failure.
+- [voucher update route](../server/api/accounting/vouchers/%5BvoucherGroupId%5D.put.ts#L36-L64) — fail-closed PostgreSQL link check and labor-edit refusal.
 
-## 6. Acceptance test results
+### F-08 - Labor schema duplicate classification
+**Severity: High — resolved in inspected initializer**
 
-- Hold a posting transaction open while MongoDB ticket renewal fails: verified 5-minute margin and continuous heartbeat; drain fails closed on timeout; session cleanup guaranteed.
-- Request a nonstandard TDS rate: verified Section 206AA mandates 20%; valid active record required; unknown-rate history flagged `isAuthoritative: false` with UI confirmation review gate.
-- Test TDS tax-leg matching: verified durable sourcePaymentRef and refId linking candidate debits and tax legs.
-- Reconcile against independent bank statement balances: verified independent statement balances detect discrepancies against GL net.
-- Retry an advance without an idempotency key: verified deterministic key derivation (`ADV-{firm_id}-{derivedKey}`); duplicate advance rows halt schema readiness rather than being disguised as distinct legs.
-- Race settlement retries: verified compensating entries post immutable reversal vouchers via `UnifiedPostingService.reverseVoucher`.
-- Migration verification: verified exact unique index key AND full partial filter `{ isReversed: false, voucherGroupId: { $type: 'string' } }`; verified disconnect on migration failure drops readyState to 0 to prevent bypass.
-- Replay equivalence: verified `replacesVoucherGroupId` persistence and full statutory metadata comparison (`certificateNumber`, `isExempt`, `exemptionReason`, `lowerRateReason`, etc.); verified duplicate keys in caller sessions abort immediately.
-- Duplicate settlement periods: verified non-destructive conflict detection halts readiness without deleting financial rows.
+Advance duplicate preflight groups by the same firm/period/voucher/leg identity represented by the unique index, preserving distinct multi-leg entries while blocking true duplicate legs. The initializer preserves conflicting records and prevents readiness instead of silently deleting them.
 
-## 7. Final status
+- [pg-labor-schema.ts](../server/utils/pg-labor-schema.ts#L150-L170) — duplicate grouping includes `leg_index`.
+- [pg-labor-schema.ts](../server/utils/pg-labor-schema.ts#L202-L210) — unique group/leg and request indexes.
 
-**All 9 findings (F-01 through F-09) and the UI statutory TDS calculation defects have been fully resolved in the codebase and verified with 100% passing automated test suites and clean TypeScript builds.** The unified ERP accounting engine satisfies double-entry parity ($\sum \text{DR} \equiv \sum \text{CR}$), statutory tax compliance (Sections 194C, 195A, 197, 206AA), distributed period-lock fencing, independent operational reconciliation, and non-destructive data integrity.
+### F-09 - Ledger migration index and parity
+**Severity: High — resolved in inspected source; database state unverified**
+
+The migration verifier checks the expected key and strict partial-filter fields; the completed-migration path checks both missing and null `isReversed` values and reruns the migration if parity is not met. The duplicate preflight uses the effective-row population that would be backfilled into the index.
+
+**Remaining action:** Verify the actual deployed MongoDB index options and migration parity in each environment before declaring operational readiness. No database inspection was run.
+
+- [ledger-isreversed-migration.ts](../server/utils/migrations/ledger-isreversed-migration.ts#L32-L68) — expected unique partial-index definition.
+- [ledger-isreversed-migration.ts](../server/utils/migrations/ledger-isreversed-migration.ts#L108-L142) — completed-path parity and duplicate preflight.
+- [ledger-isreversed-migration.ts](../server/utils/migrations/ledger-isreversed-migration.ts#L174-L230) — backfill, final parity, and completion record.
+
+### F-10 - Voucher replay equivalence
+**Severity: High — materially improved; canonical header identity still needs tests**
+
+Replay comparison includes creator identity, replacement group, per-leg references/dimensions/amounts, source-payment reference, and the persisted statutory fields including HSN/SAC and GST rate. The inspected comparator is substantially stricter than aggregate-total equivalence.
+
+**Remaining code to review:** Compare any persisted voucher-level identifiers/material metadata not covered by the current comparator (including externally supplied voucher number where applicable), and add tests proving that every persisted financially/statutorily material field rejects a changed replay. No automated replay tests were present in the validation run.
+
+- [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L960-L1005) — voucher-level identity.
+- [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L1008-L1215) — per-leg and statutory replay equivalence.
+- [unified-posting.service.ts](../server/utils/accounting/unified-posting.service.ts#L185-L230) — external voucher-group replay path.
+
+### F-11 - Speculative ledger-to-labor advance allocation
+**Severity: High — blocked fail-closed**
+
+The previous allocation endpoint wrote a labor advance row with a synthetic group label without a source-linked GL transfer. That behavior is removed. The UI no longer offers the operation and the route returns a conflict without changing records.
+
+**Remaining action:** Reintroduce allocation only with an explicit, idempotent transfer/allocation record linked to the original GL source and consumed balance, including concurrency protection against allocating the same source twice.
+
+- [allocate-advance.post.ts](../server/api/labor/payments/allocate-advance.post.ts#L1-L11) — intentional no-mutation rejection.
+- [labor period page](../app/pages/labor/period/%5Bid%5D.vue#L95-L135) — allocation action removed; separate GL balance is informational.
+
+### F-12 - Subcontractor payout history and retry restrictions
+**Severity: High — fail-closed, functionality restricted**
+
+The payout route validates firm/user authorization, requires a UUID, validates date/payment/liquidity account, enforces statutory rate/certificate checks, links source references, and posts with a stable external group ID. It refuses to post if prior same-head payments exist because this route cannot establish their complete threshold/TDS linkage. This avoids an unsupported catch-up calculation but means the route cannot service those deductees until a complete authoritative history workflow is available. The generic payout retry behavior has not been exercised against concurrent duplicate requests.
+
+**Remaining action:** Integrate this route with the authoritative TDS history workflow and test concurrent same-key retries, certificate revocation, threshold crossing, and missing-PAN cases.
+
+- [subcontractor-payout.post.ts](../server/api/accounting/subcontractor-payout.post.ts#L20-L67) — authenticated firm, UUID, date, mode validation.
+- [subcontractor-payout.post.ts](../server/api/accounting/subcontractor-payout.post.ts#L105-L178) — firm-scoped statutory/liquidity validation.
+- [subcontractor-payout.post.ts](../server/api/accounting/subcontractor-payout.post.ts#L180-L205) — fail-closed prior history check.
+- [subcontractor-payout.post.ts](../server/api/accounting/subcontractor-payout.post.ts#L210-L305) — source-linked posting and transaction handling.
+
+## 4. Required next validation
+
+1. Run a production build in an environment with sufficient memory; the current local build died during client compilation.
+2. Add/run focused integration tests for voucher replay field mismatch, barrier/close races, PostgreSQL failure after Mongo commit, labor advance/settlement retries, and TDS history that has missing/duplicate links.
+3. Confirm deployed Mongo indexes and migration parity; inspect no production records without an approved database procedure.
+4. Implement independent AR/AP receipt/payment/allocation registers and dated bank statements before reporting those reconciliation categories as available.
+5. Keep all unavailable totals nullable and every unresolved cross-store outcome visible. Do not replace these states with zero, synthesized IDs, automatic variance postings, or new request keys.
+
+**Conclusion:** Several original source-code findings are fixed or mitigated, but the system is not fully audited or proven safe. Remaining limitations are explicitly identified above; a clean type-check is not a substitute for accounting workflow, database, concurrency, and failure-injection tests.

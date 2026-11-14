@@ -391,6 +391,7 @@
               </label>
               <select
                 v-model="payoutForm.tdsMode"
+                required
                 class="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="DEDUCT">Standard Deduction</option>
@@ -408,6 +409,7 @@
                 type="number"
                 step="0.1"
                 min="0"
+                max="20"
                 class="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -437,8 +439,10 @@
               </label>
               <select
                 v-model="payoutForm.paymentMode"
+                required
                 class="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
               >
+                <option disabled value="">Select payment mode</option>
                 <option value="BANK">Bank Transfer / NEFT</option>
                 <option value="UPI">UPI</option>
                 <option value="CHEQUE">Cheque</option>
@@ -768,10 +772,11 @@ const payoutForm = reactive({
   amount: 0,
   tdsMode: 'DEDUCT',
   ratePercent: 1,
-  paymentMode: 'BANK',
+  paymentMode: '',
   bankAccountId: '',
   paymentDate: new Date().toISOString().split('T')[0],
-  narration: ''
+  narration: '',
+  idempotencyKey: ''
 });
 
 // Slips Drill-Down Modal State
@@ -857,9 +862,6 @@ const loadData = async () => {
     const bankRes = await apiFetch<any>('/api/banking');
     if (bankRes && bankRes.data) {
       bankAccounts.value = bankRes.data;
-      if (bankAccounts.value.length > 0 && !payoutForm.bankAccountId) {
-        payoutForm.bankAccountId = bankAccounts.value[0]._id;
-      }
     }
   } catch (err: any) {
     error.value = err?.data?.statusMessage || err?.message || 'Failed to load subcontractor data';
@@ -871,6 +873,9 @@ const loadData = async () => {
 const openPayoutModal = (sub: any) => {
   activeSubcontractor.value = sub;
   payoutForm.amount = 0;
+  payoutForm.idempotencyKey = crypto.randomUUID();
+  payoutForm.bankAccountId = '';
+  payoutForm.paymentMode = '';
   payoutForm.tdsMode = 'DEDUCT';
 
   // Determine standard rate based on PAN
@@ -903,7 +908,8 @@ const handlePayoutSubmit = async () => {
         paymentMode: payoutForm.paymentMode,
         bankAccountId: payoutForm.paymentMode !== 'CASH' ? payoutForm.bankAccountId : undefined,
         paymentDate: payoutForm.paymentDate,
-        narration: payoutForm.narration
+        narration: payoutForm.narration,
+        idempotencyKey: payoutForm.idempotencyKey
       }
     });
 

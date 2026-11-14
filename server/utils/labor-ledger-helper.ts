@@ -1,21 +1,26 @@
 import mongoose from 'mongoose';
 import BankAccount from '../models/BankAccount';
+import ChartOfAccounts from '../models/ChartOfAccounts';
 import { UnifiedPostingService } from './accounting/unified-posting.service';
 import { type IVoucherLeg } from '../types/accounting';
+import { getFinancialYearFromDate } from './accounting/period-lock.service';
 
 interface PostLaborAdvanceParams {
   firm_id: string;
   amount: number;
   payment_date: string;
   bank_account_id?: string | null;
-  payment_mode?: string;
+  payment_mode: string;
   leader_name: string;
-  created_by?: string;
-  tds_mode?: 'NONE' | 'DEDUCT' | 'GROSS_UP';
-  tds_rate?: number;
-  tds_amount?: number;
-  gross_amount?: number;
-  external_voucher_group_id?: string;
+  created_by: string;
+  tds_mode: 'NONE' | 'DEDUCT' | 'GROSS_UP';
+  tds_rate: number;
+  tds_amount: number;
+  gross_amount: number;
+  external_voucher_group_id: string;
+  source_payment_ref: string;
+  deductee_id: string;
+  deductee_pan: string;
 }
 
 interface PostLaborSettlementParams {
@@ -28,10 +33,10 @@ interface PostLaborSettlementParams {
   adjustment_reason?: string | null;
   payment_date: string;
   bank_account_id?: string | null;
-  payment_mode?: string;
+  payment_mode: string;
   leader_name: string;
-  created_by?: string;
-  external_voucher_group_id?: string;
+  created_by: string;
+  external_voucher_group_id: string;
 }
 
 export const laborLedgerHelper = {
@@ -40,24 +45,51 @@ export const laborLedgerHelper = {
    */
   async postLaborAdvance(params: PostLaborAdvanceParams): Promise<string> {
     const {
-      firm_id, amount, payment_date, bank_account_id, payment_mode = 'CASH',
-      leader_name, created_by, tds_mode = 'NONE', tds_rate = 1, tds_amount = 0,
-      gross_amount = amount
+      firm_id, amount, payment_date, bank_account_id, payment_mode,
+      leader_name, created_by, tds_mode, tds_rate, tds_amount,
+      gross_amount
     } = params;
 
+    getFinancialYearFromDate(payment_date);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(tds_amount) || tds_amount < 0 ||
+      !Number.isFinite(gross_amount) || gross_amount <= 0 || !Number.isFinite(tds_rate) || tds_rate < 0 ||
+      !params.external_voucher_group_id || !params.source_payment_ref || !params.deductee_id || !created_by) {
+      throw new Error('Labor advance posting requires valid amounts, source identity, date, and creator.');
+    }
+    if (
+      Math.abs(gross_amount - amount - tds_amount) > 0.01 ||
+      (tds_mode === 'NONE' && tds_amount !== 0) ||
+      (tds_mode !== 'NONE' && tds_rate <= 0)
+    ) {
+      throw new Error('Labor advance TDS values do not form a balanced gross, net, and tax amount.');
+    }
+
     const session = await mongoose.startSession();
-    session.startTransaction();
 
     try {
+      session.startTransaction();
       const firmIdObj = new mongoose.Types.ObjectId(String(firm_id));
-      let paymentPostAccountHead = 'Cash in Hand';
-      let paymentPostAccountType = 'CASH';
+      let paymentPostAccountHead = '';
+      let paymentPostAccountType = '';
       let mongoBankAccountId: string | null = null;
 
-      if (payment_mode !== 'CASH') {
+      if (payment_mode === 'CASH') {
+        const cashAccounts = await ChartOfAccounts.find({
+          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+          account_name: 'Cash in Hand',
+          account_type: 'CASH',
+          is_active: true
+        }, 'account_name').session(session).lean();
+        if (cashAccounts.length !== 1) {
+          throw new Error(`Expected exactly one active Cash in Hand account for firm ${firm_id}; found ${cashAccounts.length}.`);
+        }
+        paymentPostAccountHead = cashAccounts[0]!.account_name;
+        paymentPostAccountType = 'CASH';
+      } else {
         if (!bank_account_id) throw new Error('Bank account is required for non-cash payments');
         const bankAccount = await BankAccount.findOne({
           _id: bank_account_id,
+          status: 'ACTIVE',
           $or: [{ firm_id: firm_id }, { firmId: firm_id }, { firm_id: firmIdObj }, { firmId: firmIdObj }]
         }).session(session);
         if (!bankAccount) throw new Error('Bank account not found or access denied');
@@ -67,8 +99,26 @@ export const laborLedgerHelper = {
         mongoBankAccountId = bank_account_id;
       }
 
-      const transactionDate: string = payment_date || (new Date().toISOString().split('T')[0] as string);
+      if (!['BANK', 'CHEQUE', 'UPI', 'NEFT', 'RTGS'].includes(payment_mode) && payment_mode !== 'CASH') {
+        throw new Error(`Unsupported labor payment mode "${payment_mode}".`);
+      }
+      const transactionDate = payment_date;
       const bankIdObj = mongoBankAccountId ? new mongoose.Types.ObjectId(String(mongoBankAccountId)) : null;
+
+      const statutorySnapshot = tds_amount > 0 ? {
+        isTds: true,
+        tdsSection: '194C',
+        tdsRate: tds_rate,
+        isGrossUp: tds_mode === 'GROSS_UP',
+        grossAmount: gross_amount,
+        taxableAmount: gross_amount,
+        netAmount: amount,
+        tdsAmount: tds_amount,
+        pan: params.deductee_pan,
+        deducteeId: params.deductee_id,
+        deducteeName: leader_name,
+        sourcePaymentRef: params.source_payment_ref
+      } : undefined;
 
       let legs: IVoucherLeg[] = [];
 
@@ -81,6 +131,7 @@ export const laborLedgerHelper = {
             debitAmount: amount,
             creditAmount: 0,
             narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+            sourcePaymentRef: params.source_payment_ref
           },
           // 2. Debit: TDS Borne by Company (Tax expense on firm's head u/s 195A)
           {
@@ -89,6 +140,7 @@ export const laborLedgerHelper = {
             debitAmount: tds_amount,
             creditAmount: 0,
             narration: `TDS u/s 194C borne by firm u/s 195A on advance to ${leader_name} (${tds_rate}%)`,
+            sourcePaymentRef: params.source_payment_ref
           },
           // 3. Credit: TDS Payable Liability
           {
@@ -97,7 +149,9 @@ export const laborLedgerHelper = {
             debitAmount: 0,
             creditAmount: tds_amount,
             narration: `TDS 194C on Advance to ${leader_name} (${tds_rate}%)`,
-          },
+            statutory: statutorySnapshot,
+            sourcePaymentRef: params.source_payment_ref
+          } as IVoucherLeg,
           // 4. Credit: Cash / Bank Account (Net cash paid out)
           {
             accountHead: paymentPostAccountHead,
@@ -107,6 +161,7 @@ export const laborLedgerHelper = {
             bankAccountId: bankIdObj,
             paymentMode: payment_mode,
             narration: `Labor Advance net payout to ${leader_name} (${payment_mode})`,
+            sourcePaymentRef: params.source_payment_ref
           },
         ];
       } else if (tds_mode === 'DEDUCT' && tds_amount > 0) {
@@ -118,6 +173,7 @@ export const laborLedgerHelper = {
             debitAmount: gross_amount,
             creditAmount: 0,
             narration: `Labor Advance to ${leader_name} (TDS Deducted u/s 194C @ ${tds_rate}%)`,
+            sourcePaymentRef: params.source_payment_ref
           },
           // Credit: TDS Payable Liability
           {
@@ -126,7 +182,9 @@ export const laborLedgerHelper = {
             debitAmount: 0,
             creditAmount: tds_amount,
             narration: `TDS 194C on Advance to ${leader_name} (${tds_rate}%)`,
-          },
+            statutory: statutorySnapshot,
+            sourcePaymentRef: params.source_payment_ref
+          } as IVoucherLeg,
           // Credit: Cash / Bank Account (Net cash paid)
           {
             accountHead: paymentPostAccountHead,
@@ -136,6 +194,7 @@ export const laborLedgerHelper = {
             bankAccountId: bankIdObj,
             paymentMode: payment_mode,
             narration: `Labor Advance net payout to ${leader_name} (${payment_mode})`,
+            sourcePaymentRef: params.source_payment_ref
           },
         ];
       } else {
@@ -148,6 +207,7 @@ export const laborLedgerHelper = {
             debitAmount: amount,
             creditAmount: 0,
             narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+            sourcePaymentRef: params.source_payment_ref
           },
           // Credit: Cash / Bank Account (Funds leaving firm)
           {
@@ -158,6 +218,7 @@ export const laborLedgerHelper = {
             bankAccountId: bankIdObj,
             paymentMode: payment_mode,
             narration: `Labor Advance to ${leader_name} (${payment_mode})`,
+            sourcePaymentRef: params.source_payment_ref
           },
         ];
       }
@@ -168,53 +229,80 @@ export const laborLedgerHelper = {
         transactionDate,
         narration: `Labor Advance to ${leader_name} (${payment_mode})${tds_mode === 'GROSS_UP' ? ' [TDS Gross-Up]' : ''}`,
         legs,
-        createdBy: created_by || 'system',
+        createdBy: created_by,
         refType: 'ADVANCE',
         externalVoucherGroupId: params.external_voucher_group_id,
-        tags: { laborLeaderName: leader_name, tdsMode: tds_mode, tdsRate: tds_rate, tdsAmount: tds_amount },
+        tags: { laborLeaderName: leader_name, tdsMode: tds_mode, tdsRate: tds_rate, tdsAmount: tds_amount, statutory: statutorySnapshot },
       }, session);
 
       await session.commitTransaction();
       return postResult.voucherGroupId;
-    } catch (error) {
-      await session.abortTransaction();
+    } catch (error: any) {
+      if (session.inTransaction()) {
+        try {
+          await session.abortTransaction();
+        } catch (abortError: any) {
+          throw new Error(`Labor advance posting failed (${error.message}); transaction abort also failed (${abortError.message}).`);
+        }
+      }
       throw error;
     } finally {
-      session.endSession();
+      await session.endSession();
     }
   },
 
   /**
    * Post Labor Final Settlement to MongoDB Ledger via UnifiedPostingService
    */
-  async postLaborSettlement(params: PostLaborSettlementParams): Promise<string> {
+  async postLaborSettlement(params: PostLaborSettlementParams): Promise<string | null> {
     const {
       firm_id,
       total_wages,
       total_expenses,
+      total_advances,
       net_payable,
       paid_amount,
       adjustment_reason,
       payment_date,
       bank_account_id,
-      payment_mode = 'CASH',
+      payment_mode,
       leader_name,
       created_by,
     } = params;
 
+    getFinancialYearFromDate(payment_date);
+    if (!created_by || !params.external_voucher_group_id ||
+      ![total_wages, total_expenses, total_advances, net_payable, paid_amount].every(Number.isFinite) ||
+      [total_wages, total_expenses, total_advances, paid_amount].some(value => value < 0)) {
+      throw new Error('Labor settlement posting requires valid amounts, source identity, date, and creator.');
+    }
+
     const session = await mongoose.startSession();
-    session.startTransaction();
 
     try {
+      session.startTransaction();
       const firmIdObj = new mongoose.Types.ObjectId(String(firm_id));
-      let paymentPostAccountHead = 'Cash in Hand';
-      let paymentPostAccountType = 'CASH';
+      let paymentPostAccountHead = '';
+      let paymentPostAccountType = '';
       let mongoBankAccountId: string | null = null;
 
-      if (payment_mode !== 'CASH') {
+      if (payment_mode === 'CASH' && paid_amount > 0) {
+        const cashAccounts = await ChartOfAccounts.find({
+          $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
+          account_name: 'Cash in Hand',
+          account_type: 'CASH',
+          is_active: true
+        }, 'account_name').session(session).lean();
+        if (cashAccounts.length !== 1) {
+          throw new Error(`Expected exactly one active Cash in Hand account for firm ${firm_id}; found ${cashAccounts.length}.`);
+        }
+        paymentPostAccountHead = cashAccounts[0]!.account_name;
+        paymentPostAccountType = 'CASH';
+      } else if (payment_mode !== 'CASH' && paid_amount > 0) {
         if (!bank_account_id) throw new Error('Bank account is required for non-cash payments');
         const bankAccount = await BankAccount.findOne({
           _id: bank_account_id,
+          status: 'ACTIVE',
           $or: [{ firm_id: firm_id }, { firmId: firm_id }, { firm_id: firmIdObj }, { firmId: firmIdObj }]
         }).session(session);
         if (!bankAccount) throw new Error('Bank account not found or access denied');
@@ -224,10 +312,17 @@ export const laborLedgerHelper = {
         mongoBankAccountId = bank_account_id;
       }
 
-      const transactionDate: string = payment_date || (new Date().toISOString().split('T')[0] as string);
+      getFinancialYearFromDate(payment_date);
+      if (!['CASH', 'BANK', 'CHEQUE', 'UPI', 'NEFT', 'RTGS'].includes(payment_mode)) {
+        throw new Error(`Unsupported labor payment mode "${payment_mode}".`);
+      }
+      const transactionDate = payment_date;
       const totalGrossLiability = Number(total_wages) + Number(total_expenses);
       const numNetPayable = Number(net_payable);
       const numPaidAmount = Number(paid_amount);
+      if (Math.abs(numNetPayable - (Number(total_wages) + Number(total_expenses) - Number(total_advances))) > 0.01) {
+        throw new Error('Labor settlement net payable does not match wages, expenses, and advances.');
+      }
       const bankIdObj = mongoBankAccountId ? new mongoose.Types.ObjectId(String(mongoBankAccountId)) : null;
 
       const legs: IVoucherLeg[] = [];
@@ -284,13 +379,16 @@ export const laborLedgerHelper = {
       }
 
       if (Math.abs(adjustmentAmount) > 0.01) {
+        if (!adjustment_reason?.trim()) {
+          throw new Error('An explicit adjustment reason is required when settlement amount differs from net payable.');
+        }
         // If paying less than net_payable: Credit Income (Discount/Waiver), Debit Leader Account
         legs.push({
           accountHead: 'Labor Settlement Adjustments',
           accountType: adjustmentAmount > 0 ? 'INCOME' : 'EXPENSE',
           debitAmount: adjustmentAmount < 0 ? Math.abs(adjustmentAmount) : 0,
           creditAmount: adjustmentAmount > 0 ? adjustmentAmount : 0,
-          narration: `Settlement adjustment: ${adjustment_reason || 'Dispute/Rounding'}`,
+          narration: `Settlement adjustment: ${adjustment_reason.trim()}`,
         });
 
         legs.push({
@@ -302,9 +400,10 @@ export const laborLedgerHelper = {
         });
       }
 
-      // If no financial movement occurred (e.g. 0 wages, 0 payout), return a synthetic reference without posting empty voucher
+      // A zero-activity settlement has no ledger voucher.
       if (legs.length === 0) {
-        return `SETTLED-NO-VOUCHER-${Date.now()}`;
+        await session.commitTransaction();
+        return null;
       }
 
       const postResult = await UnifiedPostingService.postVoucher({
@@ -313,7 +412,7 @@ export const laborLedgerHelper = {
         transactionDate,
         narration: `Final settlement for ${leader_name}`,
         legs,
-        createdBy: created_by || 'system',
+        createdBy: created_by,
         refType: 'WAGE',
         externalVoucherGroupId: params.external_voucher_group_id,
         tags: { laborLeaderName: leader_name },
@@ -321,11 +420,17 @@ export const laborLedgerHelper = {
 
       await session.commitTransaction();
       return postResult.voucherGroupId;
-    } catch (error) {
-      await session.abortTransaction();
+    } catch (error: any) {
+      if (session.inTransaction()) {
+        try {
+          await session.abortTransaction();
+        } catch (abortError: any) {
+          throw new Error(`Labor settlement posting failed (${error.message}); transaction abort also failed (${abortError.message}).`);
+        }
+      }
       throw error;
     } finally {
-      session.endSession();
+      await session.endSession();
     }
   },
 };

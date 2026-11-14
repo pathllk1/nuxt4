@@ -239,12 +239,9 @@ export class FiscalYearClosingService {
       throw new Error(`FY ${financialYear} closing is currently in progress by ${current?.lockedBy || 'another process'}. Concurrent execution rejected.`);
     }
 
-    // ── Drain In-Flight Postings Before Snapshot (F-01) ──
-    // Wait for any in-flight posting transactions that passed the initial guard to finish draining
-    await drainInFlightPostings(firmIdObj, financialYear, 5000);
-
-    // Heartbeat renew helper to prevent unnecessary lease preemption during long close runs (F-01)
+    let heartbeatFailure: Error | null = null;
     const renewCloseLease = async () => {
+      if (heartbeatFailure) throw heartbeatFailure;
       const hb = await PeriodLock.updateOne(
         { firmId: firmIdObj, financialYear, closeExecutionToken },
         {
@@ -261,19 +258,23 @@ export class FiscalYearClosingService {
       }
     };
 
-    // Continuous lease heartbeat timer during close execution (F-01)
-    let heartbeatTimer: NodeJS.Timeout | null = setInterval(async () => {
-      try {
-        await renewCloseLease();
-      } catch (hbErr: any) {
-        console.warn('[FiscalYearClosing] Continuous heartbeat lease renewal error:', hbErr?.message);
-      }
-    }, 30000);
-
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let session: mongoose.ClientSession | null = null;
 
     try {
+      // Drain and transaction setup are inside the ownership cleanup boundary.
+      await drainInFlightPostings(firmIdObj, financialYear, 5000);
+      heartbeatTimer = setInterval(() => {
+        void renewCloseLease().catch((heartbeatError: any) => {
+          heartbeatFailure = heartbeatError instanceof Error
+            ? heartbeatError
+            : new Error(String(heartbeatError));
+          console.error('[FiscalYearClosing] Critical close-lease renewal failure:', heartbeatFailure.message);
+        });
+      }, 30000);
+
+      session = await mongoose.startSession();
+      session.startTransaction();
       await renewCloseLease();
 
       // ── Step 1: Get Trial Balance for the FY (Within session snapshot) ──
@@ -429,6 +430,10 @@ export class FiscalYearClosingService {
         await UnifiedPostingService.postVoucher(obPayload, session);
       }
 
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
       await renewCloseLease();
 
       // ── Step 4: Set Hard Period Lock with Fencing Token Verification (F-01) ──
@@ -468,27 +473,39 @@ export class FiscalYearClosingService {
         lockDate: fyEndDate,
       };
     } catch (err) {
-      await session.abortTransaction();
-
-      // Reset closingStatus ONLY if this worker still holds its unique closeExecutionToken (F-01)
-      // This strictly prevents a failed stale worker from resetting or unlocking a newer worker's lock!
-      await PeriodLock.findOneAndUpdate(
-        { firmId: firmIdObj, financialYear, closeExecutionToken },
-        {
-          $set: {
-            closingStatus: 'NOT_CLOSED',
-            isActive: false,
-            closeStartedAt: null,
-            closeLeaseExpiresAt: null,
-            closeExecutionToken: null
-          }
+      let abortFailure: Error | null = null;
+      if (session?.inTransaction()) {
+        try {
+          await session.abortTransaction();
+        } catch (abortError: any) {
+          abortFailure = abortError instanceof Error ? abortError : new Error(String(abortError));
+          console.error('[FiscalYearClosing] Critical transaction abort failure:', abortFailure.message);
         }
-      );
+      }
 
+      if (!abortFailure) {
+        await PeriodLock.findOneAndUpdate(
+          { firmId: firmIdObj, financialYear, closeExecutionToken, closingStatus: 'IN_PROGRESS' },
+          {
+            $set: {
+              closingStatus: 'NOT_CLOSED',
+              isActive: false,
+              closeStartedAt: null,
+              closeLeaseExpiresAt: null,
+              closeExecutionToken: null
+            }
+          }
+        );
+      }
+
+      if (abortFailure) {
+        const cause = err instanceof Error ? err.message : String(err);
+        throw new Error(`${cause}; close transaction abort failed: ${abortFailure.message}. Close lock retained until lease expiry.`);
+      }
       throw err;
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
-      session.endSession();
+      if (session) await session.endSession();
     }
   }
 

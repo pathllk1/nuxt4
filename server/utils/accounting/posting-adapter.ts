@@ -36,7 +36,7 @@ export async function adaptLegacyVoucherPost(params: {
   voucherId: number | string;
   voucherType: string;
   voucherNo: string;
-  transactionDate?: string;
+  transactionDate: string;
   narration?: string;
   entries: any[];
   createdBy: string;
@@ -50,18 +50,43 @@ export async function adaptLegacyVoucherPost(params: {
     refType = 'VOUCHER', refId, session,
   } = params;
 
+  if (!transactionDate) throw new Error('Legacy voucher posting requires an explicit transaction date.');
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(transactionDate)
+    ? new Date(`${transactionDate}T00:00:00.000Z`)
+    : null;
+  if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== transactionDate) {
+    throw new Error(`Invalid legacy voucher transaction date "${transactionDate}".`);
+  }
+
+  const parseOptionalAmount = (value: unknown, field: string): number => {
+    if (value === undefined || value === null || value === '') return 0;
+    if (typeof value !== 'number' && typeof value !== 'string') {
+      throw new Error(`Invalid ${field} in legacy voucher entry.`);
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      throw new Error(`Invalid ${field} in legacy voucher entry.`);
+    }
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) throw new Error(`Invalid ${field} in legacy voucher entry.`);
+    return amount;
+  };
+
   // Map legacy entries to IVoucherLeg format
-  const legs: IVoucherLeg[] = entries.map((e: any) => ({
+  const legs: IVoucherLeg[] = entries.map((e: any, index: number) => ({
     accountHead: e.accountHead,
     accountType: e.accountType || 'GENERAL',
-    debitAmount: Number(e.debitAmount) || 0,
-    creditAmount: Number(e.creditAmount) || 0,
+    debitAmount: parseOptionalAmount(e.debitAmount, `debit amount at entry ${index + 1}`),
+    creditAmount: parseOptionalAmount(e.creditAmount, `credit amount at entry ${index + 1}`),
     partyId: e.partyId || null,
     bankAccountId: e.bankAccountId || null,
     stockId: e.stockId || null,
     stockRegId: e.stockRegId || null,
     narration: e.narration || narration,
     paymentMode: e.paymentMode || null,
+    sourcePaymentRef: e.sourcePaymentRef || null,
+    statutory: (e.accountType || '').toUpperCase() === 'DUTIES_AND_TAXES'
+      ? e.statutory || undefined
+      : undefined,
   }));
 
   // Map the legacy voucherType string to our VoucherType enum
@@ -70,7 +95,7 @@ export async function adaptLegacyVoucherPost(params: {
   const payload: IVoucherPayload = {
     firmId,
     voucherType: mappedType,
-    transactionDate: transactionDate || (new Date().toISOString().split('T')[0] as string),
+    transactionDate,
     narration,
     legs,
     createdBy,
@@ -93,10 +118,35 @@ export function convertVoucherInputToLegs(params: {
   vtype: string;
   entries: any[];
   mainAccount?: string;
+  mainAccountType?: 'BANK' | 'CASH';
   bankAccountId?: mongoose.Types.ObjectId | string | null;
   narration?: string;
 }): IVoucherLeg[] {
-  const { vtype, entries, mainAccount, bankAccountId, narration = '' } = params;
+  const { vtype, entries, mainAccount, mainAccountType, bankAccountId, narration = '' } = params;
+  const readRequiredAmount = (value: unknown, index: number, field: string): number => {
+    if (value === undefined || value === null || value === '' ||
+        (typeof value === 'string' && value.trim() === '') ||
+        (typeof value !== 'string' && typeof value !== 'number')) {
+      throw new Error(`Voucher entry ${index + 1} is missing ${field}.`);
+    }
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) {
+      throw new Error(`Voucher entry ${index + 1} has an invalid ${field}.`);
+    }
+    return amount;
+  };
+  const readOptionalAmount = (value: unknown, index: number, field: string): number => {
+    if (value === undefined || value === null || value === '') return 0;
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      throw new Error(`Voucher entry ${index + 1} has an invalid ${field}.`);
+    }
+    if (typeof value === 'string' && value.trim() === '') return 0;
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) {
+      throw new Error(`Voucher entry ${index + 1} has an invalid ${field}.`);
+    }
+    return amount;
+  };
 
   if (!entries || !Array.isArray(entries) || entries.length === 0) {
     throw new Error('Voucher must contain at least one entry');
@@ -104,6 +154,9 @@ export function convertVoucherInputToLegs(params: {
 
   // If mainAccount is provided, process Tally single-entry format
   if (mainAccount) {
+    if (!mainAccountType) {
+      throw new Error('A resolved BANK or CASH account type is required for the voucher liquidity account.');
+    }
     const legs: IVoucherLeg[] = [];
     const normalizedType = vtype.toUpperCase();
 
@@ -111,8 +164,12 @@ export function convertVoucherInputToLegs(params: {
       let totalDebit = 0;
       let totalDeductions = 0;
 
-      for (const entry of entries) {
-        const amt = Number(entry.amount) || Number(entry.debitAmount) || 0;
+      for (const [index, entry] of entries.entries()) {
+        const amt = readRequiredAmount(
+          entry.amount !== undefined && entry.amount !== null ? entry.amount : entry.debitAmount,
+          index,
+          'amount'
+        );
         if (amt === 0) continue;
 
         if (amt > 0) {
@@ -125,6 +182,10 @@ export function convertVoucherInputToLegs(params: {
             creditAmount: 0,
             partyId: entry.partyId || null,
             narration: entry.narration || narration,
+            sourcePaymentRef: entry.sourcePaymentRef || null,
+            statutory: (entry.accountType || '').toUpperCase() === 'DUTIES_AND_TAXES'
+              ? entry.statutory || undefined
+              : undefined,
           });
         } else {
           // Negative amount (Deduction/TDS/Discount) -> CREDIT
@@ -138,6 +199,10 @@ export function convertVoucherInputToLegs(params: {
             creditAmount: positiveDeduction,
             partyId: entry.partyId || null,
             narration: entry.narration || narration,
+            sourcePaymentRef: entry.sourcePaymentRef || null,
+            statutory: (entry.accountType || '').toUpperCase() === 'DUTIES_AND_TAXES'
+              ? entry.statutory || undefined
+              : undefined,
           });
         }
       }
@@ -151,7 +216,7 @@ export function convertVoucherInputToLegs(params: {
 
       legs.push({
         accountHead: mainAccount,
-        accountType: 'BANK',
+        accountType: mainAccountType,
         debitAmount: 0,
         creditAmount: netBankPayout,
         bankAccountId: bankAccountId || null,
@@ -163,8 +228,12 @@ export function convertVoucherInputToLegs(params: {
       let totalCredit = 0;
       let totalDeductions = 0;
 
-      for (const entry of entries) {
-        const amt = Number(entry.amount) || Number(entry.creditAmount) || 0;
+      for (const [index, entry] of entries.entries()) {
+        const amt = readRequiredAmount(
+          entry.amount !== undefined && entry.amount !== null ? entry.amount : entry.creditAmount,
+          index,
+          'amount'
+        );
         if (amt === 0) continue;
 
         if (amt > 0) {
@@ -177,6 +246,8 @@ export function convertVoucherInputToLegs(params: {
             creditAmount: amt,
             partyId: entry.partyId || null,
             narration: entry.narration || narration,
+            sourcePaymentRef: entry.sourcePaymentRef || null,
+            statutory: entry.statutory || undefined,
           });
         } else {
           // Negative amount (Deduction/Gateway charge) -> DEBIT
@@ -202,7 +273,7 @@ export function convertVoucherInputToLegs(params: {
 
       legs.push({
         accountHead: mainAccount,
-        accountType: 'BANK',
+        accountType: mainAccountType,
         debitAmount: netBankInflow,
         creditAmount: 0,
         bankAccountId: bankAccountId || null,
@@ -212,8 +283,12 @@ export function convertVoucherInputToLegs(params: {
       return legs;
     } else if (normalizedType === 'CONTRA') {
       let totalTransfer = 0;
-      for (const entry of entries) {
-        const amt = Number(entry.amount) || Number(entry.debitAmount) || 0;
+      for (const [index, entry] of entries.entries()) {
+        const amt = readRequiredAmount(
+          entry.amount !== undefined && entry.amount !== null ? entry.amount : entry.debitAmount,
+          index,
+          'amount'
+        );
         if (amt === 0) continue;
 
         totalTransfer += amt;
@@ -230,7 +305,7 @@ export function convertVoucherInputToLegs(params: {
       if (totalTransfer !== 0) {
         legs.push({
           accountHead: mainAccount,
-          accountType: 'BANK',
+          accountType: mainAccountType,
           debitAmount: totalTransfer < 0 ? Math.abs(totalTransfer) : 0,
           creditAmount: totalTransfer > 0 ? totalTransfer : 0,
           bankAccountId: bankAccountId || null,
@@ -243,17 +318,19 @@ export function convertVoucherInputToLegs(params: {
   }
 
   // Standard double-entry format (e.g. JOURNAL or manual line entries)
-  return entries.map((e: any) => ({
+  return entries.map((e: any, index: number) => ({
     accountHead: e.accountHead,
     accountType: e.accountType || 'GENERAL',
-    debitAmount: Number(e.debitAmount) || 0,
-    creditAmount: Number(e.creditAmount) || 0,
+    debitAmount: readOptionalAmount(e.debitAmount, index, 'debit amount'),
+    creditAmount: readOptionalAmount(e.creditAmount, index, 'credit amount'),
     partyId: e.partyId || null,
     bankAccountId: e.bankAccountId || null,
     stockId: e.stockId || null,
     stockRegId: e.stockRegId || null,
     narration: e.narration || narration,
     paymentMode: e.paymentMode || null,
+    sourcePaymentRef: e.sourcePaymentRef || null,
+    statutory: e.statutory || undefined,
   }));
 }
 
@@ -434,8 +511,7 @@ const LEGACY_VOUCHER_TYPE_MAP: Record<string, VoucherType> = {
 export function mapLegacyVoucherType(vtype: string): VoucherType {
   const mapped = LEGACY_VOUCHER_TYPE_MAP[vtype?.toUpperCase()];
   if (!mapped) {
-    console.warn(`[PostingAdapter] Unknown voucher type "${vtype}", defaulting to JOURNAL`);
-    return 'JOURNAL';
+    throw new Error(`[PostingAdapter] Unsupported voucher type "${vtype}".`);
   }
   return mapped;
 }

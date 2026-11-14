@@ -93,7 +93,9 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
           amount DECIMAL(12, 2) NOT NULL,
           payment_date DATE NOT NULL,
           paid_from_bank_account_id VARCHAR(24),
+          payment_mode VARCHAR(20),
           ledger_voucher_group_id VARCHAR(100),
+          idempotency_key VARCHAR(64),
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `;
@@ -109,8 +111,10 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
           net_payable DECIMAL(12, 2) NOT NULL,
           paid_amount DECIMAL(12, 2) NOT NULL,
           payment_date DATE NOT NULL,
+          payment_mode VARCHAR(20),
           paid_from_bank_account_id VARCHAR(24),
           ledger_voucher_group_id VARCHAR(100),
+          idempotency_key VARCHAR(64),
           adjustment_reason VARCHAR(255),
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
@@ -120,7 +124,9 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     await clientSql`
       ALTER TABLE labor_advances 
       ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
+      ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20),
       ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64),
       ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
       ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
       ADD COLUMN IF NOT EXISTS tds_amount DECIMAL(12, 2),
@@ -131,7 +137,9 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     await clientSql`
       ALTER TABLE labor_settlements 
       ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
+      ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20),
       ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64),
       ADD COLUMN IF NOT EXISTS adjustment_reason VARCHAR(255),
       ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
       ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
@@ -143,16 +151,16 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     // 1. Classify and Detect Duplicate Advance Rows before Indexing (F-06)
     // Never silently turn duplicate retry rows into distinct legs by assigning sequential indexes!
     const duplicateAdvances = await clientSql`
-      SELECT firm_id, period_id, ledger_voucher_group_id, COUNT(*) as count, ARRAY_AGG(id) as advance_ids, ARRAY_AGG(amount) as amounts
+      SELECT firm_id, period_id, ledger_voucher_group_id, leg_index, COUNT(*) as count, ARRAY_AGG(id) as advance_ids, ARRAY_AGG(amount) as amounts
       FROM labor_advances
       WHERE ledger_voucher_group_id IS NOT NULL
-      GROUP BY firm_id, period_id, ledger_voucher_group_id
+      GROUP BY firm_id, period_id, ledger_voucher_group_id, leg_index
       HAVING COUNT(*) > 1;
     `;
 
     if (duplicateAdvances && duplicateAdvances.length > 0) {
       const conflictSummary = duplicateAdvances
-        .map((r: any) => `Group "${r.ledger_voucher_group_id}" in Period #${r.period_id} (${r.count} duplicate rows: IDs [${(r.advance_ids || []).join(', ')}], amounts [${(r.amounts || []).join(', ')}])`)
+        .map((r: any) => `Group "${r.ledger_voucher_group_id}" leg ${r.leg_index ?? 'NULL'} in Period #${r.period_id} (${r.count} duplicate rows: IDs [${(r.advance_ids || []).join(', ')}], amounts [${(r.amounts || []).join(', ')}])`)
         .join('; ');
       console.error(`🚨 [Labor Schema Critical] Conflicting duplicate labor advance rows detected: ${conflictSummary}`);
       throw new Error(
@@ -198,6 +206,7 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     await clientSql`CREATE INDEX IF NOT EXISTS idx_labor_advances_period ON labor_advances(period_id);`;
     await clientSql`CREATE UNIQUE INDEX IF NOT EXISTS uq_labor_advances_vg_leg ON labor_advances (firm_id, period_id, ledger_voucher_group_id, leg_index);`;
     await clientSql`CREATE UNIQUE INDEX IF NOT EXISTS uq_labor_settlements_period ON labor_settlements (period_id);`;
+    await clientSql`CREATE UNIQUE INDEX IF NOT EXISTS uq_labor_advances_request ON labor_advances (firm_id, idempotency_key) WHERE idempotency_key IS NOT NULL;`;
 
     console.log('✅ PostgreSQL Labor System tables schema verified/initialized');
   } catch (err: any) {

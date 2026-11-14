@@ -2,183 +2,149 @@ import { defineEventHandler, readBody, createError } from 'h3';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
 import { laborLedgerHelper } from '../../../utils/labor-ledger-helper';
+import { getFinancialYearFromDate } from '../../../utils/accounting/period-lock.service';
+
+const isUuid = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+const dateValue = (value: unknown): string =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
 
 export default defineEventHandler(async (event) => {
   try {
     const session = await requireAuthSession(event);
     let sql = getSql();
     if (!sql) sql = await connectPostgres();
-    if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection not ready' });
+    if (!sql) throw createError({ statusCode: 503, statusMessage: 'PostgreSQL database connection is unavailable.' });
 
-    const body = await readBody(event);
+    const body = await readBody(event) || {};
     const {
-      period_id, amount, payment_date, payment_mode = 'CASH', bank_account_id,
-      tds_mode = 'NONE', tds_rate = 1, tds_amount = 0, gross_amount = amount
+      period_id,
+      amount,
+      payment_date,
+      payment_mode,
+      bank_account_id,
+      tds_mode,
+      tds_rate,
+      tds_amount,
+      gross_amount,
+      idempotency_key: idempotencyKey
     } = body;
 
-    const numAmount = Number(amount);
-    if (!period_id || !numAmount || numAmount <= 0 || !payment_date) {
-      throw createError({ statusCode: 400, statusMessage: 'Valid period ID, payment amount, and payment date are required' });
+    if (!period_id || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 ||
+      typeof payment_date !== 'string' || !isUuid(idempotencyKey)) {
+      throw createError({ statusCode: 400, statusMessage: 'Period, positive amount, payment date, and UUID idempotency key are required.' });
     }
-
+    getFinancialYearFromDate(payment_date);
+    if (!['CASH', 'BANK', 'CHEQUE', 'UPI', 'NEFT', 'RTGS'].includes(payment_mode)) {
+      throw createError({ statusCode: 400, statusMessage: 'A supported payment mode is required.' });
+    }
+    if (!['NONE', 'DEDUCT', 'GROSS_UP'].includes(tds_mode)) {
+      throw createError({ statusCode: 400, statusMessage: 'A valid TDS mode is required.' });
+    }
     if (payment_mode !== 'CASH' && !bank_account_id) {
-      throw createError({ statusCode: 400, statusMessage: 'Bank account selection is required for non-cash payments' });
+      throw createError({ statusCode: 400, statusMessage: 'Bank account selection is required for non-cash payments.' });
     }
 
-    // Fetch Period & Leader
-    const [period] = await sql`
-      SELECT p.*, l.name as leader_name
-      FROM labor_periods p
-      JOIN labor_leaders l ON p.leader_id = l.id
-      WHERE p.id = ${period_id} AND p.firm_id = ${String(session.firm_id)}
-    `;
-
-    if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found' });
-    if (period.status === 'Settled') throw createError({ statusCode: 400, statusMessage: 'Cannot add advances to a settled work period' });
-
-    const numTdsAmount = Number(tds_amount) || 0;
-    const numGrossAmount = Number(gross_amount) || numAmount;
-    // When TDS is GROSS_UP (on firm's head), the leader's wage bill is deducted only by net payout.
-    // When TDS is DEDUCT (borne by leader), the leader's wage bill is deducted by gross amount.
-    const periodDeductionAmount = tds_mode === 'DEDUCT' ? numGrossAmount : numAmount;
-
-    // Establish deterministic request idempotency key before posting (F-06)
-    const rawIdempotencyKey = body.idempotency_key || body.idempotencyKey || body.client_reference || body.request_id;
-    const derivedKey = rawIdempotencyKey
-      ? String(rawIdempotencyKey).trim()
-      : `${period_id}-${periodDeductionAmount}-${payment_date}-${payment_mode}-${bank_account_id || 'cash'}`;
-    const stableVoucherGroupId = `ADV-${String(period.firm_id)}-${derivedKey}`;
-
-    // 1. Preflight PostgreSQL idempotency check before creating GL vouchers (F-06)
-    if (stableVoucherGroupId) {
-      const [existingPg] = await sql`
-        SELECT * FROM labor_advances
-        WHERE firm_id = ${period.firm_id}
-          AND period_id = ${period_id}
-          AND ledger_voucher_group_id = ${stableVoucherGroupId}
-        LIMIT 1
-      `;
-      if (existingPg) {
-        const existingAmt = Number(existingPg.amount) || 0;
-        if (Math.abs(existingAmt - periodDeductionAmount) > 0.01) {
-          throw createError({
-            statusCode: 409,
-            statusMessage: `Idempotency Conflict: Existing advance record amount ₹${existingAmt} does not match requested amount ₹${periodDeductionAmount}.`
-          });
-        }
-        return { success: true, data: existingPg, isIdempotentReplay: true };
-      }
+    const numTdsRate = tds_rate;
+    const numTdsAmount = tds_amount;
+    const numGrossAmount = gross_amount;
+    if (
+      typeof numTdsRate !== 'number' || !Number.isFinite(numTdsRate) || numTdsRate < 0 || numTdsRate > 20 ||
+      typeof numTdsAmount !== 'number' || !Number.isFinite(numTdsAmount) || numTdsAmount < 0 ||
+      typeof numGrossAmount !== 'number' || !Number.isFinite(numGrossAmount) || numGrossAmount <= 0 ||
+      Math.abs(numGrossAmount - amount - numTdsAmount) > 0.01 ||
+      (tds_mode === 'NONE' && (numTdsRate !== 0 || numTdsAmount !== 0)) ||
+      (tds_mode !== 'NONE' && numTdsRate === 0)
+    ) {
+      throw createError({ statusCode: 400, statusMessage: 'The submitted gross, net, rate, and TDS values are inconsistent.' });
     }
 
-    // 2. Post to MongoDB Ledger with stable voucher group ID (F-06)
-    const voucherGroupId = await laborLedgerHelper.postLaborAdvance({
-      firm_id: period.firm_id,
-      amount: numAmount,
-      payment_date: payment_date,
-      bank_account_id: payment_mode === 'CASH' ? null : bank_account_id,
-      payment_mode: payment_mode,
-      leader_name: period.leader_name,
-      created_by: String(session._id),
-      tds_mode,
-      tds_rate: Number(tds_rate) || 1,
-      tds_amount: numTdsAmount,
-      gross_amount: numGrossAmount,
-      external_voucher_group_id: stableVoucherGroupId
-    });
-
-    // Ensure schema has newly added columns before inserting
+    const stableVoucherGroupId = `ADV-${String(session.firm_id)}-${idempotencyKey}`;
+    let postedVoucherGroupId: string | null = null;
     try {
-      await sql`
-        ALTER TABLE labor_advances 
-        ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
-        ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),
-        ADD COLUMN IF NOT EXISTS tds_mode VARCHAR(20),
-        ADD COLUMN IF NOT EXISTS tds_rate DECIMAL(5, 2),
-        ADD COLUMN IF NOT EXISTS tds_amount DECIMAL(12, 2),
-        ADD COLUMN IF NOT EXISTS gross_amount DECIMAL(12, 2);
-      `;
-    } catch (_) {}
+      const advance = await sql.begin(async (tx: any) => {
+        const [period] = await tx`
+          SELECT p.*, l.id AS leader_id, l.name AS leader_name, l.pan AS leader_pan
+          FROM labor_periods p
+          JOIN labor_leaders l ON p.leader_id = l.id
+          WHERE p.id = ${period_id} AND p.firm_id = ${String(session.firm_id)}
+          FOR UPDATE
+        `;
+        if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found in current firm.' });
 
-    // 3. Insert into PostgreSQL labor_advances (with idempotent check and compensating rollback on failure)
-    let advance: any = null;
-    try {
-      const existingAdv = await sql`
-        SELECT * FROM labor_advances
-        WHERE firm_id = ${period.firm_id}
-          AND period_id = ${period_id}
-          AND ledger_voucher_group_id = ${voucherGroupId}
-        LIMIT 1
-      `;
-      if (existingAdv && existingAdv.length > 0) {
-        advance = existingAdv[0];
-        // Assert payload equality on idempotent retry (F-06)
-        const existingAmt = Number(advance.amount) || 0;
-        if (Math.abs(existingAmt - periodDeductionAmount) > 0.01) {
-          throw createError({
-            statusCode: 409,
-            statusMessage: `Idempotency Conflict: Existing advance record amount ₹${existingAmt} does not match requested amount ₹${periodDeductionAmount}.`
-          });
+        const [existing] = await tx`
+          SELECT * FROM labor_advances
+          WHERE firm_id = ${period.firm_id} AND idempotency_key = ${idempotencyKey}
+          LIMIT 1
+        `;
+        const periodDeductionAmount = tds_mode === 'DEDUCT' ? numGrossAmount : amount;
+        if (existing) {
+          const matches = String(existing.period_id) === String(period_id) &&
+            String(existing.ledger_voucher_group_id || '') === stableVoucherGroupId &&
+            Number(existing.amount) === periodDeductionAmount &&
+            dateValue(existing.payment_date) === payment_date &&
+            String(existing.payment_mode) === payment_mode &&
+            String(existing.paid_from_bank_account_id || '') === String(payment_mode === 'CASH' ? '' : bank_account_id) &&
+            String(existing.tds_mode || '') === tds_mode &&
+            Number(existing.tds_rate) === numTdsRate &&
+            Number(existing.tds_amount) === numTdsAmount &&
+            Number(existing.gross_amount) === numGrossAmount;
+          if (!matches) {
+            throw createError({ statusCode: 409, statusMessage: 'The idempotency key was already used with a different advance payload.' });
+          }
+          return { ...existing, isIdempotentReplay: true };
         }
-      } else {
-        [advance] = await sql`
+        if (period.status === 'Settled') {
+          throw createError({ statusCode: 409, statusMessage: 'Cannot add advances to a settled work period.' });
+        }
+
+        const sourcePaymentRef = `ADVANCE-${String(period.firm_id)}-${idempotencyKey}`;
+        postedVoucherGroupId = await laborLedgerHelper.postLaborAdvance({
+          firm_id: period.firm_id,
+          amount,
+          payment_date,
+          bank_account_id: payment_mode === 'CASH' ? null : bank_account_id,
+          payment_mode,
+          leader_name: period.leader_name,
+          created_by: String(session._id),
+          tds_mode,
+          tds_rate: numTdsRate,
+          tds_amount: numTdsAmount,
+          gross_amount: numGrossAmount,
+          external_voucher_group_id: stableVoucherGroupId,
+          source_payment_ref: sourcePaymentRef,
+          deductee_id: String(period.leader_id),
+          deductee_pan: String(period.leader_pan || '')
+        });
+
+        const [createdAdvance] = await tx`
           INSERT INTO labor_advances (
-            firm_id, period_id, amount, payment_date, paid_from_bank_account_id, ledger_voucher_group_id,
-            tds_mode, tds_rate, tds_amount, gross_amount
-          )
-          VALUES (
-            ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date},
-            ${payment_mode === 'CASH' ? null : bank_account_id}, ${voucherGroupId},
-            ${tds_mode}, ${Number(tds_rate) || 1}, ${numTdsAmount}, ${numGrossAmount}
+            firm_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
+            ledger_voucher_group_id, idempotency_key, tds_mode, tds_rate, tds_amount, gross_amount, leg_index
+          ) VALUES (
+            ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date}, ${payment_mode},
+            ${payment_mode === 'CASH' ? null : bank_account_id}, ${postedVoucherGroupId}, ${idempotencyKey},
+            ${tds_mode}, ${numTdsRate}, ${numTdsAmount}, ${numGrossAmount}, 0
           )
           RETURNING *
         `;
-      }
-    } catch (pgError: any) {
-      // Compensating transaction: roll back dangling MongoDB voucher with strict tenant scoping (F-07)
-      let compSuccess = false;
-      let compErrorMsg = '';
-      if (voucherGroupId) {
-        try {
-          const mongoose = (await import('mongoose')).default;
-          const Ledger = (await import('../../../models/Ledger')).default;
-          const firmOid = mongoose.Types.ObjectId.isValid(String(period.firm_id))
-            ? new mongoose.Types.ObjectId(String(period.firm_id))
-            : period.firm_id;
-          const compResult = await Ledger.updateMany(
-            {
-              voucherGroupId,
-              $or: [{ firmId: firmOid }, { firm_id: firmOid }]
-            },
-            {
-              $set: {
-                isReversed: true,
-                reversedAt: new Date(),
-                reversalReason: `Compensating cancellation: PostgreSQL labor advance write failed (${pgError.message || 'Error'})`
-              }
-            }
-          );
-          compSuccess = (compResult?.modifiedCount || 0) > 0;
-        } catch (compErr: any) {
-          compErrorMsg = compErr.message;
-          console.error('[Dual-DB Compensation Failure] Could not reverse orphaned MongoDB voucher:', compErr.message);
-        }
-      }
-
-      if (voucherGroupId && !compSuccess) {
-        throw createError({
-          statusCode: 500,
-          statusMessage: `PostgreSQL labor advance write failed: ${pgError.message || 'Database error'}. WARNING: Compensating void of MongoDB voucher "${voucherGroupId}" could not be confirmed (${compErrorMsg || '0 documents updated'}). Manual reconciliation required.`
-        });
-      }
-      throw pgError;
+        return createdAdvance;
+      });
+      return { success: true, data: advance, isIdempotentReplay: Boolean(advance?.isIdempotentReplay) };
+    } catch (error: any) {
+      if (!postedVoucherGroupId) throw error;
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Advance ledger voucher ${postedVoucherGroupId} is posted but its operational record was not confirmed. Retry with the same idempotency key ${idempotencyKey}; do not create a new request. Cause: ${error.statusMessage || error.message}`
+      });
     }
-
-    return { success: true, data: advance };
   } catch (error: any) {
     console.error('Record labor advance error:', error);
     throw createError({
       statusCode: error.statusCode || 500,
-      statusMessage: error.statusMessage || 'Error recording labor advance'
+      statusMessage: error.statusMessage || error.message || 'Error recording labor advance'
     });
   }
 });

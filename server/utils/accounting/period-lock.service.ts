@@ -28,7 +28,7 @@ export async function enforcePeriodLock(
   transactionDate: string,
   session?: mongoose.ClientSession | null
 ): Promise<void> {
-  if (!transactionDate) return; // No date to check — should be caught upstream
+  getFinancialYearFromDate(transactionDate);
 
   const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
 
@@ -72,6 +72,16 @@ export async function enforcePeriodLock(
 const inFlightPostings = new Map<string, Set<string>>();
 
 export function getFinancialYearFromDate(dateStr: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error(`Invalid transaction date "${dateStr}". Expected YYYY-MM-DD.`);
+  }
+  const parsedDate = new Date(`${dateStr}T00:00:00.000Z`);
+  if (
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.toISOString().slice(0, 10) !== dateStr
+  ) {
+    throw new Error(`Invalid calendar date "${dateStr}".`);
+  }
   const parts = dateStr.split('-');
   const year = parseInt(parts[0]!, 10);
   const month = parseInt(parts[1]!, 10);
@@ -83,6 +93,7 @@ export interface IPostingBarrierToken {
   postingId: string;
   firmId: string;
   financialYear: string;
+  assertBeforeCommit: () => Promise<void>;
   release: () => void;
 }
 
@@ -101,6 +112,9 @@ export async function acquirePostingBarrier(
 
   // 1. Initial lock check
   await enforcePeriodLock(firmId, transactionDate, session);
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error('[PeriodLock] MongoDB is not ready; distributed posting coordination is unavailable.');
+  }
 
   // 2. Register in-flight writer ticket locally and in distributed collection (F-01)
   const key = `${firmIdStr}:${fy}`;
@@ -112,63 +126,52 @@ export async function acquirePostingBarrier(
 
   // Distributed registration in MongoDB (independent of caller's transaction session)
   // F-01: Fail-closed. Throw error if distributed barrier ticket registration cannot be confirmed.
-  let renewalTimer: any = null;
-  if (mongoose.connection.readyState === 1) {
-    try {
-      // F-01: 5-minute safety margin with active continuous 15s renewal
-      await PostingBarrier.create([{
-        firmId: firmIdStr,
-        financialYear: fy,
-        postingId,
-        expiresAt: new Date(Date.now() + 300000)
-      }]);
-    } catch (e: any) {
-      // Remove from local memory before rethrowing
-      inFlightPostings.get(key)?.delete(postingId);
-      throw new Error(`[PeriodLock - F-01] Critical: Failed to register distributed barrier ticket: ${e?.message}`);
-    }
-
-    // Renewable ownership tied to transaction lifecycle (F-01)
-    let consecutiveFailures = 0;
-    renewalTimer = setInterval(async () => {
-      try {
-        if (!released) {
-          const res = await PostingBarrier.updateOne(
-            { postingId },
-            { $set: { expiresAt: new Date(Date.now() + 300000) } }
-          );
-          if (res.matchedCount === 0) {
-            // Recreate ticket if unexpectedly missing while posting is still active
-            await PostingBarrier.create([{
-              firmId: firmIdStr,
-              financialYear: fy,
-              postingId,
-              expiresAt: new Date(Date.now() + 300000)
-            }]).catch((err: any) => {
-              console.error(`[PeriodLock - F-01] Critical: Failed to recreate expired/missing barrier ticket ${postingId}:`, err?.message);
-            });
-          }
-          consecutiveFailures = 0;
-        }
-      } catch (err: any) {
-        consecutiveFailures++;
-        console.error(`[PeriodLock - F-01] Warning: Distributed ticket renewal failed (consecutive failures: ${consecutiveFailures}):`, err?.message);
-        if (consecutiveFailures >= 3) {
-          console.error(
-            `[PeriodLock - F-01] CRITICAL COORDINATION FAILURE: Ticket renewal failed 3 consecutive times for posting ${postingId} in FY ${fy}. ` +
-            `Close operations may prematurely detect drain completion if network partition persists.`
-          );
-        }
-      }
-    }, 15000);
-    if (typeof renewalTimer.unref === 'function') renewalTimer.unref();
+  let renewalTimer: NodeJS.Timeout | null = null;
+  let released = false;
+  let renewalFailure: Error | null = null;
+  try {
+    await PostingBarrier.create([{
+      firmId: firmIdStr,
+      financialYear: fy,
+      postingId,
+      expiresAt: new Date(Date.now() + 300000)
+    }]);
+  } catch (error: any) {
+    inFlightPostings.get(key)?.delete(postingId);
+    if (inFlightPostings.get(key)?.size === 0) inFlightPostings.delete(key);
+    throw new Error(`[PeriodLock - F-01] Failed to register distributed barrier ticket: ${error?.message}`);
   }
 
-  let released = false;
+  const renewTicket = async () => {
+    if (released) {
+      throw new Error(`[PeriodLock - F-01] Posting ticket ${postingId} has already been released.`);
+    }
+    if (renewalFailure) throw renewalFailure;
+    const result = await PostingBarrier.updateOne(
+      { postingId, firmId: firmIdStr, financialYear: fy, expiresAt: { $gt: new Date() } },
+      { $set: { expiresAt: new Date(Date.now() + 300000) } }
+    );
+    if (result.matchedCount !== 1) {
+      throw new Error(`[PeriodLock - F-01] Active posting ticket ${postingId} is missing or expired.`);
+    }
+  };
+
+  renewalTimer = setInterval(() => {
+    void renewTicket().catch((error: any) => {
+      renewalFailure = error instanceof Error ? error : new Error(String(error));
+      console.error(`[PeriodLock - F-01] Critical: Posting ticket renewal failed for ${postingId}:`, renewalFailure.message);
+    });
+  }, 15000);
+  if (typeof renewalTimer.unref === 'function') renewalTimer.unref();
+
   return {
     postingId,
     firmId: firmIdStr,
     financialYear: fy,
+    assertBeforeCommit: async () => {
+      await renewTicket();
+      await enforcePeriodLock(firmIdStr, transactionDate, null);
+    },
     release: () => {
       if (!released) {
         released = true;
@@ -181,9 +184,9 @@ export async function acquirePostingBarrier(
           set.delete(postingId);
           if (set.size === 0) inFlightPostings.delete(key);
         }
-        if (mongoose.connection.readyState === 1) {
-          PostingBarrier.deleteOne({ postingId }).catch(() => {});
-        }
+        void PostingBarrier.deleteOne({ postingId }).catch((error: any) => {
+          console.error(`[PeriodLock - F-01] Failed to delete released posting ticket ${postingId}:`, error?.message);
+        });
       }
     }
   };
@@ -214,18 +217,18 @@ export async function drainInFlightPostings(
 ): Promise<void> {
   const firmIdStr = String(firmId);
   const key = `${firmIdStr}:${financialYear}`;
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error('[PeriodLock] MongoDB is not ready; distributed posting drain cannot be verified.');
+  }
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
     const localCount = inFlightPostings.get(key)?.size || 0;
-    let distributedCount = 0;
-    if (mongoose.connection.readyState === 1) {
-      distributedCount = await PostingBarrier.countDocuments({
-        firmId: firmIdStr,
-        financialYear,
-        expiresAt: { $gt: new Date() }
-      });
-    }
+    const distributedCount = await PostingBarrier.countDocuments({
+      firmId: firmIdStr,
+      financialYear,
+      expiresAt: { $gt: new Date() }
+    });
     if (localCount === 0 && distributedCount === 0) {
       return; // Drained successfully
     }
@@ -233,14 +236,11 @@ export async function drainInFlightPostings(
   }
 
   const remainingLocal = inFlightPostings.get(key)?.size || 0;
-  let remainingDistributed = 0;
-  if (mongoose.connection.readyState === 1) {
-    remainingDistributed = await PostingBarrier.countDocuments({
-      firmId: firmIdStr,
-      financialYear,
-      expiresAt: { $gt: new Date() }
-    });
-  }
+  const remainingDistributed = await PostingBarrier.countDocuments({
+    firmId: firmIdStr,
+    financialYear,
+    expiresAt: { $gt: new Date() }
+  });
 
   const totalRemaining = Math.max(remainingLocal, remainingDistributed);
   if (totalRemaining > 0) {
@@ -260,13 +260,15 @@ export async function isPeriodLocked(
   transactionDate: string,
   session?: mongoose.ClientSession | null
 ): Promise<boolean> {
-  if (!transactionDate) return false;
+  const financialYear = getFinancialYearFromDate(transactionDate);
   const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
   const activeLock = await PeriodLock.findOne(
     {
       firmId: firmIdObj,
-      isActive: true,
-      lockDate: { $gte: transactionDate },
+      $or: [
+        { isActive: true, lockDate: { $gte: transactionDate } },
+        { financialYear, closingStatus: { $in: ['IN_PROGRESS', 'CLOSED'] } }
+      ]
     },
     '_id',
     { session: session || undefined }
@@ -319,9 +321,9 @@ export async function setPeriodLock(params: {
   const { firmId, lockDate, financialYear, reason, lockedBy, session } = params;
   const firmIdObj = new mongoose.Types.ObjectId(String(firmId));
 
-  // Validate date format
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(lockDate)) {
-    throw new Error(`Invalid lock date format: ${lockDate}. Expected YYYY-MM-DD.`);
+  const dateFinancialYear = getFinancialYearFromDate(lockDate);
+  if (!/^\d{4}-\d{2}$/.test(financialYear) || dateFinancialYear !== financialYear) {
+    throw new Error(`Lock date ${lockDate} does not belong to financial year ${financialYear}.`);
   }
 
   const result = await PeriodLock.findOneAndUpdate(

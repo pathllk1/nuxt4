@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // Strict Calendar Round-Trip Validation (F-03)
-    const paymentDate = String(query.paymentDate || new Date().toISOString().split('T')[0]).trim();
+    const paymentDate = typeof query.paymentDate === 'string' ? query.paymentDate.trim() : '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) {
       throw createError({ statusCode: 400, statusMessage: 'Invalid paymentDate format. Expected YYYY-MM-DD.' });
     }
@@ -37,9 +37,9 @@ export default defineEventHandler(async (event) => {
     }
 
     // Strict Numeric Amount Parsing (F-03: rejects alphanumeric prefixes/suffixes like "1000abc")
-    const amountStr = query.amount !== undefined ? String(query.amount).trim() : '0';
-    if (!/^\d+(\.\d+)?$/.test(amountStr)) {
-      throw createError({ statusCode: 400, statusMessage: 'Invalid amount. Must be a strictly formatted non-negative number.' });
+    const amountStr = query.amount !== undefined ? String(query.amount).trim() : '';
+    if (!/^\d+(\.\d+)?$/.test(amountStr) || Number(amountStr) <= 0) {
+      throw createError({ statusCode: 400, statusMessage: 'A positive, strictly formatted amount is required.' });
     }
     const currentAmount = Number(amountStr);
 
@@ -145,7 +145,8 @@ export default defineEventHandler(async (event) => {
           'SUNDRY_CREDITORS',
           'CREDITOR'
         ]
-      }
+      },
+      $nor: [{ accountHead: { $regex: /\btds borne by company\b/i } }]
     };
 
     if (resolvedPartyId) {
@@ -154,13 +155,19 @@ export default defineEventHandler(async (event) => {
       matchFilter.accountHead = resolvedAccountHead;
     }
 
-    const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate narration voucherGroupId accountHead partyId refId statutory').lean();
-    const priorYtd = priorEntries.reduce((sum: number, e: any) => sum + (Number(e.debitAmount) || 0), 0);
+    const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate voucherGroupId accountHead partyId sourcePaymentRef statutory').lean();
+    let priorYtd = priorEntries.reduce((sum: number, entry: any) => {
+      const amount = Number(entry.debitAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw createError({ statusCode: 409, statusMessage: 'Prior payment history contains an invalid debit amount.' });
+      }
+      return sum + amount;
+    }, 0);
 
     // Compute how much prior payment has ALREADY suffered TDS for THIS deductee and section 194C (F-04)
     const vgIds = Array.from(new Set(priorEntries.map(e => e.voucherGroupId).filter((id): id is string => Boolean(id))));
     let priorAlreadyTaxedAmount = 0;
-    let hasIncompleteHistory = false;
+    let hasIncompleteHistory = priorEntries.some(entry => !entry.voucherGroupId);
 
     if (vgIds.length > 0) {
       const priorTdsLegs = await Ledger.find({
@@ -182,81 +189,89 @@ export default defineEventHandler(async (event) => {
             }
           }
         ]
-      }, 'voucherGroupId statutory accountHead creditAmount narration refId').lean();
+      }, 'voucherGroupId statutory accountHead creditAmount sourcePaymentRef').lean();
 
       const tdsLegsByVg = new Map<string, any[]>();
       for (const tLeg of priorTdsLegs) {
         const vgId = tLeg.voucherGroupId ? String(tLeg.voucherGroupId) : '';
         if (vgId) {
           // Initialize remaining taxable base for this TDS leg so it is not multiplied across multiple debits (F-04)
-          const statTaxable = Number(tLeg.statutory?.taxableAmount) || Number(tLeg.statutory?.grossAmount) || 0;
-          const legRate = Number(tLeg.statutory?.tdsRate || tLeg.statutory?.rate) || 0;
-          const crAmt = Number(tLeg.creditAmount) || 0;
-          let calculatedBase = 0;
-          let isUnknownRate = false;
-
-          if (statTaxable > 0) {
-            calculatedBase = statTaxable;
-          } else if (legRate > 0) {
-            calculatedBase = Math.round((crAmt / (legRate / 100)) * 100) / 100;
-          } else {
-            // F-04: Do NOT assume 1% fallback (crAmt * 100)! Mark as unknown rate and report history incomplete.
-            calculatedBase = 0;
-            isUnknownRate = true;
+          const sourcePaymentRef = tLeg.sourcePaymentRef || tLeg.statutory?.sourcePaymentRef;
+          const taxableBase = tLeg.statutory?.taxableAmount ?? tLeg.statutory?.grossAmount;
+          const calculatedBase = taxableBase == null ? Number.NaN : Number(taxableBase);
+          if (!sourcePaymentRef || !Number.isFinite(calculatedBase) || calculatedBase <= 0) {
             hasIncompleteHistory = true;
           }
-          (tLeg as any).remainingBase = calculatedBase;
-          (tLeg as any).isUnknownRate = isUnknownRate;
+          (tLeg as any).sourcePaymentRef = sourcePaymentRef || null;
+          (tLeg as any).remainingBase = Number.isFinite(calculatedBase) && calculatedBase > 0 ? calculatedBase : 0;
 
           if (!tdsLegsByVg.has(vgId)) tdsLegsByVg.set(vgId, []);
           tdsLegsByVg.get(vgId)!.push(tLeg);
         }
       }
 
+      const sourceRefCounts = new Map<string, number>();
+      for (const entry of priorEntries) {
+        const sourceRef = entry.sourcePaymentRef || (entry as any).statutory?.sourcePaymentRef;
+        if (sourceRef) {
+          sourceRefCounts.set(sourceRef, (sourceRefCounts.get(sourceRef) || 0) + 1);
+        }
+      }
+
       for (const entry of priorEntries) {
         const vg = entry.voucherGroupId;
-        if (!vg) continue;
-        const matchingTdsList = tdsLegsByVg.get(vg);
-        if (!matchingTdsList || matchingTdsList.length === 0) continue;
-
-        // Durable Source-Payment & Deductee-specific tax matching (F-04)
-        const matchedTdsLeg = matchingTdsList.find((tLeg: any) => {
-          if ((Number(tLeg.remainingBase) || 0) <= 0) return false;
-
-          // 1. Direct durable source/payment reference link (F-04)
-          const entryRef = (entry as any).refId ? String((entry as any).refId) : '';
-          const tLegRef = (tLeg as any).refId ? String((tLeg as any).refId) : '';
-          if (entryRef && tLegRef && entryRef === tLegRef) {
-            return true;
-          }
-          const entrySourceRef = (entry as any).statutory?.sourcePaymentRef;
-          const tLegSourceRef = tLeg.statutory?.sourcePaymentRef;
-          if (entrySourceRef && tLegSourceRef && entrySourceRef === tLegSourceRef) {
-            return true;
-          }
-
-          // 2. Exact statutory deductee / PAN identity
-          if (tLeg.statutory) {
-            if (resolvedPartyId && tLeg.statutory.deducteeId && String(tLeg.statutory.deducteeId) === String(resolvedPartyId)) return true;
-            if (detectedPan && tLeg.statutory.pan && tLeg.statutory.pan.toUpperCase() === detectedPan.toUpperCase()) return true;
-            if (resolvedAccountHead && tLeg.statutory.deducteeName && tLeg.statutory.deducteeName.trim().toLowerCase() === resolvedAccountHead.trim().toLowerCase()) return true;
-          }
-
-          // 3. Legacy check: exact whole-name regex in narration (prevent substring misattribution)
-          if (partyName) {
-            const escaped = partyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            if (new RegExp(`\\b${escaped}\\b`, 'i').test(tLeg.narration || '')) return true;
-          }
-          return false;
-        });
-
-        if (matchedTdsLeg) {
-          // Allocate taxable base once across voucher group entries (F-04)
-          const entryDebit = Number(entry.debitAmount) || 0;
-          const allocatedBase = Math.min(entryDebit, Number(matchedTdsLeg.remainingBase) || 0);
-          matchedTdsLeg.remainingBase -= allocatedBase;
-          priorAlreadyTaxedAmount += allocatedBase;
+        if (!vg) {
+          hasIncompleteHistory = true;
+          continue;
         }
+        const matchingTdsList = tdsLegsByVg.get(vg);
+        if (!matchingTdsList || matchingTdsList.length === 0) {
+          hasIncompleteHistory = true;
+          continue;
+        }
+
+        const entrySourceRef = entry.sourcePaymentRef || (entry as any).statutory?.sourcePaymentRef;
+        if (!entrySourceRef || sourceRefCounts.get(entrySourceRef) !== 1) {
+          hasIncompleteHistory = true;
+          continue;
+        }
+
+        const matchedTdsLegs = matchingTdsList.filter(
+          (tLeg: any) => tLeg.sourcePaymentRef === entrySourceRef
+        );
+        if (matchedTdsLegs.length > 1) {
+          hasIncompleteHistory = true;
+          continue;
+        }
+        const matchedTdsLeg = matchedTdsLegs[0];
+        if (!matchedTdsLeg) continue;
+
+        const statutory = matchedTdsLeg.statutory;
+        const identityMatches = Boolean(
+          statutory &&
+          (
+            (resolvedPartyId
+              ? String(statutory.deducteeId || '') === String(resolvedPartyId)
+              : detectedPan
+                ? String(statutory.pan || statutory.deducteePan || '').toUpperCase() === detectedPan.toUpperCase()
+                : resolvedAccountHead &&
+                  String(statutory.deducteeName || '').trim().toLowerCase() === resolvedAccountHead.trim().toLowerCase())
+          )
+        );
+        if (!identityMatches || !(Number(matchedTdsLeg.remainingBase) > 0)) {
+          hasIncompleteHistory = true;
+          continue;
+        }
+
+        const entryDebit = Number(entry.debitAmount);
+        const taxableBase = Number(matchedTdsLeg.remainingBase);
+        if (!Number.isFinite(entryDebit) || entryDebit <= 0 || !Number.isFinite(taxableBase) || taxableBase < entryDebit) {
+          hasIncompleteHistory = true;
+          continue;
+        }
+        priorAlreadyTaxedAmount += taxableBase;
+        if (statutory.isGrossUp) priorYtd += taxableBase - entryDebit;
+        matchedTdsLeg.remainingBase = 0;
       }
     }
 
@@ -270,41 +285,43 @@ export default defineEventHandler(async (event) => {
       if (pDoc?.pan) detectedPan = pDoc.pan;
       if (pDoc?.name && !partyName) partyName = pDoc.name;
     } else if (!detectedPan && accountHead) {
-      const pDoc = await Party.findOne({
+      const parties = await Party.find({
         $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
         name: { $regex: new RegExp(`^${accountHead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
-      }).lean();
-      if (pDoc?.pan) detectedPan = pDoc.pan;
+      }, 'pan name').lean();
+      if (parties.length > 1) {
+        throw createError({ statusCode: 409, statusMessage: `Deductee name "${accountHead}" is ambiguous in the current firm.` });
+      }
+      if (parties[0]?.pan) detectedPan = parties[0].pan;
     }
 
     // Check ChartOfAccounts
     if (!detectedPan && accountHead) {
-      const coaDoc = await ChartOfAccounts.findOne({
+      const coaDocs = await ChartOfAccounts.find({
         $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }],
-        account_name: accountHead
-      }).lean();
-      if (coaDoc?.pan) detectedPan = coaDoc.pan;
+        account_name: accountHead,
+        is_active: true
+      }, 'pan').lean();
+      if (coaDocs.length > 1) {
+        throw createError({ statusCode: 409, statusMessage: `Chart-of-accounts identity "${accountHead}" is ambiguous in the current firm.` });
+      }
+      if (coaDocs[0]?.pan) detectedPan = coaDocs[0].pan;
     }
 
     // Check PostgreSQL labor_leaders
     if (!detectedPan && (leaderId || accountHead)) {
-      try {
-        let sql = getSql();
-        if (!sql) sql = await connectPostgres();
-        if (sql) {
-          let rows: any[] = [];
-          if (leaderId) {
-            rows = await sql`SELECT name, pan FROM labor_leaders WHERE id = ${leaderId} AND firm_id = ${String(session.firm_id)} LIMIT 1`;
-          } else {
-            rows = await sql`SELECT name, pan FROM labor_leaders WHERE name ILIKE ${accountHead} AND firm_id = ${String(session.firm_id)} LIMIT 1`;
-          }
-          if (rows.length > 0 && rows[0]?.pan) {
-            detectedPan = rows[0].pan;
-          }
-        }
-      } catch (pgErr) {
-        console.warn('TDS PAN lookup in PostgreSQL notice:', pgErr);
+      let sql = getSql();
+      if (!sql) sql = await connectPostgres();
+      if (!sql) {
+        throw createError({ statusCode: 503, statusMessage: 'PostgreSQL is unavailable for authoritative labor deductee resolution.' });
       }
+      const rows: any[] = leaderId
+        ? await sql`SELECT name, pan FROM labor_leaders WHERE id = ${leaderId} AND firm_id = ${String(session.firm_id)}`
+        : await sql`SELECT name, pan FROM labor_leaders WHERE name = ${accountHead} AND firm_id = ${String(session.firm_id)}`;
+      if (rows.length > 1) {
+        throw createError({ statusCode: 409, statusMessage: 'Labor deductee identity is ambiguous in the current firm.' });
+      }
+      if (rows.length === 1 && rows[0]?.pan) detectedPan = rows[0].pan;
     }
 
     // 4. PAN Validation & Entity Classification (F-03)
@@ -330,7 +347,7 @@ export default defineEventHandler(async (event) => {
       if (customRate !== null && customRate !== panResult.default194CRate) {
         // F-03: Rate override requires an active, firm-scoped exemption certificate record (Section 197 / 194C(6)).
         // Free-text query parameters are rejected.
-        const cert = await TdsExemptionCertificate.findOne({
+        const certificates = await TdsExemptionCertificate.find({
           firmId: firmIdObj,
           pan: panResult.pan,
           section: '194C',
@@ -339,13 +356,14 @@ export default defineEventHandler(async (event) => {
           validTo: { $gte: paymentDate }
         }).lean();
 
-        if (!cert) {
+        if (certificates.length !== 1) {
           throw createError({
             statusCode: 400,
-            statusMessage: `Rate override (${customRate}%) rejected. Section 194C statutory rate is ${panResult.default194CRate}% for ${panResult.entityType}. No active, firm-scoped Section 197 / 194C(6) exemption certificate found for PAN "${panResult.pan}" on ${paymentDate}. Free-text exemption parameters cannot authorize rate overrides.`
+            statusMessage: `Rate override (${customRate}%) rejected. Section 194C statutory rate is ${panResult.default194CRate}% for ${panResult.entityType}. Exactly one active, firm-scoped Section 197 / 194C(6) exemption certificate is required for PAN "${panResult.pan}" on ${paymentDate}; found ${certificates.length}.`
           });
         }
 
+        const cert = certificates[0]!;
         if (Number(cert.permittedRate) !== customRate) {
           throw createError({
             statusCode: 400,
@@ -385,6 +403,8 @@ export default defineEventHandler(async (event) => {
         financialYear: fyString,
         accountHead,
         partyName,
+        deducteeId: resolvedPartyId ? String(resolvedPartyId) : null,
+        deducteeName: resolvedAccountHead,
         pan: panResult.pan,
         isPanValid: panResult.isValid,
         isIndividual: panResult.isIndividual,
@@ -397,7 +417,7 @@ export default defineEventHandler(async (event) => {
         isAuthoritative: !hasIncompleteHistory,
         incompleteHistory: hasIncompleteHistory,
         warning: hasIncompleteHistory
-          ? 'Historical vouchers contain unknown TDS tax rates. Prior taxable base could not be authoritatively established. Catch-up calculations are non-authoritative.'
+          ? 'Historical payment-to-TDS source linkage or statutory taxable-base data is incomplete. Catch-up calculations cannot be established authoritatively.'
           : null,
         priorYtd: thresholdResult.priorYtd,
         currentAmount,

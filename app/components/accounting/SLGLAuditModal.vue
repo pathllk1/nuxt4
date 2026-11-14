@@ -146,8 +146,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
 });
 
-const formatINR = (n: number) => {
-  const val = Number(n) || 0;
+const formatINR = (n: number | null | undefined) => {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return 'Unavailable';
+  const val = Number(n);
   const frac = Math.abs(val) >= 100000 ? 0 : 2;
   return '₹ ' + new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: frac,
@@ -259,12 +260,12 @@ const formatINR = (n: number) => {
                   {{ formatINR(report.arSummary?.glTotal) }}
                 </div>
                 <div class="text-[10px] text-slate-500 flex justify-between pt-1 border-t dark:border-zinc-800">
-                  <span>SL Total:</span>
-                  <span class="font-mono">{{ formatINR(report.arSummary?.slTotal) }}</span>
+                  <span>Independent register:</span>
+                  <span class="font-mono">{{ report.arSummary?.available === false ? 'Unavailable' : formatINR(report.arSummary?.slTotal) }}</span>
                 </div>
-                <div class="text-[10px] flex justify-between font-bold" :class="report.arSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
-                  <span>Variance:</span>
-                  <span class="font-mono">{{ formatINR(report.arSummary?.variance) }}</span>
+                <div class="text-[10px] flex justify-between font-bold" :class="report.arSummary?.available === false ? 'text-rose-600' : report.arSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
+                  <span>Reconciliation:</span>
+                  <span class="font-mono">{{ report.arSummary?.available === false ? 'Unavailable' : formatINR(report.arSummary?.variance) }}</span>
                 </div>
               </div>
 
@@ -281,12 +282,12 @@ const formatINR = (n: number) => {
                   {{ formatINR(report.apSummary?.glTotal) }}
                 </div>
                 <div class="text-[10px] text-slate-500 flex justify-between pt-1 border-t dark:border-zinc-800">
-                  <span>SL Total:</span>
-                  <span class="font-mono">{{ formatINR(report.apSummary?.slTotal) }}</span>
+                  <span>Independent register:</span>
+                  <span class="font-mono">{{ report.apSummary?.available === false ? 'Unavailable' : formatINR(report.apSummary?.slTotal) }}</span>
                 </div>
-                <div class="text-[10px] flex justify-between font-bold" :class="report.apSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
-                  <span>Variance:</span>
-                  <span class="font-mono">{{ formatINR(report.apSummary?.variance) }}</span>
+                <div class="text-[10px] flex justify-between font-bold" :class="report.apSummary?.available === false ? 'text-rose-600' : report.apSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
+                  <span>Reconciliation:</span>
+                  <span class="font-mono">{{ report.apSummary?.available === false ? 'Unavailable' : formatINR(report.apSummary?.variance) }}</span>
                 </div>
               </div>
 
@@ -303,12 +304,12 @@ const formatINR = (n: number) => {
                   {{ formatINR(report.bankSummary?.glTotal) }}
                 </div>
                 <div class="text-[10px] text-slate-500 flex justify-between pt-1 border-t dark:border-zinc-800">
-                  <span>SL Total:</span>
-                  <span class="font-mono">{{ formatINR(report.bankSummary?.slTotal) }}</span>
+                  <span>Independent statement:</span>
+                  <span class="font-mono">{{ report.bankSummary?.available === false ? 'Unavailable' : formatINR(report.bankSummary?.slTotal) }}</span>
                 </div>
-                <div class="text-[10px] flex justify-between font-bold" :class="report.bankSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
-                  <span>Variance:</span>
-                  <span class="font-mono">{{ formatINR(report.bankSummary?.variance) }}</span>
+                <div class="text-[10px] flex justify-between font-bold" :class="report.bankSummary?.available === false ? 'text-rose-600' : report.bankSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
+                  <span>Reconciliation:</span>
+                  <span class="font-mono">{{ report.bankSummary?.available === false ? 'Unavailable' : formatINR(report.bankSummary?.variance) }}</span>
                 </div>
               </div>
 
@@ -325,12 +326,12 @@ const formatINR = (n: number) => {
                   {{ formatINR(report.laborSummary?.glTotal) }}
                 </div>
                 <div class="text-[10px] text-slate-500 flex justify-between pt-1 border-t dark:border-zinc-800">
-                  <span>SL Total:</span>
-                  <span class="font-mono">{{ formatINR(report.laborSummary?.slTotal) }}</span>
+                  <span>Independent register:</span>
+                  <span class="font-mono">{{ report.laborSummary?.available === false ? 'Unavailable' : formatINR(report.laborSummary?.slTotal) }}</span>
                 </div>
-                <div class="text-[10px] flex justify-between font-bold" :class="report.laborSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
-                  <span>Variance:</span>
-                  <span class="font-mono">{{ formatINR(report.laborSummary?.variance) }}</span>
+                <div class="text-[10px] flex justify-between font-bold" :class="report.laborSummary?.available === false ? 'text-rose-600' : report.laborSummary?.variance > 0.01 ? 'text-amber-600' : 'text-emerald-600'">
+                  <span>Reconciliation:</span>
+                  <span class="font-mono">{{ report.laborSummary?.available === false ? 'Unavailable' : formatINR(report.laborSummary?.variance) }}</span>
                 </div>
               </div>
             </div>
@@ -418,7 +419,7 @@ const formatINR = (n: number) => {
                               </span>
                               <div class="flex items-center gap-3 text-xs font-mono">
                                 <span>GL Net: <strong>{{ formatINR(detailData.glSummary?.netBalance) }}</strong> ({{ detailData.glSummary?.entryCount }} entries)</span>
-                                <span>SL Net: <strong>{{ formatINR(detailData.slSummary?.netBalance) }}</strong> ({{ detailData.slSummary?.entryCount }} entries)</span>
+                                <span>SL Net: <strong>{{ detailData.slSummary?.available === false ? 'Unavailable' : formatINR(detailData.slSummary?.netBalance) }}</strong> ({{ detailData.slSummary?.entryCount ?? '—' }} entries)</span>
                                 <span class="text-rose-600 font-bold">Variance: {{ formatINR(detailData.variance) }}</span>
                               </div>
                             </div>
@@ -478,7 +479,9 @@ const formatINR = (n: number) => {
                                         <td class="p-1.5 text-right font-mono font-bold">{{ formatINR(sl.amount ?? sl.netTotal) }}</td>
                                       </tr>
                                       <tr v-if="!(detailData.subledgerEntries?.length || detailData.advanceEntries?.length)">
-                                        <td colspan="4" class="p-2 text-center text-slate-400">No sub-ledger records found</td>
+                                        <td colspan="4" class="p-2 text-center text-slate-400">
+                                          {{ detailData.slSummary?.available === false ? detailData.slSummary.reason : 'No sub-ledger records found' }}
+                                        </td>
                                       </tr>
                                     </tbody>
                                   </table>

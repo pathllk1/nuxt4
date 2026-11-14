@@ -37,12 +37,25 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     const indexes = await ledgerCol.indexes();
     const matchingIndex = indexes.find(idx => {
       const key = idx.key || {};
-      const isMatchingKey = key.firmId === 1 && key.voucherGroupId === 1 && key.legIndex === 1;
+      const keyFields = Object.keys(key);
+      const isMatchingKey =
+        keyFields.length === 3 &&
+        keyFields[0] === 'firmId' &&
+        keyFields[1] === 'voucherGroupId' &&
+        keyFields[2] === 'legIndex' &&
+        key.firmId === 1 &&
+        key.voucherGroupId === 1 &&
+        key.legIndex === 1;
       if (!isMatchingKey || !idx.unique) return false;
       const pfe = (idx as any).partialFilterExpression || {};
-      const hasReversedFilter = pfe.isReversed === false || (pfe.isReversed && pfe.isReversed.$ne === true);
-      const hasVgFilter = Boolean(pfe.voucherGroupId && (pfe.voucherGroupId.$type === 'string' || pfe.voucherGroupId.$type === 2));
-      return Boolean(hasReversedFilter && hasVgFilter);
+      const filterFields = Object.keys(pfe);
+      const hasExactFilter =
+        filterFields.length === 2 &&
+        pfe.isReversed === false &&
+        pfe.voucherGroupId &&
+        Object.keys(pfe.voucherGroupId).length === 1 &&
+        (pfe.voucherGroupId.$type === 'string' || pfe.voucherGroupId.$type === 2);
+      return Boolean(hasExactFilter);
     });
 
     if (!matchingIndex) {
@@ -100,7 +113,12 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
     await verifyPartialIndex();
     await normalizeAliases();
 
-    const missingIsReversed = await ledgerCol.countDocuments({ isReversed: { $exists: false } });
+    const missingIsReversed = await ledgerCol.countDocuments({
+      $or: [
+        { isReversed: null },
+        { isReversed: { $exists: false } }
+      ]
+    });
     if (missingIsReversed === 0) {
       return { migrationId, status: 'ALREADY_COMPLETED' };
     }
@@ -170,7 +188,7 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
   const updateResult = await ledgerCol.updateMany(
     {
       $or: [
-        { isReversed: { $in: [null, undefined] } },
+        { isReversed: null },
         { isReversed: { $exists: false } }
       ]
     },
@@ -180,7 +198,7 @@ export async function runLedgerIsReversedMigration(): Promise<IMigrationResult> 
   // ── Step 3: Post-Migration Parity Verification (F-07) ──
   const remainingCount = await ledgerCol.countDocuments({
     $or: [
-      { isReversed: { $in: [null, undefined] } },
+      { isReversed: null },
       { isReversed: { $exists: false } }
     ]
   });

@@ -604,6 +604,8 @@ interface LocalVoucherEntry {
   debitAmount?: number;
   creditAmount?: number;
   laborPeriodId?: string;
+  sourcePaymentRef?: string;
+  statutory?: Record<string, any>;
 }
 
 const props = withDefaults(defineProps<{
@@ -627,6 +629,7 @@ const tdsLoading = ref(false);
 const tdsResult = ref<any>(null);
 const tdsError = ref<string | null>(null);
 const originalAmounts = reactive<Record<number, number>>({});
+const voucherRequestId = ref('');
 
 const form = reactive({
   voucherNo: '',
@@ -672,22 +675,12 @@ watch(() => form.vtype, (newType) => {
       { accountHead: '', debitAmount: 0, creditAmount: 0, amount: 0, isDeduction: false, laborPeriodId: '' }
     ] as any[];
   } else {
-    const defaultBank = bankAccounts.value.find(acc => acc.is_default);
-    form.mainAccount = defaultBank ? defaultBank._id : (bankAccounts.value[0]?._id || '');
+    form.mainAccount = '';
     form.entries = [
       { accountHead: '', amount: 0, isDeduction: false, laborPeriodId: '' }
     ] as any[];
   }
 });
-
-// Automatically keep existing TDS lines in sync whenever payee amount changes
-watch(() => form.entries.map(e => ({ head: e.accountHead, amt: e.amount })), (newEntries) => {
-  if (isInitializing) return;
-  const payeeEntry = newEntries.find(e => e.head && !isTdsRelatedLine(e.head) && Number(e.amt) > 0);
-  if (payeeEntry && hasTdsDeductionLine()) {
-    recalculateExistingTdsLines(Math.abs(Number(payeeEntry.amt)));
-  }
-}, { deep: true });
 
 async function loadDependencies() {
   await Promise.all([
@@ -696,10 +689,6 @@ async function loadDependencies() {
     fetchPeriods()
   ]);
 
-  if (!form.mainAccount && bankAccounts.value.length > 0) {
-    const defaultBank = bankAccounts.value.find(acc => acc.is_default);
-    form.mainAccount = defaultBank ? defaultBank._id : (bankAccounts.value[0]?._id || '');
-  }
 }
 
 onMounted(async () => {
@@ -847,53 +836,6 @@ function hasValidTdsBooked() {
   );
 }
 
-function recalculateExistingTdsLines(payeeAmt: number) {
-  if (payeeAmt <= 0) return;
-
-  const rate = Number(tdsResult.value?.applicableRate) || 1;
-  const r = rate / 100;
-  const catchUpBase = Number(tdsResult.value?.threshold?.catchUpBase) || 0;
-  const requiresCatchUp = Boolean(tdsResult.value?.threshold?.requiresCatchUp);
-
-  // Check if Gross-Up is active (indicated by presence of 'TDS Borne by Company' line)
-  const expenseLine = form.entries.find(e => 
-    (e.accountHead || '').toLowerCase().includes('tds borne by company')
-  );
-  const tdsLine = form.entries.find(e => 
-    (e.accountHead || '').toLowerCase().includes('tds payable')
-  );
-
-  if (expenseLine) {
-    // Gross-Up mode: Payee receives payeeAmt net. Firm bears TDS.
-    const net = payeeAmt;
-    let totalTds = 0;
-    if (requiresCatchUp && catchUpBase > 0) {
-      const totalNet = catchUpBase + net;
-      const totalGross = totalNet / (1 - r);
-      totalTds = Math.round((totalGross - totalNet) * 100) / 100;
-    } else {
-      const gross = net / (1 - r);
-      totalTds = Math.round((gross - net) * 100) / 100;
-    }
-
-    expenseLine.amount = totalTds;
-    expenseLine.isDeduction = false;
-    if (tdsLine) {
-      tdsLine.amount = -totalTds;
-      tdsLine.isDeduction = true;
-    }
-  } else if (tdsLine) {
-    // Standard deduction mode: Payee absorbs TDS.
-    const gross = payeeAmt;
-    const regularTds = gross * r;
-    const catchUpTds = (requiresCatchUp && catchUpBase > 0) ? catchUpBase * r : 0;
-    const totalTds = Math.round((regularTds + catchUpTds) * 100) / 100;
-
-    tdsLine.amount = -totalTds;
-    tdsLine.isDeduction = true;
-  }
-}
-
 function onAmountInput(entry: LocalVoucherEntry, rawValue: string) {
   const val = Math.abs(parseFloat(rawValue) || 0);
   entry.amount = entry.isDeduction ? -val : val;
@@ -916,10 +858,7 @@ function onAmountInput(entry: LocalVoucherEntry, rawValue: string) {
     }, 250);
   }
 
-  // 2. If TDS lines already exist in the voucher, recalculate them dynamically so amounts never stay 0!
-  if (hasTdsDeductionLine() && val > 0) {
-    recalculateExistingTdsLines(val);
-  }
+  invalidateTdsForLine(index);
 }
 
 function formatINR(val: number) {
@@ -946,11 +885,16 @@ async function fetchTdsForLine(index: number) {
   if (!entry || !entry.accountHead) return;
   tdsLoading.value = true;
   tdsError.value = null;
+  tdsResult.value = null;
   try {
     const rawAmt = Math.abs(Number(entry.amount) || 0);
     const amtToCheck = rawAmt > 0 ? rawAmt : ((originalAmounts[index] && originalAmounts[index] > 0) ? originalAmounts[index] : 0);
     if (amtToCheck > 0) {
       originalAmounts[index] = amtToCheck;
+    }
+
+    if (amtToCheck <= 0) {
+      throw new Error('Enter a positive payment amount before checking TDS.');
     }
 
     const res: any = await checkTdsThreshold({
@@ -960,6 +904,8 @@ async function fetchTdsForLine(index: number) {
     });
     if (res.success && res.data) {
       tdsResult.value = res.data;
+    } else {
+      throw new Error('TDS threshold service did not return an authoritative result.');
     }
   } catch (err: any) {
     tdsError.value = err.message || 'Error checking TDS threshold';
@@ -987,34 +933,45 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
     await fetchTdsForLine(index);
   }
 
-  // F-04 Review Gate: Explicit confirmation required when prior history is non-authoritative
-  if (tdsResult.value && tdsResult.value.isAuthoritative === false) {
-    const proceed = window.confirm(
-      '⚠️ Review Warning (F-04):\n\n' +
-      'Prior vouchers contain unknown TDS tax rates, so catch-up calculations are non-authoritative.\n\n' +
-      'Do you wish to proceed and apply this calculation with explicit accounting approval?'
-    );
-    if (!proceed) return;
+  if (!tdsResult.value || tdsResult.value.isAuthoritative !== true) {
+    alert(tdsResult.value?.warning || 'TDS cannot be applied because the payment history is incomplete.');
+    return;
   }
 
-  const rate = Number(tdsResult.value?.applicableRate) || 1;
-  const r = rate / 100;
-  const catchUpBase = Number(tdsResult.value?.threshold?.catchUpBase) || 0;
-  const requiresCatchUp = Boolean(tdsResult.value?.threshold?.requiresCatchUp);
-  const catchUpTds = requiresCatchUp ? Math.round(catchUpBase * r * 100) / 100 : 0;
-
-  let gross = baseline;
-  let tdsAmt = 0;
+  const option = optionType === 'GROSS_UP' ? tdsResult.value.grossUpOption : tdsResult.value.standardOption;
+  const gross = Number(option?.grossAmount);
+  const tdsAmt = Number(option?.tdsAmount);
+  const net = Number(option?.netPayout ?? option?.netAmount);
+  const rate = Number(tdsResult.value.applicableRate);
+  if (
+    !Number.isFinite(gross) || gross <= 0 ||
+    !Number.isFinite(tdsAmt) || tdsAmt <= 0 ||
+    !Number.isFinite(net) || net < 0 ||
+    !Number.isFinite(rate) || rate <= 0
+  ) {
+    alert('The authoritative TDS calculation is incomplete; no TDS entry was applied.');
+    return;
+  }
+  const sourcePaymentRef = crypto.randomUUID();
+  const statutory = {
+    isTds: true,
+    tdsSection: '194C',
+    tdsRate: rate,
+    isGrossUp: optionType === 'GROSS_UP',
+    grossAmount: gross,
+    taxableAmount: gross,
+    netAmount: net,
+    tdsAmount: tdsAmt,
+    pan: tdsResult.value.pan || '',
+    deducteeId: tdsResult.value.deducteeId,
+    deducteeName: tdsResult.value.deducteeName || tdsResult.value.partyName,
+    sourcePaymentRef
+  };
+  entry.sourcePaymentRef = sourcePaymentRef;
+  entry.statutory = statutory;
   let modeName = '';
 
   if (optionType === 'GROSS_UP') {
-    if (tdsResult.value?.grossUpOption && tdsResult.value.grossUpOption.tdsAmount > 0) {
-      gross = tdsResult.value.grossUpOption.grossAmount;
-      tdsAmt = tdsResult.value.grossUpOption.tdsAmount;
-    } else {
-      gross = Math.round(((baseline + catchUpTds) / (1 - r)) * 100) / 100;
-      tdsAmt = Math.round((gross - baseline) * 100) / 100;
-    }
     modeName = `Grossed-up TDS u/s 195A @ ${rate}%`;
 
     // Leader / Contractor payment MUST BE NET.
@@ -1031,12 +988,16 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
       existingExpenseLine.amount = tdsAmt;
       existingExpenseLine.isDeduction = false;
       existingExpenseLine.accountHead = 'TDS Borne by Company';
+      existingExpenseLine.sourcePaymentRef = sourcePaymentRef;
+      existingExpenseLine.statutory = statutory;
     } else {
       form.entries.push({
         accountHead: 'TDS Borne by Company',
         amount: tdsAmt,
         isDeduction: false,
-        laborPeriodId: ''
+        laborPeriodId: '',
+        sourcePaymentRef,
+        statutory
       });
     }
 
@@ -1048,23 +1009,20 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
       existingTdsLine.amount = -tdsAmt;
       existingTdsLine.isDeduction = true;
       existingTdsLine.accountHead = 'TDS Payable u/s 194C';
+      existingTdsLine.sourcePaymentRef = sourcePaymentRef;
+      existingTdsLine.statutory = statutory;
     } else {
       form.entries.push({
         accountHead: 'TDS Payable u/s 194C',
         amount: -tdsAmt,
         isDeduction: true,
-        laborPeriodId: ''
+        laborPeriodId: '',
+        sourcePaymentRef,
+        statutory
       });
     }
   } else {
     // STANDARD / DEDUCT: Payee bears TDS
-    if (tdsResult.value?.standardOption && tdsResult.value.standardOption.tdsAmount > 0) {
-      gross = tdsResult.value.standardOption.grossAmount;
-      tdsAmt = tdsResult.value.standardOption.tdsAmount;
-    } else {
-      gross = baseline;
-      tdsAmt = Math.round((gross * r + catchUpTds) * 100) / 100;
-    }
     modeName = `TDS Deducted u/s 194C @ ${rate}%`;
 
     entry.amount = gross;
@@ -1086,14 +1044,28 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
       existingTdsLine.amount = -tdsAmt;
       existingTdsLine.isDeduction = true;
       existingTdsLine.accountHead = 'TDS Payable u/s 194C';
+      existingTdsLine.sourcePaymentRef = sourcePaymentRef;
+      existingTdsLine.statutory = statutory;
     } else {
       form.entries.push({
         accountHead: 'TDS Payable u/s 194C',
         amount: -tdsAmt,
         isDeduction: true,
-        laborPeriodId: ''
+        laborPeriodId: '',
+        sourcePaymentRef,
+        statutory
       });
     }
+  }
+
+  function invalidateTdsForLine(index: number) {
+    const entry = form.entries[index];
+    if (!entry?.sourcePaymentRef) return;
+    const sourcePaymentRef = entry.sourcePaymentRef;
+    form.entries = form.entries.filter(line => line === entry || line.sourcePaymentRef !== sourcePaymentRef);
+    delete entry.sourcePaymentRef;
+    delete entry.statutory;
+    closeTdsAssistant();
   }
 
   // 3. Append mode to narration if not already present
@@ -1233,6 +1205,7 @@ async function submitVoucher() {
         vtype: form.vtype,
         vdate: form.vdate,
         narration: form.narration,
+        idempotencyKey: voucherRequestId.value,
         entries: form.entries
           .filter(e => ((e.debitAmount || 0) > 0 || (e.creditAmount || 0) > 0) && e.accountHead)
           .map(e => ({
@@ -1247,6 +1220,7 @@ async function submitVoucher() {
         vtype: form.vtype,
         vdate: form.vdate,
         narration: form.narration,
+        idempotencyKey: voucherRequestId.value,
         mainAccount: form.mainAccount,
         entries: form.entries
           .filter(e => Number(e.amount) !== 0 && e.accountHead)
@@ -1254,7 +1228,9 @@ async function submitVoucher() {
             accountHead: e.accountHead,
             accountType: getAccountType(e.accountHead),
             amount: Number(e.amount) || 0,
-            laborPeriodId: e.laborPeriodId || null
+            laborPeriodId: e.laborPeriodId || null,
+            sourcePaymentRef: e.sourcePaymentRef || null,
+            statutory: e.statutory || null
           })),
         summary: {
           grossAmount: grossAmount.value,
@@ -1287,10 +1263,11 @@ function printCurrentVoucher() {
 
 function resetForm() {
   form.voucherNo = '';
+  voucherRequestId.value = crypto.randomUUID();
   form.vtype = 'PAYMENT';
   form.vdate = new Date().toISOString().split('T')[0];
   form.narration = '';
-  form.mainAccount = bankAccounts.value.find(acc => acc.is_default)?._id || (bankAccounts.value[0]?._id || '');
+  form.mainAccount = '';
   form.entries = [
     { accountHead: '', amount: 0, isDeduction: false, laborPeriodId: '' }
   ] as any[];

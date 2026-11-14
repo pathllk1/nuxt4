@@ -5,7 +5,6 @@ import VoucherSequence from '../../models/VoucherSequence';
 import Party from '../../models/Party';
 import BankAccount from '../../models/BankAccount';
 import { enforcePeriodLock, acquirePostingBarrier, verifyPostingBarrier } from './period-lock.service';
-import { getCurrentFinancialYear } from './bill-utils';
 import {
   type IVoucherPayload,
   type IVoucherLeg,
@@ -72,20 +71,28 @@ export class UnifiedPostingService {
         ? await acquirePostingBarrier(firmIdObj, payload.transactionDate, null)
         : null;
       let internalSession: mongoose.ClientSession | null = null;
+      let transactionResolved = false;
       try {
         internalSession = await mongoose.startSession();
         internalSession.startTransaction();
         const result = await this.postVoucher({ ...payload, _bypassBarrier: true }, internalSession);
+        await barrierToken?.assertBeforeCommit();
         await internalSession.commitTransaction();
+        transactionResolved = true;
         return result;
-      } catch (internalErr) {
+      } catch (internalErr: any) {
         if (internalSession && (internalSession as any).inTransaction()) {
-          await internalSession.abortTransaction().catch(() => {});
+          try {
+            await internalSession.abortTransaction();
+            transactionResolved = true;
+          } catch (abortError: any) {
+            throw new Error(`Voucher posting failed (${internalErr.message}); transaction abort also failed (${abortError.message}).`);
+          }
         }
         throw internalErr;
       } finally {
-        if (internalSession) internalSession.endSession();
-        barrierToken?.release();
+        if (transactionResolved) barrierToken?.release();
+        if (internalSession) await internalSession.endSession();
       }
     }
 
@@ -96,7 +103,7 @@ export class UnifiedPostingService {
       throw new Error(`Invalid transactionDate format "${payload.transactionDate}". Expected YYYY-MM-DD.`);
     }
     const parsedDate = new Date(`${payload.transactionDate}T00:00:00Z`);
-    if (isNaN(parsedDate.getTime())) {
+    if (isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== payload.transactionDate) {
       throw new Error(`Invalid calendar date "${payload.transactionDate}".`);
     }
 
@@ -119,6 +126,7 @@ export class UnifiedPostingService {
       };
 
       session.commitTransaction = async function (...args: any[]) {
+        await barrierToken.assertBeforeCommit();
         const res = await origCommit(...args);
         // F-01: Release ticket ONLY upon confirmed, successful commit!
         safeRelease();
@@ -134,11 +142,9 @@ export class UnifiedPostingService {
 
       if (origEnd) {
         session.endSession = async function (...args: any[]) {
-          try {
-            return await origEnd(...args);
-          } finally {
-            safeRelease();
-          }
+          const result = await origEnd(...args);
+          if (!session.inTransaction()) safeRelease();
+          return result;
         };
       }
     }
@@ -208,6 +214,7 @@ export class UnifiedPostingService {
                   masterRollId: (leg as any).masterRollId ? this.toObjectIdSafe((leg as any).masterRollId) : masterRollId,
                   narration: leg.narration || payload.narration,
                   refId: (leg as any).refId ? this.toObjectIdSafe((leg as any).refId) : (payload.refId ? this.toObjectIdSafe(payload.refId) : null),
+                  sourcePaymentRef: leg.sourcePaymentRef || statutory?.sourcePaymentRef || null,
                   statutory
                 };
               });
@@ -283,6 +290,7 @@ export class UnifiedPostingService {
           voucherType: payload.voucherType,
           refType: payload.refType || 'VOUCHER',
           refId: (leg as any).refId ? this.toObjectIdSafe((leg as any).refId) : (payload.refId ? this.toObjectIdSafe(payload.refId) : null),
+          sourcePaymentRef: leg.sourcePaymentRef || statutory?.sourcePaymentRef || null,
           partyId: leg.partyId ? this.toObjectIdSafe(leg.partyId) : null,
           bankAccountId: leg.bankAccountId ? this.toObjectIdSafe(leg.bankAccountId) : null,
           stockId: leg.stockId ? this.toObjectIdSafe(leg.stockId) : null,
@@ -962,6 +970,11 @@ export class UnifiedPostingService {
         `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": transactionDate mismatch. Existing: "${firstEx.transactionDate}", Requested: "${payload.transactionDate}".`
       );
     }
+    if (String(firstEx.createdBy || '') !== String(payload.createdBy || '')) {
+      throw new Error(
+        `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": createdBy mismatch. Existing: "${firstEx.createdBy || ''}", Requested: "${payload.createdBy || ''}".`
+      );
+    }
     if ((firstEx.refType || 'VOUCHER') !== (payload.refType || 'VOUCHER')) {
       throw new Error(
         `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": refType mismatch. Existing: "${firstEx.refType}", Requested: "${payload.refType}".`
@@ -1172,6 +1185,31 @@ export class UnifiedPostingService {
             `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory gstin mismatch.`
           );
         }
+        const statutoryFields: Array<[string, (value: any) => unknown]> = [
+          ['isTds', value => value == null ? null : Boolean(value)],
+          ['rate', value => value == null ? null : Number(value)],
+          ['grossAmount', value => value == null ? null : Number(value)],
+          ['netAmount', value => value == null ? null : Number(value)],
+          ['deducteeType', value => value == null ? null : String(value).trim().toUpperCase()],
+          ['hsnSac', value => value == null ? null : String(value).trim().toUpperCase()],
+          ['gstRate', value => value == null ? null : Number(value)],
+          ['sourcePaymentRef', value => value == null ? null : String(value).trim()]
+        ];
+        for (const [field, normalize] of statutoryFields) {
+          if (normalize(exStat[field]) !== normalize(reqStat[field])) {
+            throw new Error(
+              `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} statutory ${field} mismatch.`
+            );
+          }
+        }
+      }
+
+      const exSourcePaymentRef = exLeg.sourcePaymentRef || exLeg.statutory?.sourcePaymentRef || null;
+      const reqSourcePaymentRef = reqLeg.sourcePaymentRef || reqLeg.statutory?.sourcePaymentRef || null;
+      if (exSourcePaymentRef !== reqSourcePaymentRef) {
+        throw new Error(
+          `[ERP Concurrency Violation] Idempotent replay rejected for voucherGroupId "${targetVoucherGroupId}": Leg #${i} sourcePaymentRef mismatch.`
+        );
       }
     }
   }
@@ -1208,13 +1246,16 @@ export class UnifiedPostingService {
    */
   private static getFinancialYearFromDate(dateStr: string): string {
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      // Fallback to current FY if date is malformed
-      return getCurrentFinancialYear();
+      throw new Error(`Invalid transaction date "${dateStr}". Expected YYYY-MM-DD.`);
     }
 
     const parts = dateStr.split('-');
-    const year = parseInt(parts[0] || '2026', 10);
-    const month = parseInt(parts[1] || '4', 10);
+    const parsedDate = new Date(`${dateStr}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== dateStr) {
+      throw new Error(`Invalid calendar date "${dateStr}".`);
+    }
+    const year = parseInt(parts[0]!, 10);
+    const month = parseInt(parts[1]!, 10);
 
     // Indian FY: April (month 4) to March (month 3)
     if (month >= 4) {

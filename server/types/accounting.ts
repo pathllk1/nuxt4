@@ -41,10 +41,15 @@ export const VOUCHER_PREFIX_MAP: Record<VoucherType, string> = {
 };
 
 export interface IStatutoryMetadata {
+  isTds?: boolean;
   tdsSection?: '194C' | '194J' | '194I' | '194H' | '194A' | '194Q' | '192' | '195' | string;
   tdsRate?: number;
+  rate?: number;
   isGrossUp?: boolean;
+  grossAmount?: number;
+  netAmount?: number;
   deducteePan?: string;
+  pan?: string;
   deducteeType?: '01' | '02'; // 01 = Company, 02 = Non-Company
   gstin?: string;
   hsnSac?: string;
@@ -98,6 +103,9 @@ export interface IVoucherLeg {
 
   /** Structured Statutory Tax Metadata (TDS / GST) for Form 26Q & GSTR */
   statutory?: IStatutoryMetadata;
+
+  /** Stable source payment identity shared by its payment and tax legs */
+  sourcePaymentRef?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

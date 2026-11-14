@@ -1,48 +1,70 @@
 import { defineEventHandler, createError, readBody } from 'h3';
 import mongoose from 'mongoose';
 import User from '../../models/User';
-import BankAccount from '../../models/BankAccount';
+import Ledger from '../../models/Ledger';
+import ChartOfAccounts from '../../models/ChartOfAccounts';
+import TdsExemptionCertificate from '../../models/TdsExemptionCertificate';
 import { UnifiedPostingService } from '../../utils/accounting/unified-posting.service';
 import { TdsCalculator } from '../../utils/accounting/tds-calculator';
+import { requireAuthSession } from '../../utils/auth';
+import { getFinancialYearFromDate } from '../../utils/accounting/period-lock.service';
+import { resolveVoucherLiquidityAccount } from '../../utils/accounting/voucher-liquidity-account';
 import { type IVoucherLeg } from '../../types/accounting';
 import { connectDB } from '../../plugins/mongodb';
 
+const isUuid = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 export default defineEventHandler(async (event) => {
   try {
-    const currentUserId = event.context.user?.id;
-    if (!currentUserId) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: 'Unauthorized'
-      });
-    }
-
+    const auth = await requireAuthSession(event);
     const body = await readBody(event) || {};
     const {
       firmId,
       subcontractorUserId,
       amount,
-      tdsMode = 'DEDUCT', // 'DEDUCT' | 'GROSS_UP' | 'NONE'
+      tdsMode,
       ratePercent,
-      paymentMode = 'BANK',
+      paymentMode,
       bankAccountId,
       paymentDate,
       narration,
-      projectId
+      projectId,
+      idempotencyKey
     } = body;
 
-    if (!firmId || !subcontractorUserId || !amount || Number(amount) <= 0) {
+    if (String(firmId || '') !== String(auth.firm_id)) {
+      throw createError({ statusCode: 403, statusMessage: 'Payout firm must match the authenticated firm.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(subcontractorUserId))) {
+      throw createError({ statusCode: 400, statusMessage: 'A valid subcontractor user ID is required.' });
+    }
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || !isUuid(idempotencyKey)) {
       throw createError({
         statusCode: 400,
-        statusMessage: 'Firm ID, Subcontractor ID, and a positive amount are required'
+        statusMessage: 'A positive amount and UUID idempotency key are required.'
       });
+    }
+    const validDate = typeof paymentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(paymentDate)
+      ? new Date(`${paymentDate}T00:00:00.000Z`)
+      : null;
+    if (!validDate || Number.isNaN(validDate.getTime()) || validDate.toISOString().slice(0, 10) !== paymentDate) {
+      throw createError({ statusCode: 400, statusMessage: 'A valid payment date in YYYY-MM-DD format is required.' });
+    }
+    getFinancialYearFromDate(paymentDate);
+    if (!['DEDUCT', 'GROSS_UP', 'NONE'].includes(tdsMode)) {
+      throw createError({ statusCode: 400, statusMessage: 'A supported TDS mode is required.' });
+    }
+    if (!['BANK', 'UPI', 'CHEQUE', 'CASH', 'NEFT', 'RTGS'].includes(paymentMode)) {
+      throw createError({ statusCode: 400, statusMessage: 'A supported payment mode is required.' });
     }
 
     await connectDB();
 
     // 1. Authorize current user in this firm (Owner, Admin, Manager or Superadmin)
-    const currentUser = await User.findById(currentUserId);
-    const currentAssignment = currentUser?.firms.find(f => f.firm.toString() === firmId);
+    const currentUser = await User.findById(auth._id).lean();
+    const currentAssignment = currentUser?.firms?.find((f: any) => String(f.firm?._id || f.firm) === String(auth.firm_id));
     const currentGrade = currentAssignment?.grade;
     const isAuthorized = currentUser?.role === 'superadmin' || ['Owner', 'Admin', 'Manager'].includes(currentGrade || '');
 
@@ -62,7 +84,7 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const subconAssignment = subconUser.firms.find(f => f.firm.toString() === firmId);
+    const subconAssignment = subconUser.firms?.find((f: any) => String(f.firm?._id || f.firm) === String(auth.firm_id));
     if (!subconAssignment || subconAssignment.grade !== 'Subcontractor') {
       throw createError({
         statusCode: 400,
@@ -78,26 +100,55 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    // 3. Evaluate TDS Rate u/s 194C
-    let effectiveRate = Number(ratePercent);
-    if (isNaN(effectiveRate) || effectiveRate < 0) {
-      const panValidation = TdsCalculator.validatePan(subconAssignment.panNumber);
-      effectiveRate = panValidation.default194CRate; // 1% Individual/HUF, 2% Co/Firm, 20% Missing
+    const firmIdObj = new mongoose.Types.ObjectId(String(auth.firm_id));
+    const expenseAccounts = await ChartOfAccounts.find({
+      account_name: expenseHead,
+      account_type: 'DIRECT_EXPENSE',
+      is_active: true,
+      $or: [{ firm_id: firmIdObj }, { firmId: firmIdObj }]
+    }, '_id').lean();
+    if (expenseAccounts.length !== 1) {
+      throw createError({ statusCode: 409, statusMessage: 'Subcontractor expense head is not uniquely active in the authenticated firm.' });
+    }
+
+    // 3. Evaluate statutory TDS rate; caller-supplied rates require a matching active certificate.
+    const panValidation = TdsCalculator.validatePan(subconAssignment.panNumber);
+    if (tdsMode !== 'NONE' && (typeof ratePercent !== 'number' || !Number.isFinite(ratePercent) || ratePercent < 0 || ratePercent > 20)) {
+      throw createError({ statusCode: 400, statusMessage: 'A valid statutory TDS rate is required.' });
+    }
+    let effectiveRate = tdsMode === 'NONE' ? 0 : panValidation.default194CRate;
+    let certificateNumber: string | null = null;
+    if (tdsMode !== 'NONE' && ratePercent !== effectiveRate) {
+      if (!panValidation.isValid || ratePercent >= effectiveRate) {
+        throw createError({ statusCode: 400, statusMessage: `TDS rate ${ratePercent}% is not permitted for this deductee.` });
+      }
+      const certificates = await TdsExemptionCertificate.find({
+        firmId: firmIdObj,
+        pan: panValidation.pan,
+        section: '194C',
+        status: 'ACTIVE',
+        validFrom: { $lte: paymentDate },
+        validTo: { $gte: paymentDate }
+      }).lean();
+      if (certificates.length !== 1 || Number(certificates[0]!.permittedRate) !== ratePercent) {
+        throw createError({ statusCode: 400, statusMessage: 'Rate override requires exactly one active firm-scoped Section 194C certificate with the same permitted rate.' });
+      }
+      effectiveRate = ratePercent;
+      certificateNumber = certificates[0]!.certificateNumber;
     }
 
     const isGrossUp = tdsMode === 'GROSS_UP';
     const hasTds = tdsMode !== 'NONE' && effectiveRate > 0;
-
-    const numAmount = Number(amount);
     const tdsComputation = hasTds 
       ? TdsCalculator.computeTds({
-          netAmount: numAmount,
+          netAmount: amount,
           ratePercent: effectiveRate,
-          isGrossUp
+          isGrossUp,
+          catchUpBaseAmount: 0
         })
       : {
-          netPayout: numAmount,
-          grossAmount: numAmount,
+          netPayout: amount,
+          grossAmount: amount,
           tdsAmount: 0,
           effectiveRate: 0,
           isGrossUp: false,
@@ -107,35 +158,50 @@ export default defineEventHandler(async (event) => {
         };
 
     // 4. Resolve Payout Account (Bank or Cash)
-    const firmIdObj = new mongoose.Types.ObjectId(firmId);
-    let paymentPostAccountHead = 'Cash in Hand';
-    let paymentPostAccountType: 'CASH' | 'BANK' = 'CASH';
-    let mongoBankAccountId: mongoose.Types.ObjectId | null = null;
-
-    if (paymentMode !== 'CASH') {
-      if (!bankAccountId) {
-        throw createError({
-          statusCode: 400,
-          statusMessage: 'Bank account is required for non-cash payment modes'
-        });
-      }
-      const bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        $or: [{ firm_id: firmId }, { firmId }, { firm_id: firmIdObj }, { firmId: firmIdObj }]
-      });
-      if (!bankAccount) {
-        throw createError({
-          statusCode: 404,
-          statusMessage: 'Selected Bank Account not found in this firm'
-        });
-      }
-      paymentPostAccountHead = bankAccount.account_name;
-      paymentPostAccountType = 'BANK';
-      mongoBankAccountId = new mongoose.Types.ObjectId(String(bankAccountId));
+    if (paymentMode !== 'CASH' && !bankAccountId) {
+      throw createError({ statusCode: 400, statusMessage: 'Bank account is required for non-cash payment modes.' });
+    }
+    if (paymentMode === 'CASH' && bankAccountId) {
+      throw createError({ statusCode: 400, statusMessage: 'Cash payments must not include a bank account ID.' });
+    }
+    const liquidityAccount = await resolveVoucherLiquidityAccount(
+      paymentMode === 'CASH' ? 'Cash in Hand' : bankAccountId,
+      firmIdObj
+    );
+    if (!liquidityAccount) {
+      throw createError({ statusCode: 400, statusMessage: 'A resolved cash or bank account is required.' });
     }
 
-    // 5. Construct Balanced Double-Entry Voucher Legs
-    const transactionDate = paymentDate || (new Date().toISOString().split('T')[0] as string);
+    // 4. Require source history to be absent until this route can verify a complete linked register.
+    const [fyStartYear] = getFinancialYearFromDate(paymentDate).split('-');
+    const fyStartDate = `${fyStartYear}-04-01`;
+    const priorPayments = await Ledger.find({
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      accountHead: expenseHead,
+      accountType: 'DIRECT_EXPENSE',
+      transactionDate: { $gte: fyStartDate, $lte: paymentDate },
+      debitAmount: { $gt: 0 },
+      isReversed: { $ne: true },
+      voucherGroupId: { $ne: `SUBCON-${String(firmIdObj)}-${idempotencyKey}` }
+    }, 'debitAmount voucherGroupId transactionDate').lean();
+    if (priorPayments.length > 0) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Prior subcontractor payment history is present but this payout route cannot verify its complete source-to-TDS linkage. Use the authoritative TDS threshold workflow; no voucher was posted.'
+      });
+    }
+    const taxableCurrentAmount = tdsComputation.grossAmount;
+    const threshold = TdsCalculator.check194CThreshold(0, taxableCurrentAmount, 0);
+    if (tdsMode === 'NONE' && threshold.isThresholdBreached) {
+      throw createError({ statusCode: 409, statusMessage: 'Section 194C requires deduction for this payment amount; No TDS is not permitted.' });
+    }
+    if (tdsMode !== 'NONE' && !threshold.isThresholdBreached && tdsComputation.tdsAmount > 0) {
+      throw createError({ statusCode: 409, statusMessage: 'Section 194C threshold is not met for this payment. Select No TDS; no voucher was posted.' });
+    }
+
+    const transactionDate = paymentDate;
+    const externalVoucherGroupId = `SUBCON-${String(firmIdObj)}-${idempotencyKey}`;
+    const sourcePaymentRef = `SUBCONTRACTOR-${String(firmIdObj)}-${idempotencyKey}`;
     const legs: IVoucherLeg[] = [];
 
     // Leg 1: Debit Subcontractor Direct Expense (Gross Amount)
@@ -144,7 +210,8 @@ export default defineEventHandler(async (event) => {
       accountType: 'DIRECT_EXPENSE',
       debitAmount: tdsComputation.grossAmount,
       creditAmount: 0,
-      narration: `Subcontract payout to ${subconUser.name}${hasTds ? ` (TDS u/s 194C @ ${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})` : ''}`
+      narration: `Subcontract payout to ${subconUser.name}${hasTds ? ` (TDS u/s 194C @ ${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})` : ''}`,
+      sourcePaymentRef
     });
 
     // Statutory TDS snapshot for canonical register tracking (F-04)
@@ -158,11 +225,15 @@ export default defineEventHandler(async (event) => {
       taxableAmount: tdsComputation.grossAmount, // Canonical taxable base (F-04)
       netAmount: tdsComputation.netPayout,
       tdsAmount: tdsComputation.tdsAmount,
-      pan: subconAssignment.panNumber || '',
+      pan: panValidation.pan,
       deducteeName: subconUser.name,
-      deducteeId: subconUser._id ? subconUser._id.toString() : undefined,
-      deducteeType: 'SUBCONTRACTOR'
-    } : null;
+      deducteeId: String(subconUser._id),
+      deducteeType: 'SUBCONTRACTOR',
+      sourcePaymentRef,
+      certificateNumber,
+      isExempt: certificateNumber !== null,
+      exemptionReason: certificateNumber ? 'Active Section 194C certificate rate override' : null
+    } : undefined;
 
     // Leg 2: Credit TDS Payable Liability (if TDS > 0)
     if (tdsComputation.tdsAmount > 0) {
@@ -172,19 +243,21 @@ export default defineEventHandler(async (event) => {
         debitAmount: 0,
         creditAmount: tdsComputation.tdsAmount,
         narration: `TDS 194C withheld on payout to ${subconUser.name} (${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})`,
-        statutory: statutorySnapshot
-      } as any);
+        statutory: statutorySnapshot,
+        sourcePaymentRef
+      });
     }
 
     // Leg 3: Credit Bank / Cash (Net payout disbursed)
     legs.push({
-      accountHead: paymentPostAccountHead,
-      accountType: paymentPostAccountType,
+      accountHead: liquidityAccount.accountHead,
+      accountType: liquidityAccount.accountType,
       debitAmount: 0,
       creditAmount: tdsComputation.netPayout,
-      bankAccountId: mongoBankAccountId,
+      bankAccountId: liquidityAccount.bankAccountId,
       paymentMode,
-      narration: `Payout disbursed to ${subconUser.name} via ${paymentMode}`
+      narration: `Payout disbursed to ${subconUser.name} via ${paymentMode}`,
+      sourcePaymentRef
     });
 
     // 6. Post Transaction via UnifiedPostingService with Mongo Session
@@ -195,12 +268,13 @@ export default defineEventHandler(async (event) => {
         transactionDate,
         narration: narration || `Subcontractor Payout - ${subconUser.name} (${paymentMode})`,
         legs,
-        createdBy: currentUserId,
+        createdBy: String(auth._id),
+        externalVoucherGroupId,
         refType: 'PAYMENT',
         tags: {
           subcontractorUserId: subconUser._id.toString(),
           subcontractorName: subconUser.name,
-          panNumber: subconAssignment.panNumber || '',
+          panNumber: panValidation.pan,
           tdsMode,
           tdsRate: effectiveRate,
           tdsAmount: tdsComputation.tdsAmount,
@@ -220,27 +294,19 @@ export default defineEventHandler(async (event) => {
       postResult = await executePost(session);
       await session.commitTransaction();
     } catch (postError: any) {
-      if (session) {
-        try { await session.abortTransaction(); } catch (_) {}
+      if (session?.inTransaction()) {
+        try {
+          await session.abortTransaction();
+        } catch (abortError: any) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: `Subcontractor payout failed (${postError.message}); transaction abort also failed (${abortError.message}).`
+          });
+        }
       }
-
-      const isDev = process.env.NODE_ENV !== 'production';
-      if (
-        isDev && (
-          postError.message?.includes('ClientSession must be from the same MongoClient') ||
-          postError.message?.includes('replica set') ||
-          postError.message?.includes('Transaction numbers')
-        )
-      ) {
-        console.warn('[Subcontractor Payout] DEV ONLY: Local MongoDB lacks replica set. Retrying without transaction:', postError.message);
-        postResult = await executePost(undefined);
-      } else {
-        throw postError;
-      }
+      throw postError;
     } finally {
-      if (session) {
-        try { session.endSession(); } catch (_) {}
-      }
+      if (session) await session.endSession();
     }
 
     return {
