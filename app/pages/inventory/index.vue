@@ -244,54 +244,54 @@
 
         <!-- Right Column: Signals & Feeds -->
         <div class="space-y-4">
-          <!-- Stock Signals Alerts Card (Dark) -->
-          <div class="overflow-hidden rounded-[22px] bg-slate-900 dark:bg-zinc-950 border border-slate-800 shadow-lg">
-            <div class="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <!-- Stock Signals Alerts Card (Colorful Light Theme) -->
+          <div class="overflow-hidden rounded-[22px] bg-white border border-slate-200/90 shadow-sm">
+            <div class="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-4">
               <div>
-                <p class="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">Stock Signals</p>
-                <h2 class="mt-0.5 text-base font-bold text-white">Priority inventory alerts</h2>
+                <p class="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Stock Signals</p>
+                <h2 class="mt-0.5 text-base font-black text-slate-900 tracking-tight">Priority Inventory Alerts</h2>
               </div>
-              <div class="rounded-[14px] border border-white/10 bg-white/5 px-3 py-2 text-right">
-                <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total Valuation</p>
-                <p class="mt-0.5 text-sm font-black text-white font-mono">{{ formatCurrency(totalValue) }}</p>
+              <div class="rounded-[14px] border border-slate-200 bg-white px-3 py-1.5 text-right shadow-2xs">
+                <p class="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Total Valuation</p>
+                <p class="mt-0.5 text-sm font-black text-slate-900 font-mono">{{ formatCurrency(totalValue) }}</p>
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3 p-4">
               <!-- Low stock signal -->
-              <div class="rounded-[18px] border border-amber-400/20 bg-amber-500/10 p-4">
+              <div class="rounded-[18px] border border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100/40 p-4 shadow-2xs">
                 <div class="flex items-center gap-1.5 mb-2">
-                  <span class="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_2px_rgba(245,158,11,0.5)]"></span>
-                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Low Stock</span>
+                  <span class="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_6px_2px_rgba(245,158,11,0.3)]"></span>
+                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-amber-800">Low Stock</span>
                 </div>
-                <div class="text-[1.8rem] font-black tracking-tight text-white leading-none font-mono">{{ lowStockCount }}</div>
-                <div class="mt-2 text-[10px] font-semibold text-amber-300">1–5 units remaining</div>
+                <div class="text-[1.8rem] font-black tracking-tight text-amber-950 leading-none font-mono">{{ lowStockCount }}</div>
+                <div class="mt-2 text-[10px] font-bold text-amber-700">1–5 units remaining</div>
               </div>
               <!-- Out of stock signal -->
-              <div class="rounded-[18px] border border-rose-400/20 bg-rose-500/10 p-4">
+              <div class="rounded-[18px] border border-rose-200 bg-gradient-to-br from-rose-50 to-rose-100/40 p-4 shadow-2xs">
                 <div class="flex items-center gap-1.5 mb-2">
-                  <span class="h-1.5 w-1.5 rounded-full bg-rose-400 shadow-[0_0_6px_2px_rgba(244,63,94,0.5)]"></span>
-                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Out of Stock</span>
+                  <span class="h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_6px_2px_rgba(244,63,94,0.3)]"></span>
+                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-rose-800">Out of Stock</span>
                 </div>
-                <div class="text-[1.8rem] font-black tracking-tight text-white leading-none font-mono">{{ outOfStockCount }}</div>
-                <div class="mt-2 text-[10px] font-semibold text-rose-300">Zero quantity</div>
+                <div class="text-[1.8rem] font-black tracking-tight text-rose-950 leading-none font-mono">{{ outOfStockCount }}</div>
+                <div class="mt-2 text-[10px] font-bold text-rose-700">Zero quantity</div>
               </div>
               <!-- Active bills signal -->
-              <div class="rounded-[18px] border border-sky-400/20 bg-sky-500/10 p-4">
+              <div class="rounded-[18px] border border-sky-200 bg-gradient-to-br from-sky-50 to-sky-100/40 p-4 shadow-2xs">
                 <div class="flex items-center gap-1.5 mb-2">
-                  <span class="h-1.5 w-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_2px_rgba(14,165,233,0.5)]"></span>
-                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Active Bills</span>
+                  <span class="h-2 w-2 rounded-full bg-sky-500 shadow-[0_0_6px_2px_rgba(14,165,233,0.3)]"></span>
+                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-sky-800">Active Bills</span>
                 </div>
-                <div class="text-[1.8rem] font-black tracking-tight text-white leading-none font-mono">{{ activeBills.length }}</div>
-                <div class="mt-2 text-[10px] font-semibold text-sky-300">In register</div>
+                <div class="text-[1.8rem] font-black tracking-tight text-sky-950 leading-none font-mono">{{ activeBills.length }}</div>
+                <div class="mt-2 text-[10px] font-bold text-sky-700">In register</div>
               </div>
               <!-- Movements signal -->
-              <div class="rounded-[18px] border border-emerald-400/20 bg-emerald-500/10 p-4">
+              <div class="rounded-[18px] border border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100/40 p-4 shadow-2xs">
                 <div class="flex items-center gap-1.5 mb-2">
-                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(16,185,129,0.5)]"></span>
-                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Movements</span>
+                  <span class="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_2px_rgba(16,185,129,0.3)]"></span>
+                  <span class="text-[9px] font-bold uppercase tracking-[0.2em] text-emerald-800">Movements</span>
                 </div>
-                <div class="text-[1.8rem] font-black tracking-tight text-white leading-none font-mono">{{ movements.length }}</div>
-                <div class="mt-2 text-[10px] font-semibold text-emerald-300">Recent rows loaded</div>
+                <div class="text-[1.8rem] font-black tracking-tight text-emerald-950 leading-none font-mono">{{ movements.length }}</div>
+                <div class="mt-2 text-[10px] font-bold text-emerald-700">Recent rows loaded</div>
               </div>
             </div>
           </div>

@@ -2765,6 +2765,7 @@ export async function exportSingleVoucherToPdfBuffer(data: {
   refNo?: string;
   bankAccountDetails?: string;
   costCenter?: string;
+  isVoided?: boolean;
 }): Promise<Buffer> {
   const firm = data.firm || {};
   const firmTradeName = (firm.name || 'ENTERPRISE BUSINESS').toUpperCase();
@@ -2784,7 +2785,12 @@ export async function exportSingleVoucherToPdfBuffer(data: {
   let badgeBgColor = '#F8FAFC';
   let badgeTextColor = '#0F172A';
 
-  if (vtypeUpper === 'PAYMENT') {
+  if (data.isVoided) {
+    vsubtitle = 'Cancelled / Voided Transaction';
+    badgeBorderColor = '#FCA5A5';
+    badgeBgColor = '#FEF2F2';
+    badgeTextColor = '#991B1B';
+  } else if (vtypeUpper === 'PAYMENT') {
     vtitle = 'PAYMENT VOUCHER';
     vsubtitle = 'Cash / Bank Disbursement Slip';
     badgeBorderColor = '#93C5FD';
@@ -2920,7 +2926,13 @@ export async function exportSingleVoucherToPdfBuffer(data: {
                       margin: [0, 2, 0, 0],
                       columns: [
                         { text: 'AUDIT STATUS:', fontSize: 7, bold: true, color: C.textMid },
-                        { text: '✓ POSTED & BALANCED', fontSize: 7, bold: true, color: '#15803D', alignment: 'right' }
+                        {
+                          text: data.isVoided ? '⚠️ CANCELLED / VOIDED' : '✓ POSTED & BALANCED',
+                          fontSize: 7,
+                          bold: true,
+                          color: data.isVoided ? '#DC2626' : '#15803D',
+                          alignment: 'right'
+                        }
                       ]
                     }
                   ],

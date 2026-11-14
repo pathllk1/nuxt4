@@ -19,18 +19,82 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Voucher Group ID is required' });
     }
 
-    const entries = await Ledger.find({
-      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-      voucherGroupId: voucherGroupId.trim()
-    }).sort({ debitAmount: -1, creditAmount: 1 }).lean();
+    const targetId = voucherGroupId.trim();
 
+    // 1. Fetch active ledger entries for this voucher (strictly excluding reversed/superseded legs)
+    let entries = await Ledger.find({
+      $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+      $and: [
+        {
+          $or: [
+            { voucherGroupId: targetId },
+            { voucherNo: targetId }
+          ]
+        },
+        { isReversed: { $ne: true } }
+      ]
+    }).sort({ legIndex: 1, createdAt: 1 }).lean();
+
+    // 2. Fuzzy fallback if targetId had dash/slash variations (e.g. JV/2026-27/0010 vs JV-2026-27-000010)
     if (!entries || entries.length === 0) {
-      throw createError({ statusCode: 404, statusMessage: `Voucher "${voucherGroupId}" not found in General Ledger` });
+      const altTarget = targetId.replace(/\//g, '-');
+      entries = await Ledger.find({
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        $and: [
+          {
+            $or: [
+              { voucherGroupId: altTarget },
+              { voucherNo: altTarget }
+            ]
+          },
+          { isReversed: { $ne: true } }
+        ]
+      }).sort({ legIndex: 1, createdAt: 1 }).lean();
     }
+
+    let isVoided = false;
+
+    // 3. If no active legs found at all, check if the voucher was voided/cancelled
+    if (!entries || entries.length === 0) {
+      const allReversed = await Ledger.find({
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        $and: [
+          {
+            $or: [
+              { voucherGroupId: targetId },
+              { voucherNo: targetId }
+            ]
+          }
+        ]
+      }).sort({ legIndex: 1, createdAt: 1 }).lean();
+
+      if (!allReversed || allReversed.length === 0) {
+        throw createError({ statusCode: 404, statusMessage: `Voucher "${voucherGroupId}" not found in General Ledger` });
+      }
+
+      isVoided = true;
+      // Isolate the latest generation of reversed legs to avoid printing multiple historical revisions
+      const latestReversedAt = allReversed.reduce((latest, e) => {
+        const d = e.reversedAt ? new Date(e.reversedAt).getTime() : 0;
+        return d > latest ? d : latest;
+      }, 0);
+
+      if (latestReversedAt > 0) {
+        const latestBatch = allReversed.filter(e => e.reversedAt && Math.abs(new Date(e.reversedAt).getTime() - latestReversedAt) < 2000);
+        entries = latestBatch.length > 0 ? latestBatch : allReversed;
+      } else {
+        entries = allReversed;
+      }
+    }
+
+    // Sort entries: Debits first (by legIndex), then Credits (by legIndex)
+    const debitLegs = entries.filter(e => (Number(e.debitAmount) || 0) > 0);
+    const creditLegs = entries.filter(e => (Number(e.debitAmount) || 0) === 0);
+    const orderedEntries = [...debitLegs, ...creditLegs];
 
     const firm = await Firm.findById(firmIdObj).lean();
 
-    const firstEntry = entries[0]!;
+    const firstEntry = orderedEntries[0]!;
     const voucherType = (firstEntry.voucherType || 'JOURNAL').toUpperCase();
     const transactionDate = firstEntry.transactionDate;
     const voucherNo = firstEntry.voucherNo || voucherGroupId;
@@ -42,7 +106,7 @@ export default defineEventHandler(async (event) => {
     let bankAccountDetails = '';
 
     // Check if any entry has a linked bank account
-    const bankLeg = entries.find(e => e.bankAccountId);
+    const bankLeg = orderedEntries.find(e => e.bankAccountId);
     if (bankLeg && bankLeg.bankAccountId) {
       try {
         const bank = await BankAccount.findById(bankLeg.bankAccountId).lean();
@@ -53,7 +117,7 @@ export default defineEventHandler(async (event) => {
         bankAccountDetails = bankLeg.accountHead;
       }
     } else {
-      const liquidLeg = entries.find(e => ['BANK', 'CASH'].includes((e.accountType || '').toUpperCase()));
+      const liquidLeg = orderedEntries.find(e => ['BANK', 'CASH'].includes((e.accountType || '').toUpperCase()));
       if (liquidLeg) {
         bankAccountDetails = liquidLeg.accountHead;
       }
@@ -61,7 +125,7 @@ export default defineEventHandler(async (event) => {
 
     // Identify payment reference from entries or narration
     let refNo = '';
-    const refLeg = entries.find(e => (e as any).refNo || (e as any).chequeNo);
+    const refLeg = orderedEntries.find(e => (e as any).refNo || (e as any).chequeNo);
     if (refLeg) {
       refNo = String((refLeg as any).refNo || (refLeg as any).chequeNo);
     } else if (narration) {
@@ -71,13 +135,13 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    entries.forEach(e => {
+    orderedEntries.forEach(e => {
       totalDebit += Number(e.debitAmount) || 0;
       totalCredit += Number(e.creditAmount) || 0;
       if (!paymentMode && e.paymentMode) paymentMode = e.paymentMode;
     });
 
-    const mappedEntries = entries.map(e => ({
+    const mappedEntries = orderedEntries.map(e => ({
       accountHead: e.accountHead || 'General Account',
       accountType: e.accountType || 'GENERAL',
       accountCode: e.accountCode || '',
@@ -99,7 +163,8 @@ export default defineEventHandler(async (event) => {
       paymentMode,
       refNo,
       bankAccountDetails,
-      costCenter: 'Civil Infrastructure / Site General'
+      costCenter: 'Civil Infrastructure / Site General',
+      isVoided
     });
 
     const query = getQuery(event);

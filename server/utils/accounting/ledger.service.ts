@@ -1147,35 +1147,43 @@ export class LedgerService {
     const fDate = fromDate || date;
     const tDate = toDate || date;
 
-    const baseFilter: any = { firmId };
+    const andConditions: any[] = [
+      { $or: [{ firmId }, { firm_id: firmId }] },
+      { isReversed: { $ne: true } }
+    ];
 
     if (fDate || tDate) {
-      baseFilter.transactionDate = {};
-      if (fDate) baseFilter.transactionDate.$gte = fDate;
-      if (tDate) baseFilter.transactionDate.$lte = tDate;
+      const dateFilter: any = {};
+      if (fDate) dateFilter.$gte = fDate;
+      if (tDate) dateFilter.$lte = tDate;
+      andConditions.push({ transactionDate: dateFilter });
     }
 
     if (voucherType && voucherType !== 'ALL') {
-      baseFilter.voucherType = voucherType.toUpperCase();
+      andConditions.push({ voucherType: voucherType.toUpperCase() });
     }
 
     if (accountHead) {
-      baseFilter.accountHead = accountHead;
+      andConditions.push({ accountHead });
     }
 
     if (partyId && mongoose.Types.ObjectId.isValid(String(partyId))) {
-      baseFilter.partyId = new mongoose.Types.ObjectId(String(partyId));
+      andConditions.push({ partyId: new mongoose.Types.ObjectId(String(partyId)) });
     }
 
     if (search) {
       const q = search.trim();
-      baseFilter.$or = [
-        { voucherNo: { $regex: q, $options: 'i' } },
-        { narration: { $regex: q, $options: 'i' } },
-        { accountHead: { $regex: q, $options: 'i' } },
-        { createdBy: { $regex: q, $options: 'i' } }
-      ];
+      andConditions.push({
+        $or: [
+          { voucherNo: { $regex: q, $options: 'i' } },
+          { narration: { $regex: q, $options: 'i' } },
+          { accountHead: { $regex: q, $options: 'i' } },
+          { createdBy: { $regex: q, $options: 'i' } }
+        ]
+      });
     }
+
+    const baseFilter: any = { $and: andConditions };
 
     // Fetch matching ledger rows
     const entries = await Ledger.find(baseFilter)

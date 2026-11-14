@@ -237,14 +237,14 @@ const onExportExcel = async () => {
               </td>
             </tr>
           </tbody>
-          <!-- Summary Footer -->
+          <!-- Summary Footer (Clean Light Theme) -->
           <tfoot>
-            <tr class="bg-slate-900 text-white font-bold text-xs whitespace-nowrap">
-              <td class="py-2.5 px-4 uppercase font-black text-[10px] tracking-wider text-slate-300">Grand Total</td>
-              <td class="py-2.5 px-4 text-right font-mono text-emerald-400 font-black whitespace-nowrap">{{ formatINR(grandTotalDebits) }}</td>
-              <td class="py-2.5 px-4 text-right font-mono text-rose-400 font-black whitespace-nowrap">{{ formatINR(grandTotalCredits) }}</td>
+            <tr class="bg-slate-100 text-slate-900 font-bold text-xs whitespace-nowrap border-t-2 border-slate-300">
+              <td class="py-2.5 px-4 uppercase font-black text-[10px] tracking-wider text-slate-700">Grand Total</td>
+              <td class="py-2.5 px-4 text-right font-mono text-emerald-700 font-black whitespace-nowrap">{{ formatINR(grandTotalDebits) }}</td>
+              <td class="py-2.5 px-4 text-right font-mono text-rose-700 font-black whitespace-nowrap">{{ formatINR(grandTotalCredits) }}</td>
               <td class="py-2.5 px-4 text-right font-mono font-black whitespace-nowrap" colSpan="2">
-                <span :class="grandTotalDebits >= grandTotalCredits ? 'text-emerald-400' : 'text-rose-400'">
+                <span :class="grandTotalDebits >= grandTotalCredits ? 'text-emerald-700' : 'text-rose-700'">
                   {{ formatINR(Math.abs(grandTotalDebits - grandTotalCredits)) }}&nbsp;{{ grandTotalDebits >= grandTotalCredits ? 'DR' : 'CR' }}
                 </span>
               </td>

@@ -201,7 +201,7 @@
       >
         <div
           v-if="selectedPendingIds.length > 0"
-          class="sticky top-14 z-30 p-3.5 rounded-xl bg-slate-900 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-3 border border-slate-700"
+          class="sticky top-14 z-30 p-3.5 rounded-xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-3 border border-indigo-500/30"
         >
           <div class="flex items-center gap-3">
             <span class="w-7 h-7 rounded-full bg-emerald-400 text-slate-950 font-black flex items-center justify-center text-xs">

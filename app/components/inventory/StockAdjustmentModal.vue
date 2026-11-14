@@ -96,7 +96,7 @@ watch(() => props.modelValue, (val) => {
 <template>
   <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
     <div class="bg-white dark:bg-zinc-900 rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden border border-slate-200 dark:border-zinc-800 animate-scale-in flex flex-col">
-       <header class="bg-slate-900 px-8 py-6 text-white flex justify-between items-center shrink-0">
+       <header class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-blue-600 px-8 py-5 text-white flex justify-between items-center shrink-0 shadow-md">
           <div>
              <h2 class="text-xl font-black uppercase tracking-tighter">Stock Adjustment</h2>
              <p class="text-[10px] font-bold opacity-50 uppercase tracking-[0.2em] mt-1 text-amber-400">Inventory Correction Hub</p>

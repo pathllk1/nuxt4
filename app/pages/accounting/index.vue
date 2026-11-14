@@ -238,9 +238,9 @@
                     <p class="text-[9px] text-gray-400 dark:text-zinc-500 font-bold uppercase tracking-widest mt-1">{{ activeTab === 'heads' ? 'Trial balance and net exposure' : 'Net balance per category' }}</p>
                   </div>
                   <div class="flex items-center gap-3">
-                     <div class="inline-flex rounded-xl bg-gray-100 dark:bg-zinc-800 p-0.5">
-                        <button @click="activeTab = 'types'" :class="activeTab === 'types' ? 'bg-zinc-900 text-white dark:bg-zinc-950 shadow-md' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'" class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all leading-none">Types</button>
-                        <button @click="activeTab = 'heads'" :class="activeTab === 'heads' ? 'bg-zinc-900 text-white dark:bg-zinc-950 shadow-md' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'" class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all leading-none">Heads</button>
+                     <div class="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200/80">
+                        <button @click="activeTab = 'types'" :class="activeTab === 'types' ? 'bg-primary text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'" class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all leading-none cursor-pointer">Types</button>
+                        <button @click="activeTab = 'heads'" :class="activeTab === 'heads' ? 'bg-primary text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'" class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all leading-none cursor-pointer">Heads</button>
                      </div>
                      <div class="w-36">
                         <UInput type="date" v-model="toDate" size="sm" class="w-full" @change="refreshData" />

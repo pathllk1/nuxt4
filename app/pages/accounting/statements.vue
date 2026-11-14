@@ -478,20 +478,25 @@ onMounted(loadData);
 
         <!-- Statement T-Table -->
         <UCard v-else class="w-full shadow-sm rounded-xl border border-gray-100 dark:border-zinc-800 overflow-hidden" :ui="{ body: 'p-0' }">
-          <div class="bg-slate-950 dark:bg-zinc-900 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 text-white">
-            <div>
-              <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Trading &amp; Profit &amp; Loss Statement</p>
-              <p class="text-[8px] text-slate-300 font-bold">Point-in-time calculation</p>
-            </div>
-            <div class="flex items-center gap-4 text-[10px] font-mono font-bold">
-              <div class="text-right">
-                <span class="text-slate-400 uppercase mr-1.5">Dr:</span>
-                <span class="text-rose-400">{{ formatINR(plModel.drGrand) }}</span>
+          <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-500/20 text-white shadow-sm">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-xs">
+                📊
               </div>
-              <div class="h-4 w-px bg-slate-800"></div>
+              <div>
+                <p class="text-[9px] font-black uppercase tracking-wider text-indigo-300">Trading &amp; Profit &amp; Loss Statement</p>
+                <p class="text-[9px] text-slate-300/80 font-medium">Point-in-time calculation</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-4 text-xs font-mono font-bold">
               <div class="text-right">
-                <span class="text-slate-400 uppercase mr-1.5">Cr:</span>
-                <span class="text-emerald-400">{{ formatINR(plModel.crGrand) }}</span>
+                <span class="text-slate-400 text-[10px] uppercase mr-1.5 font-sans">Dr:</span>
+                <span class="text-rose-300 font-black">{{ formatINR(plModel.drGrand) }}</span>
+              </div>
+              <div class="h-4 w-px bg-white/20"></div>
+              <div class="text-right">
+                <span class="text-slate-400 text-[10px] uppercase mr-1.5 font-sans">Cr:</span>
+                <span class="text-emerald-300 font-black">{{ formatINR(plModel.crGrand) }}</span>
               </div>
             </div>
           </div>
@@ -711,19 +716,19 @@ onMounted(loadData);
           </UCard>
         </div>
 
-        <!-- Financial Ratios Bar -->
-        <div class="grid grid-cols-3 gap-2 bg-slate-900 dark:bg-zinc-950 p-2.5 rounded-xl border border-slate-800 text-white print:hidden">
-          <div class="flex items-center justify-between px-2 py-1 bg-white/5 rounded-lg">
-            <span class="text-[9px] font-bold uppercase text-slate-400">Current Ratio:</span>
-            <span class="text-xs font-mono font-black" :class="bsModel.currentRatio >= 1.5 ? 'text-emerald-400' : 'text-amber-400'">{{ bsModel.currentRatio.toFixed(2) }}</span>
+        <!-- Financial Ratios Bar (Crisp Light Theme) -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/80 text-slate-800 print:hidden shadow-2xs">
+          <div class="flex items-center justify-between px-3 py-2 bg-white rounded-lg border border-slate-200/60 shadow-2xs">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Current Ratio:</span>
+            <span class="text-xs font-mono font-black" :class="bsModel.currentRatio >= 1.5 ? 'text-emerald-600' : 'text-amber-600'">{{ bsModel.currentRatio.toFixed(2) }}</span>
           </div>
-          <div class="flex items-center justify-between px-2 py-1 bg-white/5 rounded-lg">
-            <span class="text-[9px] font-bold uppercase text-slate-400">Quick Ratio:</span>
-            <span class="text-xs font-mono font-black" :class="bsModel.quickRatio >= 1.0 ? 'text-emerald-400' : 'text-amber-400'">{{ bsModel.quickRatio.toFixed(2) }}</span>
+          <div class="flex items-center justify-between px-3 py-2 bg-white rounded-lg border border-slate-200/60 shadow-2xs">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Quick Ratio:</span>
+            <span class="text-xs font-mono font-black" :class="bsModel.quickRatio >= 1.0 ? 'text-emerald-600' : 'text-amber-600'">{{ bsModel.quickRatio.toFixed(2) }}</span>
           </div>
-          <div class="flex items-center justify-between px-2 py-1 bg-white/5 rounded-lg">
-            <span class="text-[9px] font-bold uppercase text-slate-400">Working Capital:</span>
-            <span class="text-xs font-mono font-black" :class="bsModel.workingCapital >= 0 ? 'text-emerald-400' : 'text-rose-400'">{{ formatINR(bsModel.workingCapital) }}</span>
+          <div class="flex items-center justify-between px-3 py-2 bg-white rounded-lg border border-slate-200/60 shadow-2xs">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Working Capital:</span>
+            <span class="text-xs font-mono font-black" :class="bsModel.workingCapital >= 0 ? 'text-emerald-600' : 'text-rose-600'">{{ formatINR(bsModel.workingCapital) }}</span>
           </div>
         </div>
 
@@ -748,20 +753,25 @@ onMounted(loadData);
 
         <!-- Balance Sheet T-Table -->
         <UCard v-else class="w-full shadow-sm rounded-xl border border-gray-100 dark:border-zinc-800 overflow-hidden" :ui="{ body: 'p-0' }">
-          <div class="bg-slate-950 dark:bg-zinc-900 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 text-white">
-            <div>
-              <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Balance Sheet</p>
-              <p class="text-[8px] text-slate-300 font-bold">Double-entry balancing statement (Schedule III GAAP)</p>
-            </div>
-            <div class="flex items-center gap-4 text-[10px] font-mono font-bold">
-              <div class="text-right">
-                <span class="text-slate-400 uppercase mr-1.5">Liabilities Total:</span>
-                <span class="text-rose-300">{{ formatINR(bsModel.totalLiabSide) }}</span>
+          <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-500/20 text-white shadow-sm">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-xs">
+                ⚖️
               </div>
-              <div class="h-4 w-px bg-slate-800"></div>
+              <div>
+                <p class="text-[9px] font-black uppercase tracking-wider text-emerald-300">Balance Sheet</p>
+                <p class="text-[9px] text-slate-300/80 font-medium">Double-entry balancing statement (Schedule III GAAP)</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-4 text-xs font-mono font-bold">
               <div class="text-right">
-                <span class="text-slate-400 uppercase mr-1.5">Assets Total:</span>
-                <span class="text-emerald-400">{{ formatINR(bsModel.totalAssets) }}</span>
+                <span class="text-slate-400 text-[10px] uppercase mr-1.5 font-sans">Liabilities Total:</span>
+                <span class="text-rose-300 font-black">{{ formatINR(bsModel.totalLiabSide) }}</span>
+              </div>
+              <div class="h-4 w-px bg-white/20"></div>
+              <div class="text-right">
+                <span class="text-slate-400 text-[10px] uppercase mr-1.5 font-sans">Assets Total:</span>
+                <span class="text-emerald-300 font-black">{{ formatINR(bsModel.totalAssets) }}</span>
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 <template>
   <div v-if="modelValue && stock" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
     <div class="bg-white dark:bg-zinc-900 rounded-[2.5rem] shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-in border border-slate-200 dark:border-zinc-800">
-       <header class="bg-slate-900 px-8 py-8 text-white flex justify-between items-center relative overflow-hidden">
+       <header class="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 px-8 py-6 text-white flex justify-between items-center relative overflow-hidden border-b border-indigo-500/20 shadow-md">
           <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-600/20 rounded-full blur-3xl animate-pulse"></div>
           
           <div class="flex items-center gap-6 relative z-10">
