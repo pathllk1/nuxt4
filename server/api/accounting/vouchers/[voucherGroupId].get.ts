@@ -1,6 +1,7 @@
 import { defineEventHandler, createError } from 'h3';
 import mongoose from 'mongoose';
 import Ledger from '../../../models/Ledger';
+import User from '../../../models/User';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';
 import { isPeriodLocked } from '../../../utils/accounting/period-lock.service';
@@ -223,6 +224,30 @@ export default defineEventHandler(async (event) => {
     const totalCredit = entries.reduce((s, e) => s + (Number(e.creditAmount) || 0), 0);
     const statutoryEntry = entries.find(e => e.statutory && Object.keys(e.statutory).length > 0);
 
+    // Resolve human-readable creator name if createdBy is an ObjectId or email
+    let createdByDisplay = firstEntry.createdBy || 'System';
+    let createdByName = '';
+
+    if (createdByDisplay && createdByDisplay !== 'System' && createdByDisplay !== 'system') {
+      try {
+        if (mongoose.Types.ObjectId.isValid(createdByDisplay)) {
+          const creatorUser = await User.findById(createdByDisplay).select('name email').lean();
+          if (creatorUser) {
+            createdByName = (creatorUser as any).name || (creatorUser as any).email || '';
+            createdByDisplay = createdByName || createdByDisplay;
+          }
+        } else if (createdByDisplay.includes('@')) {
+          const creatorUser = await User.findOne({ email: createdByDisplay.toLowerCase() }).select('name email').lean();
+          if (creatorUser) {
+            createdByName = (creatorUser as any).name || (creatorUser as any).email || '';
+            createdByDisplay = createdByName || createdByDisplay;
+          }
+        }
+      } catch (userErr) {
+        console.warn('Could not resolve user for voucher createdBy:', userErr);
+      }
+    }
+
     return {
       success: true,
       data: {
@@ -236,7 +261,8 @@ export default defineEventHandler(async (event) => {
         rawEntries: entries,
         totalDebit: Math.round(totalDebit * 100) / 100,
         totalCredit: Math.round(totalCredit * 100) / 100,
-        createdBy: firstEntry.createdBy || 'Unknown',
+        createdBy: createdByDisplay,
+        createdByName: createdByName || createdByDisplay,
         createdAt: firstEntry.createdAt,
         isReversed: Boolean(firstEntry.isReversed),
         reversalVoucherGroupId: firstEntry.reversalVoucherGroupId || null,

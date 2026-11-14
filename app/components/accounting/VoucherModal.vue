@@ -3,24 +3,24 @@
     <div v-if="modelValue" class="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-black/60 backdrop-blur-md">
     <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 dark:border-zinc-800 animate-scale-in">
       <!-- Header -->
-      <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-5 py-4 flex justify-between items-center border-b border-indigo-500/20 shadow-md">
+      <div class="bg-gradient-to-r from-blue-50/95 via-indigo-50/80 to-sky-50/90 dark:from-zinc-900 dark:via-indigo-950/40 dark:to-zinc-900 text-slate-900 dark:text-white px-5 py-4 flex justify-between items-center border-b border-indigo-100 dark:border-zinc-800 shadow-2xs">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-lg shadow-md ring-1 ring-white/20">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-lg shadow-sm text-white">
             <span>{{ form.vtype === 'PAYMENT' ? '💳' : form.vtype === 'RECEIPT' ? '💰' : form.vtype === 'CONTRA' ? '🔄' : '📝' }}</span>
           </div>
           <div>
             <div class="flex items-center gap-2.5">
-              <h2 class="text-base font-black tracking-tight text-white">
+              <h2 class="text-base font-black tracking-tight text-slate-900 dark:text-white">
                 {{ isEdit ? 'Edit ' : '' }}{{ form.vtype === 'PAYMENT' ? 'Payment Voucher' : form.vtype === 'RECEIPT' ? 'Receipt Voucher' : form.vtype === 'CONTRA' ? 'Contra Voucher' : 'Journal Entry' }}
               </h2>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-700">
                 {{ form.vtype === 'JOURNAL' ? 'Double-Entry' : 'Tally Single-Entry' }}
               </span>
-              <span v-if="isEdit && (form.voucherNo || voucherGroupId)" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/10 text-slate-200 border border-white/20">
+              <span v-if="isEdit && (form.voucherNo || voucherGroupId)" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100/80 dark:bg-zinc-800 text-indigo-900 dark:text-zinc-200 border border-indigo-200 dark:border-zinc-700">
                 #{{ form.voucherNo || voucherGroupId }}
               </span>
             </div>
-            <p class="text-[11px] text-slate-300/80 mt-0.5 font-medium">
+            <p class="text-[11px] text-slate-600 dark:text-zinc-400 mt-0.5 font-medium">
               {{ isEdit ? 'Update transaction date, particulars, ledger deductions, or narration' : 'Post bank & cash transactions directly with automated ledger effect & statutory TDS calculation' }}
             </p>
           </div>
@@ -30,13 +30,13 @@
             v-if="isEdit && (form.voucherNo || voucherGroupId)"
             type="button"
             @click="printCurrentVoucher"
-            class="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5 transition-colors cursor-pointer ring-1 ring-white/10 text-xs font-bold"
+            class="px-2.5 py-1 rounded-xl bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-200 dark:border-zinc-700 text-xs font-bold shadow-2xs"
             title="Print Voucher PDF"
           >
-            <UIcon name="i-heroicons-printer" class="w-4 h-4 text-blue-300" />
+            <UIcon name="i-heroicons-printer" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
             <span class="hidden sm:inline">Print Voucher</span>
           </button>
-          <button @click="$emit('update:modelValue', false)" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer ring-1 ring-white/10">
+          <button @click="$emit('update:modelValue', false)" class="w-8 h-8 rounded-xl bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer border border-slate-200 dark:border-zinc-700 shadow-2xs">
             <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
           </button>
         </div>

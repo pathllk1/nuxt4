@@ -19,29 +19,29 @@
           aria-modal="true"
         >
           <!-- Header -->
-          <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-6 py-4 flex justify-between items-center border-b border-indigo-500/20 shadow-md shrink-0">
+          <div class="bg-gradient-to-r from-blue-50/95 via-indigo-50/80 to-sky-50/90 dark:from-zinc-900 dark:via-indigo-950/40 dark:to-zinc-900 text-slate-900 dark:text-white px-6 py-4 flex justify-between items-center border-b border-indigo-100 dark:border-zinc-800 shadow-2xs shrink-0">
             <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-lg shadow-md ring-1 ring-white/20">
+              <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-lg shadow-sm text-white">
                 <span>{{ voucherTypeIcon }}</span>
               </div>
               <div>
                 <div class="flex items-center gap-2 flex-wrap">
-                  <h2 class="text-base font-black tracking-tight text-white uppercase">
+                  <h2 class="text-base font-black tracking-tight text-slate-900 dark:text-white uppercase">
                     {{ voucherTitle }}
                   </h2>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/10 text-slate-200 border border-white/20">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100/80 dark:bg-zinc-800 text-indigo-900 dark:text-zinc-200 border border-indigo-200 dark:border-zinc-700">
                     #{{ voucherData?.voucherNo || voucherId }}
                   </span>
                   <span 
                     class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border"
                     :class="voucherData?.isReversed 
-                      ? 'bg-rose-500/20 text-rose-300 border-rose-400/30' 
-                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'"
+                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-700' 
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'"
                   >
                     {{ voucherData?.isReversed ? 'Reversed' : 'Active Voucher' }}
                   </span>
                 </div>
-                <p class="text-[11px] text-slate-300/80 mt-0.5 font-medium">
+                <p class="text-[11px] text-slate-600 dark:text-zinc-400 mt-0.5 font-medium">
                   Detailed double-entry particulars, audit trail, and accounting distribution
                 </p>
               </div>
@@ -52,17 +52,17 @@
                 v-if="voucherData"
                 type="button"
                 @click="printVoucher"
-                class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5 transition-colors cursor-pointer ring-1 ring-white/10 text-xs font-bold"
+                class="px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-200 dark:border-zinc-700 text-xs font-bold shadow-2xs"
                 title="Print Voucher PDF"
               >
-                <UIcon name="i-heroicons-printer" class="w-4 h-4 text-blue-300" />
+                <UIcon name="i-heroicons-printer" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span class="hidden sm:inline">Print</span>
               </button>
 
               <button 
                 type="button"
                 @click="closeModal" 
-                class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer ring-1 ring-white/10"
+                class="w-8 h-8 rounded-xl bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer border border-slate-200 dark:border-zinc-700 shadow-2xs"
                 aria-label="Close"
               >
                 <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
@@ -107,11 +107,11 @@
                 </div>
               </div>
 
-              <!-- Key Voucher KPI Strip -->
+              <!-- Key Voucher KPI Strip: Distinct Light Pastel Colored Cards -->
               <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div class="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-850/50">
-                  <div class="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-                    <UIcon name="i-heroicons-calendar" class="w-3 h-3 text-blue-500" />
+                <div class="p-3 rounded-2xl border border-sky-200/90 dark:border-sky-800/60 bg-sky-50/90 dark:bg-sky-950/30 shadow-2xs">
+                  <div class="text-[9px] font-black uppercase tracking-wider text-sky-800 dark:text-sky-300 mb-1 flex items-center gap-1">
+                    <UIcon name="i-heroicons-calendar" class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                     <span>Transaction Date</span>
                   </div>
                   <div class="text-xs font-black font-mono text-slate-900 dark:text-white">
@@ -119,44 +119,44 @@
                   </div>
                 </div>
 
-                <div class="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-850/50">
-                  <div class="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-                    <UIcon name="i-heroicons-document-text" class="w-3 h-3 text-indigo-500" />
+                <div class="p-3 rounded-2xl border border-indigo-200/90 dark:border-indigo-800/60 bg-indigo-50/90 dark:bg-indigo-950/30 shadow-2xs">
+                  <div class="text-[9px] font-black uppercase tracking-wider text-indigo-800 dark:text-indigo-300 mb-1 flex items-center gap-1">
+                    <UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Voucher Group ID</span>
                   </div>
-                  <div class="text-[11px] font-bold font-mono text-slate-700 dark:text-zinc-300 truncate" :title="voucherData.voucherGroupId">
+                  <div class="text-[11px] font-bold font-mono text-indigo-950 dark:text-indigo-200 truncate" :title="voucherData.voucherGroupId">
                     {{ voucherData.voucherGroupId }}
                   </div>
                 </div>
 
-                <div class="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-850/50">
-                  <div class="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-                    <UIcon name="i-heroicons-banknotes" class="w-3 h-3 text-emerald-500" />
+                <div class="p-3 rounded-2xl border border-emerald-200/90 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/30 shadow-2xs">
+                  <div class="text-[9px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300 mb-1 flex items-center gap-1">
+                    <UIcon name="i-heroicons-banknotes" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span>Total Voucher Value</span>
                   </div>
-                  <div class="text-xs font-black font-mono text-emerald-600 dark:text-emerald-400">
+                  <div class="text-xs font-black font-mono text-emerald-700 dark:text-emerald-400">
                     {{ formatINR(voucherData.totalDebit || voucherData.totalCredit) }}
                   </div>
                 </div>
 
-                <div class="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-850/50">
-                  <div class="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-                    <UIcon name="i-heroicons-user" class="w-3 h-3 text-amber-500" />
+                <div class="p-3 rounded-2xl border border-amber-200/90 dark:border-amber-800/60 bg-amber-50/90 dark:bg-amber-950/30 shadow-2xs">
+                  <div class="text-[9px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-300 mb-1 flex items-center gap-1">
+                    <UIcon name="i-heroicons-user" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                     <span>Created By</span>
                   </div>
-                  <div class="text-xs font-bold text-slate-900 dark:text-white truncate">
-                    {{ voucherData.createdBy || 'System' }}
+                  <div class="text-xs font-bold text-slate-900 dark:text-white truncate" :title="voucherData.createdByName || voucherData.createdBy">
+                    {{ voucherData.createdByName || voucherData.createdBy || 'System' }}
                   </div>
                 </div>
               </div>
 
               <!-- Particulars / Ledger Legs Table -->
-              <div class="border border-slate-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs">
-                <div class="px-4 py-2.5 bg-slate-50 dark:bg-zinc-850/80 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between">
-                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+              <div class="border border-slate-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xs">
+                <div class="px-4 py-2.5 bg-slate-100/90 dark:bg-zinc-850/80 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between">
+                  <span class="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
                     Double-Entry Voucher Particulars
                   </span>
-                  <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider" :class="isBalanced ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-800'">
+                  <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider" :class="isBalanced ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700' : 'bg-rose-100 text-rose-800 border border-rose-300'">
                     {{ isBalanced ? '✓ Double-Entry In Parity' : '⚠ Out of Parity' }}
                   </span>
                 </div>

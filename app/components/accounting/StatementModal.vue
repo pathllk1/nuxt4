@@ -269,42 +269,42 @@ const triggerPrint = () => {
   <div v-if="isOpen" class="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md" @click.self="isOpen = false">
     <UCard 
       class="w-full max-w-7xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-2xl flex flex-col bg-white dark:bg-zinc-900 rounded-2xl" 
-      :ui="{ body: 'p-4 overflow-y-auto flex-1', header: 'p-4 py-3 bg-slate-900 text-white border-b border-slate-800 flex justify-between items-center' }"
+      :ui="{ body: 'p-4 overflow-y-auto flex-1', header: 'p-4 py-3.5 bg-gradient-to-r from-blue-50/95 via-indigo-50/80 to-sky-50/90 dark:from-zinc-900 dark:via-indigo-950/40 dark:to-zinc-900 border-b border-indigo-100 dark:border-zinc-800 flex justify-between items-center' }"
     >
       <template #header>
         <div class="flex items-center gap-3">
-          <div class="p-2 bg-indigo-500/20 rounded-xl">
-            <UIcon name="i-heroicons-document-text" class="w-5 h-5 text-indigo-400" />
+          <div class="p-2.5 bg-indigo-600 rounded-xl shadow-xs text-white">
+            <UIcon name="i-heroicons-document-text" class="w-5 h-5 text-white" />
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <span class="text-[9px] font-black uppercase tracking-widest text-indigo-400">Statement Record</span>
-              <UBadge v-if="accountType" size="sm" variant="subtle" color="neutral" class="text-[8px] px-1.5 py-0 font-bold uppercase rounded">
+              <span class="text-[9.5px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-400">Statement Record</span>
+              <UBadge v-if="accountType" size="sm" variant="subtle" color="primary" class="text-[8.5px] px-1.5 py-0 font-bold uppercase rounded border border-indigo-200 dark:border-indigo-800">
                 {{ accountType.replace(/_/g, ' ') }}
               </UBadge>
             </div>
-            <h2 class="text-base font-black uppercase tracking-tight text-white leading-tight mt-0.5">{{ accountHead }}</h2>
+            <h2 class="text-base font-black uppercase tracking-tight text-slate-900 dark:text-white leading-tight mt-0.5">{{ accountHead }}</h2>
           </div>
         </div>
         
         <div class="flex items-center gap-2">
           <UButton 
             color="success" 
-            variant="outline" 
+            variant="subtle" 
             icon="i-heroicons-arrow-down-tray"
             label="PDF"
             size="xs"
-            class="font-bold text-xs h-7"
+            class="font-bold text-xs h-7 shadow-2xs border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 hover:bg-emerald-200"
             :loading="exportLoading"
             @click="onDownloadPDF"
           />
           <UButton 
             color="success" 
-            variant="outline" 
+            variant="subtle" 
             icon="i-heroicons-arrow-down-tray"
             label="Excel"
             size="xs"
-            class="font-bold text-xs h-7"
+            class="font-bold text-xs h-7 shadow-2xs border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 hover:bg-emerald-200"
             :loading="exportLoading"
             @click="onDownloadExcel"
           />
@@ -313,7 +313,8 @@ const triggerPrint = () => {
             variant="ghost" 
             icon="i-heroicons-printer" 
             size="xs"
-            class="h-7 text-slate-300 hover:text-white"
+            class="h-7 text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white"
+            title="Print View"
             @click="triggerPrint"
           />
           <UButton 
@@ -321,14 +322,14 @@ const triggerPrint = () => {
             variant="ghost" 
             color="neutral" 
             icon="i-heroicons-x-mark" 
-            class="h-7 w-7 text-slate-400 hover:text-white"
+            class="h-7 w-7 text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-white"
             @click="isOpen = false" 
           />
         </div>
       </template>
 
       <!-- Date Filters & Search -->
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-3 bg-slate-50 dark:bg-zinc-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-zinc-800">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3 bg-slate-100/80 dark:bg-zinc-800/50 p-2.5 rounded-xl border border-slate-200 dark:border-zinc-700">
         <div class="flex items-center gap-2 flex-1 min-w-[240px]">
           <UInput 
             v-model="searchQuery" 
@@ -339,34 +340,41 @@ const triggerPrint = () => {
           />
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-[9px] font-black uppercase text-slate-400 dark:text-zinc-500">From</span>
+          <span class="text-[9px] font-black uppercase text-slate-600 dark:text-zinc-400">From</span>
           <UInput type="date" v-model="fromDate" size="xs" class="w-32" @change="loadStatement" />
-          <span class="text-[9px] font-black uppercase text-slate-400 dark:text-zinc-500">To</span>
+          <span class="text-[9px] font-black uppercase text-slate-600 dark:text-zinc-400">To</span>
           <UInput type="date" v-model="toDate" size="xs" class="w-32" @change="loadStatement" />
           <UButton color="primary" label="Filter" size="xs" class="font-bold h-7" @click="loadStatement" />
         </div>
       </div>
 
-      <!-- KPI Summary Banner -->
-      <div class="grid grid-cols-4 gap-2 mb-3 bg-slate-900 text-white p-3 rounded-xl border border-slate-800">
-        <div class="text-left">
-          <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Starting Balance</p>
-          <p class="text-xs font-black font-mono mt-0.5 whitespace-nowrap" :class="startingBal.balanceType === 'DR' ? 'text-emerald-400' : 'text-rose-400'">
-            {{ formatINR(startingBal.balance) }} <span class="text-[9px] font-bold">{{ startingBal.balanceType }}</span>
+      <!-- KPI Summary Banner: Distinct Light Pastel Colored Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3.5">
+        <!-- Starting Balance (Sky / Light Blue) -->
+        <div class="p-3 bg-sky-50/90 dark:bg-sky-950/30 rounded-xl border border-sky-200/90 dark:border-sky-800/60 shadow-2xs">
+          <p class="text-[9px] font-black text-sky-800 dark:text-sky-300 uppercase tracking-wider">Starting Balance</p>
+          <p class="text-sm font-black font-mono mt-1 whitespace-nowrap" :class="startingBal.balanceType === 'DR' ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'">
+            {{ formatINR(startingBal.balance) }} <span class="text-[10px] font-bold">{{ startingBal.balanceType }}</span>
           </p>
         </div>
-        <div class="text-left border-l border-slate-800 pl-3">
-          <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Total Debits (DR)</p>
-          <p class="text-xs font-black font-mono text-emerald-400 mt-0.5 whitespace-nowrap">{{ formatINR(totalDebits) }}</p>
+
+        <!-- Total Debits (DR) (Light Emerald Green) -->
+        <div class="p-3 bg-emerald-50/90 dark:bg-emerald-950/30 rounded-xl border border-emerald-200/90 dark:border-emerald-800/60 shadow-2xs">
+          <p class="text-[9px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">Total Debits (DR)</p>
+          <p class="text-sm font-black font-mono text-emerald-700 dark:text-emerald-400 mt-1 whitespace-nowrap">{{ formatINR(totalDebits) }}</p>
         </div>
-        <div class="text-left border-l border-slate-800 pl-3">
-          <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Total Credits (CR)</p>
-          <p class="text-xs font-black font-mono text-rose-400 mt-0.5 whitespace-nowrap">{{ formatINR(totalCredits) }}</p>
+
+        <!-- Total Credits (CR) (Light Rose / Coral) -->
+        <div class="p-3 bg-rose-50/90 dark:bg-rose-950/30 rounded-xl border border-rose-200/90 dark:border-rose-800/60 shadow-2xs">
+          <p class="text-[9px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Total Credits (CR)</p>
+          <p class="text-sm font-black font-mono text-rose-700 dark:text-rose-400 mt-1 whitespace-nowrap">{{ formatINR(totalCredits) }}</p>
         </div>
-        <div class="text-left border-l border-slate-800 pl-3">
-          <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Closing Balance</p>
-          <p class="text-xs font-black font-mono mt-0.5 whitespace-nowrap" :class="finalBalanceType === 'DR' ? 'text-emerald-400' : 'text-rose-400'">
-            {{ formatINR(finalBalance) }} <span class="text-[9px] font-bold">{{ finalBalanceType }}</span>
+
+        <!-- Closing Balance (Light Indigo / Purple) -->
+        <div class="p-3 bg-indigo-50/90 dark:bg-indigo-950/30 rounded-xl border border-indigo-200/90 dark:border-indigo-800/60 shadow-2xs">
+          <p class="text-[9px] font-black text-indigo-800 dark:text-indigo-300 uppercase tracking-wider">Closing Balance</p>
+          <p class="text-sm font-black font-mono mt-1 whitespace-nowrap" :class="finalBalanceType === 'DR' ? 'text-indigo-800 dark:text-indigo-300' : 'text-rose-700 dark:text-rose-400'">
+            {{ formatINR(finalBalance) }} <span class="text-[10px] font-bold">{{ finalBalanceType }}</span>
           </p>
         </div>
       </div>
@@ -381,10 +389,10 @@ const triggerPrint = () => {
         No transaction entries found for {{ accountHead }} in this period.
       </div>
 
-      <div v-else class="overflow-x-auto rounded-xl border border-slate-100 dark:border-zinc-800">
+      <div v-else class="overflow-x-auto rounded-xl border border-slate-200 dark:border-zinc-800 shadow-2xs">
         <table class="w-full text-left text-xs divide-y divide-slate-100 dark:divide-zinc-800">
           <thead>
-            <tr class="bg-slate-50 dark:bg-zinc-800/60 text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+            <tr class="bg-slate-100/90 dark:bg-zinc-800/80 text-[9.5px] font-black text-slate-700 dark:text-zinc-300 uppercase tracking-wider border-b border-slate-200 dark:border-zinc-700">
               <th class="py-2.5 px-3 whitespace-nowrap w-24">Date</th>
               <th class="py-2.5 px-3 whitespace-nowrap w-36">Voucher Type / No</th>
               <th class="py-2.5 px-3 whitespace-nowrap min-w-[140px] max-w-[200px]">Account Head</th>
@@ -392,7 +400,7 @@ const triggerPrint = () => {
               <th class="py-2.5 px-3 text-right whitespace-nowrap w-28">Debit (DR)</th>
               <th class="py-2.5 px-3 text-right whitespace-nowrap w-28">Credit (CR)</th>
               <th class="py-2.5 px-3 text-right whitespace-nowrap w-32">Running Balance</th>
-              <th class="py-2.5 px-2 text-center whitespace-nowrap w-28 min-w-[116px] sticky right-0 z-20 bg-slate-50 dark:bg-zinc-800 shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.12)] print:hidden">Action</th>
+              <th class="py-2.5 px-2 text-center whitespace-nowrap w-28 min-w-[116px] sticky right-0 z-20 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.12)] print:hidden">Action</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/50 font-medium text-slate-700 dark:text-zinc-300">
