@@ -82,7 +82,7 @@
             <div v-else-if="error" class="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900 rounded-2xl text-center space-y-3">
               <UIcon name="i-heroicons-exclamation-triangle" class="w-8 h-8 text-rose-500 mx-auto" />
               <p class="text-xs font-bold text-rose-700 dark:text-rose-300">{{ error }}</p>
-              <UButton size="xs" color="rose" variant="soft" label="Retry" @click="fetchDetails" />
+              <UButton size="xs" color="error" variant="soft" label="Retry" @click="fetchDetails" />
             </div>
 
             <!-- Loaded Content -->
@@ -418,11 +418,11 @@ const displayLegs = computed(() => {
 });
 
 const totalDr = computed(() => {
-  return displayLegs.value.reduce((s, leg) => s + (leg.debitAmount || 0), 0);
+  return displayLegs.value.reduce((s: number, leg: any) => s + (leg.debitAmount || 0), 0);
 });
 
 const totalCr = computed(() => {
-  return displayLegs.value.reduce((s, leg) => s + (leg.creditAmount || 0), 0);
+  return displayLegs.value.reduce((s: number, leg: any) => s + (leg.creditAmount || 0), 0);
 });
 
 const isBalanced = computed(() => {
@@ -441,8 +441,8 @@ function getAccountTypeBadgeClass(type?: string) {
 }
 
 function formatINR(val?: number) {
-  if (val === undefined || val === null || !Number.isFinite(Number(val))) return '₹ 0.00';
-  return '₹ ' + new Intl.NumberFormat('en-IN', {
+  if (val === undefined || val === null || !Number.isFinite(Number(val))) return '₹\u00A00.00';
+  return '₹\u00A0' + new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(Number(val));
@@ -513,6 +513,6 @@ async function onDeleteVoucher() {
 function printVoucher() {
   if (!voucherData.value) return;
   const targetId = voucherData.value.voucherGroupId || voucherData.value.voucherNo;
-  window.open(`/api/accounting/vouchers/${encodeURIComponent(targetId)}/print`, '_blank');
+  window.open(`/api/accounting/vouchers/${encodeURIComponent(targetId)}/pdf`, '_blank');
 }
 </script>

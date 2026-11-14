@@ -1,5 +1,6 @@
 <template>
-  <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-md">
+  <Teleport to="body">
+    <div v-if="modelValue" class="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-black/60 backdrop-blur-md">
     <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200 dark:border-zinc-800 animate-scale-in">
       <!-- Header -->
       <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-5 py-4 flex justify-between items-center border-b border-indigo-500/20 shadow-md">
@@ -588,6 +589,7 @@
       </div>
     </div>
   </div>
+</Teleport>
 </template>
 
 <script setup lang="ts">

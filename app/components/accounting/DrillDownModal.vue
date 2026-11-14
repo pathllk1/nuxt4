@@ -76,7 +76,7 @@ const grandTotalDebits = computed(() => drillAccounts.value.reduce((s, a) => s +
 const grandTotalCredits = computed(() => drillAccounts.value.reduce((s, a) => s + (a.totalCredit || 0), 0));
 
 const formatINR = (n: number) => {
-  return '₹ ' + new Intl.NumberFormat('en-IN', {
+  return '₹\u00A0' + new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(n || 0);
@@ -208,14 +208,14 @@ const onExportExcel = async () => {
                   {{ h.accountHead }}
                 </div>
               </td>
-              <td class="py-2.5 px-4 text-right font-mono text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+              <td class="py-2.5 px-4 text-right font-mono text-xs text-emerald-600 dark:text-emerald-400 font-bold whitespace-nowrap min-w-[110px]">
                 {{ formatINR(h.totalDebit) }}
               </td>
-              <td class="py-2.5 px-4 text-right font-mono text-xs text-rose-600 dark:text-rose-400 font-bold">
+              <td class="py-2.5 px-4 text-right font-mono text-xs text-rose-600 dark:text-rose-400 font-bold whitespace-nowrap min-w-[110px]">
                 {{ formatINR(h.totalCredit) }}
               </td>
-              <td class="py-2.5 px-4 text-right">
-                <div class="flex items-center justify-end gap-1.5">
+              <td class="py-2.5 px-4 text-right whitespace-nowrap min-w-[130px]">
+                <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
                   <span class="font-black font-mono text-xs" :class="h.balanceType === 'DR' ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'">
                     {{ formatINR(h.balance) }}
                   </span>
@@ -239,13 +239,13 @@ const onExportExcel = async () => {
           </tbody>
           <!-- Summary Footer -->
           <tfoot>
-            <tr class="bg-slate-900 text-white font-bold text-xs">
+            <tr class="bg-slate-900 text-white font-bold text-xs whitespace-nowrap">
               <td class="py-2.5 px-4 uppercase font-black text-[10px] tracking-wider text-slate-300">Grand Total</td>
-              <td class="py-2.5 px-4 text-right font-mono text-emerald-400 font-black">{{ formatINR(grandTotalDebits) }}</td>
-              <td class="py-2.5 px-4 text-right font-mono text-rose-400 font-black">{{ formatINR(grandTotalCredits) }}</td>
-              <td class="py-2.5 px-4 text-right font-mono font-black" colSpan="2">
+              <td class="py-2.5 px-4 text-right font-mono text-emerald-400 font-black whitespace-nowrap">{{ formatINR(grandTotalDebits) }}</td>
+              <td class="py-2.5 px-4 text-right font-mono text-rose-400 font-black whitespace-nowrap">{{ formatINR(grandTotalCredits) }}</td>
+              <td class="py-2.5 px-4 text-right font-mono font-black whitespace-nowrap" colSpan="2">
                 <span :class="grandTotalDebits >= grandTotalCredits ? 'text-emerald-400' : 'text-rose-400'">
-                  {{ formatINR(Math.abs(grandTotalDebits - grandTotalCredits)) }} {{ grandTotalDebits >= grandTotalCredits ? 'DR' : 'CR' }}
+                  {{ formatINR(Math.abs(grandTotalDebits - grandTotalCredits)) }}&nbsp;{{ grandTotalDebits >= grandTotalCredits ? 'DR' : 'CR' }}
                 </span>
               </td>
             </tr>

@@ -102,9 +102,11 @@ export default defineEventHandler(async (event) => {
       costCenter: 'Civil Infrastructure / Site General'
     });
 
+    const query = getQuery(event);
+    const disposition = (query.download === 'true' || query.download === '1') ? 'attachment' : 'inline';
     const safeFilename = `Voucher_${(voucherNo || voucherGroupId).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
     setHeader(event, 'Content-Type', 'application/pdf');
-    setHeader(event, 'Content-Disposition', `attachment; filename="${safeFilename}"`);
+    setHeader(event, 'Content-Disposition', `${disposition}; filename="${safeFilename}"`);
 
     return pdfBuffer;
   } catch (err: any) {

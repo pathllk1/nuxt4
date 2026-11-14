@@ -2,6 +2,8 @@
 import { ref, watch, computed } from 'vue';
 import { useApi } from '@/utils/api';
 import { useAccounting } from '@/composables/useAccounting';
+import VoucherDetailModal from './VoucherDetailModal.vue';
+import VoucherModal from './VoucherModal.vue';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -35,6 +37,14 @@ const toast = useToast();
 const deletingVoucher = ref<any>(null);
 const showDeleteConfirm = ref(false);
 const isDeleting = ref(false);
+
+// Voucher Modals State
+const showDetailModal = ref(false);
+const showEditModal = ref(false);
+const selectedVoucherId = ref('');
+const editingVoucherGroupId = ref('');
+const editingVoucherData = ref<any>(null);
+const actionLoadingId = ref<string | null>(null);
 
 const confirmDeleteVoucher = (entry: any) => {
   deletingVoucher.value = entry;
@@ -126,11 +136,106 @@ const filteredEntries = computed(() => {
   );
 });
 
+// Non-breaking space \u00A0 prevents currency symbol from wrapping onto its own line
 const formatINR = (n: number) => {
-  return '₹ ' + new Intl.NumberFormat('en-IN', {
+  return '₹\u00A0' + new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(n || 0);
+};
+
+const openVoucherView = (entry: any) => {
+  const targetId = entry.voucherGroupId || entry.voucherNo;
+  if (!targetId) return;
+  selectedVoucherId.value = targetId;
+  showDetailModal.value = true;
+};
+
+const openVoucherEdit = async (entry: any) => {
+  const targetId = entry.voucherGroupId || entry.voucherNo;
+  if (!targetId) return;
+
+  actionLoadingId.value = targetId;
+  try {
+    const res: any = await api.get(`/accounting/vouchers/${encodeURIComponent(targetId)}`);
+    if (res && res.success && res.data) {
+      if (res.data.isEditable === false) {
+        toast.add({
+          title: 'Voucher Locked',
+          description: res.data.notEditableReason || 'This voucher cannot be edited directly.',
+          color: 'warning'
+        });
+        selectedVoucherId.value = targetId;
+        showDetailModal.value = true;
+        return;
+      }
+      editingVoucherData.value = res.data;
+      editingVoucherGroupId.value = res.data.voucherGroupId || targetId;
+      showEditModal.value = true;
+    } else {
+      toast.add({
+        title: 'Error',
+        description: 'Unable to load voucher data for editing',
+        color: 'error'
+      });
+    }
+  } catch (err: any) {
+    toast.add({
+      title: 'Failed to Open Voucher',
+      description: err.data?.statusMessage || err.message || 'Error fetching voucher details',
+      color: 'error'
+    });
+  } finally {
+    actionLoadingId.value = null;
+  }
+};
+
+const handleEditFromDetail = (voucherData: any) => {
+  showDetailModal.value = false;
+  editingVoucherData.value = voucherData;
+  editingVoucherGroupId.value = voucherData?.voucherGroupId || voucherData?.voucherNo || '';
+  showEditModal.value = true;
+};
+
+const handleVoucherSaved = async () => {
+  showEditModal.value = false;
+  editingVoucherData.value = null;
+  editingVoucherGroupId.value = '';
+  toast.add({
+    title: 'Success',
+    description: 'Voucher saved successfully',
+    color: 'success'
+  });
+  await loadStatement();
+};
+
+const handleVoucherDeleted = async () => {
+  showDetailModal.value = false;
+  await loadStatement();
+};
+
+const printVoucher = (entry: any) => {
+  const targetId = entry.voucherGroupId || entry.voucherNo;
+  if (!targetId) return;
+  window.open(`/api/accounting/vouchers/${encodeURIComponent(targetId)}/pdf`, '_blank');
+};
+
+const isEditableVoucher = (entry: any) => {
+  if (!entry) return false;
+  if (entry.voucherType === 'OPENING_BALANCE') return false;
+  if (entry.isReversed) return false;
+  const refType = String(entry.refType || '').toUpperCase();
+  if (['BILL', 'SALE', 'PURCHASE', 'WAGE', 'WAGE_PAYOUT'].includes(refType)) return false;
+  return Boolean(entry.voucherGroupId || entry.voucherNo);
+};
+
+const getVoucherBadgeColor = (type?: string): 'warning' | 'success' | 'primary' | 'info' | 'neutral' => {
+  const t = (type || '').toUpperCase();
+  if (t === 'PAYMENT') return 'warning';
+  if (t === 'RECEIPT') return 'success';
+  if (t === 'CONTRA') return 'primary';
+  if (t === 'JOURNAL') return 'info';
+  return 'neutral';
 };
 
 const onDownloadPDF = async () => {
@@ -163,7 +268,7 @@ const triggerPrint = () => {
 <template>
   <div v-if="isOpen" class="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md" @click.self="isOpen = false">
     <UCard 
-      class="w-full max-w-6xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-2xl flex flex-col bg-white dark:bg-zinc-900 rounded-2xl" 
+      class="w-full max-w-7xl max-h-[92vh] overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-2xl flex flex-col bg-white dark:bg-zinc-900 rounded-2xl" 
       :ui="{ body: 'p-4 overflow-y-auto flex-1', header: 'p-4 py-3 bg-slate-900 text-white border-b border-slate-800 flex justify-between items-center' }"
     >
       <template #header>
@@ -246,21 +351,21 @@ const triggerPrint = () => {
       <div class="grid grid-cols-4 gap-2 mb-3 bg-slate-900 text-white p-3 rounded-xl border border-slate-800">
         <div class="text-left">
           <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Starting Balance</p>
-          <p class="text-xs font-black font-mono mt-0.5" :class="startingBal.balanceType === 'DR' ? 'text-emerald-400' : 'text-rose-400'">
+          <p class="text-xs font-black font-mono mt-0.5 whitespace-nowrap" :class="startingBal.balanceType === 'DR' ? 'text-emerald-400' : 'text-rose-400'">
             {{ formatINR(startingBal.balance) }} <span class="text-[9px] font-bold">{{ startingBal.balanceType }}</span>
           </p>
         </div>
         <div class="text-left border-l border-slate-800 pl-3">
           <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Total Debits (DR)</p>
-          <p class="text-xs font-black font-mono text-emerald-400 mt-0.5">{{ formatINR(totalDebits) }}</p>
+          <p class="text-xs font-black font-mono text-emerald-400 mt-0.5 whitespace-nowrap">{{ formatINR(totalDebits) }}</p>
         </div>
         <div class="text-left border-l border-slate-800 pl-3">
           <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Total Credits (CR)</p>
-          <p class="text-xs font-black font-mono text-rose-400 mt-0.5">{{ formatINR(totalCredits) }}</p>
+          <p class="text-xs font-black font-mono text-rose-400 mt-0.5 whitespace-nowrap">{{ formatINR(totalCredits) }}</p>
         </div>
         <div class="text-left border-l border-slate-800 pl-3">
           <p class="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Closing Balance</p>
-          <p class="text-xs font-black font-mono mt-0.5" :class="finalBalanceType === 'DR' ? 'text-emerald-400' : 'text-rose-400'">
+          <p class="text-xs font-black font-mono mt-0.5 whitespace-nowrap" :class="finalBalanceType === 'DR' ? 'text-emerald-400' : 'text-rose-400'">
             {{ formatINR(finalBalance) }} <span class="text-[9px] font-bold">{{ finalBalanceType }}</span>
           </p>
         </div>
@@ -280,58 +385,118 @@ const triggerPrint = () => {
         <table class="w-full text-left text-xs divide-y divide-slate-100 dark:divide-zinc-800">
           <thead>
             <tr class="bg-slate-50 dark:bg-zinc-800/60 text-[9px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-              <th class="py-2.5 px-3">Date</th>
-              <th class="py-2.5 px-3">Voucher Type / No</th>
-              <th class="py-2.5 px-3">Account Head</th>
-              <th class="py-2.5 px-3">Narration & Details</th>
-              <th class="py-2.5 px-3 text-right">Debit (DR)</th>
-              <th class="py-2.5 px-3 text-right">Credit (CR)</th>
-              <th class="py-2.5 px-3 text-right">Running Balance</th>
-              <th class="py-2.5 px-3 text-center w-12 print:hidden">Action</th>
+              <th class="py-2.5 px-3 whitespace-nowrap w-24">Date</th>
+              <th class="py-2.5 px-3 whitespace-nowrap w-36">Voucher Type / No</th>
+              <th class="py-2.5 px-3 whitespace-nowrap min-w-[140px] max-w-[200px]">Account Head</th>
+              <th class="py-2.5 px-3 whitespace-nowrap min-w-[160px] max-w-[240px]">Narration & Details</th>
+              <th class="py-2.5 px-3 text-right whitespace-nowrap w-28">Debit (DR)</th>
+              <th class="py-2.5 px-3 text-right whitespace-nowrap w-28">Credit (CR)</th>
+              <th class="py-2.5 px-3 text-right whitespace-nowrap w-32">Running Balance</th>
+              <th class="py-2.5 px-2 text-center whitespace-nowrap w-28 min-w-[116px] sticky right-0 z-20 bg-slate-50 dark:bg-zinc-800 shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.12)] print:hidden">Action</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-zinc-800/50 font-medium text-slate-700 dark:text-zinc-300">
-            <tr v-for="(e, idx) in filteredEntries" :key="idx" class="hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors">
+            <tr v-for="(e, idx) in filteredEntries" :key="idx" class="hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors group">
               <td class="py-2 px-3 whitespace-nowrap text-[11px] font-bold text-slate-900 dark:text-white font-mono">
                 {{ e.transactionDate }}
               </td>
-              <td class="py-2 px-3">
-                <div class="flex items-center gap-1.5">
-                  <UBadge size="sm" variant="subtle" color="neutral" class="text-[8px] px-1 py-0 font-bold uppercase rounded">
+              <td class="py-2 px-3 whitespace-nowrap">
+                <button
+                  v-if="e.voucherGroupId || e.voucherNo"
+                  type="button"
+                  class="flex items-center gap-1.5 group/btn text-left cursor-pointer hover:opacity-85 transition-opacity"
+                  @click="openVoucherView(e)"
+                  title="Click to view voucher breakdown & audit trail"
+                >
+                  <UBadge 
+                    size="sm" 
+                    variant="subtle" 
+                    :color="getVoucherBadgeColor(e.voucherType)" 
+                    class="text-[8px] px-1.5 py-0.5 font-bold uppercase rounded group-hover/btn:ring-1 group-hover/btn:ring-primary-500/40 transition-all shrink-0"
+                  >
                     {{ e.voucherType || 'GENERAL' }}
                   </UBadge>
-                  <span class="font-bold text-slate-900 dark:text-white font-mono">{{ e.voucherNo || '—' }}</span>
+                  <span class="font-bold text-slate-900 dark:text-white font-mono text-xs group-hover/btn:text-primary-600 dark:group-hover/btn:text-primary-400 group-hover/btn:underline flex items-center gap-1 truncate max-w-[120px]">
+                    {{ e.voucherNo || e.voucherGroupId || '—' }}
+                    <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3 h-3 text-slate-400 group-hover/btn:text-primary-500 transition-colors shrink-0" />
+                  </span>
+                </button>
+                <div v-else class="flex items-center gap-1.5">
+                  <UBadge size="sm" variant="subtle" color="neutral" class="text-[8px] px-1.5 py-0.5 font-bold uppercase rounded">
+                    {{ e.voucherType || 'OPENING' }}
+                  </UBadge>
+                  <span class="font-bold text-slate-400 font-mono text-xs">—</span>
                 </div>
               </td>
-              <td class="py-2 px-3">
-                <span class="text-xs font-bold text-slate-900 dark:text-white">
+              <td class="py-2 px-3 max-w-[200px]">
+                <span class="text-xs font-bold text-slate-900 dark:text-white line-clamp-2" :title="e.opposingAccountHead">
                   {{ e.opposingAccountHead || '—' }}
                 </span>
               </td>
-              <td class="py-2 px-3">
-                <p class="text-xs font-semibold text-slate-800 dark:text-zinc-200">{{ e.narration || e.refType || 'Ledger Posting' }}</p>
+              <td class="py-2 px-3 max-w-[240px]">
+                <p class="text-xs font-semibold text-slate-800 dark:text-zinc-200 line-clamp-2" :title="e.narration || e.refType">
+                  {{ e.narration || e.refType || 'Ledger Posting' }}
+                </p>
               </td>
-              <td class="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+              <td class="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                 {{ e.debitAmount > 0 ? formatINR(e.debitAmount) : '—' }}
               </td>
-              <td class="py-2 px-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
+              <td class="py-2 px-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
                 {{ e.creditAmount > 0 ? formatINR(e.creditAmount) : '—' }}
               </td>
-              <td class="py-2 px-3 text-right font-mono font-bold">
+              <td class="py-2 px-3 text-right font-mono font-bold whitespace-nowrap">
                 <span :class="e.runningBalanceType === 'DR' ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'">
-                  {{ formatINR(e.runningBalance || 0) }} {{ e.runningBalanceType }}
+                  {{ formatINR(e.runningBalance || 0) }}&nbsp;<span class="text-[9px] font-bold">{{ e.runningBalanceType }}</span>
                 </span>
               </td>
-              <td class="py-2 px-3 text-center print:hidden">
-                <button
-                  v-if="e.voucherGroupId && e.voucherType !== 'OPENING_BALANCE'"
-                  type="button"
-                  class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
-                  title="Delete / Reverse Voucher"
-                  @click="confirmDeleteVoucher(e)"
-                >
-                  <UIcon name="i-heroicons-trash" class="w-4 h-4" />
-                </button>
+              <td class="py-2 px-2 text-center whitespace-nowrap sticky right-0 z-10 bg-white dark:bg-zinc-900 group-hover:bg-slate-50 dark:group-hover:bg-zinc-800/90 shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.12)] print:hidden w-28 min-w-[116px]">
+                <div v-if="(e.voucherGroupId || e.voucherNo) && e.voucherType !== 'OPENING_BALANCE'" class="flex items-center justify-center gap-0.5">
+                  <!-- View Button -->
+                  <button
+                    type="button"
+                    class="p-1 rounded-md text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/40 transition-colors cursor-pointer"
+                    title="View Voucher Details"
+                    @click="openVoucherView(e)"
+                  >
+                    <UIcon name="i-heroicons-eye" class="w-4 h-4" />
+                  </button>
+
+                  <!-- Edit Button -->
+                  <button
+                    v-if="isEditableVoucher(e)"
+                    type="button"
+                    class="p-1 rounded-md text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer disabled:opacity-50"
+                    :disabled="actionLoadingId === (e.voucherGroupId || e.voucherNo)"
+                    title="Edit Voucher"
+                    @click="openVoucherEdit(e)"
+                  >
+                    <UIcon 
+                      :name="actionLoadingId === (e.voucherGroupId || e.voucherNo) ? 'i-heroicons-arrow-path' : 'i-heroicons-pencil-square'" 
+                      class="w-4 h-4" 
+                      :class="{ 'animate-spin': actionLoadingId === (e.voucherGroupId || e.voucherNo) }"
+                    />
+                  </button>
+
+                  <!-- Print PDF Button -->
+                  <button
+                    type="button"
+                    class="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                    title="Print Voucher PDF"
+                    @click="printVoucher(e)"
+                  >
+                    <UIcon name="i-heroicons-printer" class="w-4 h-4" />
+                  </button>
+
+                  <!-- Delete / Reverse Button -->
+                  <button
+                    type="button"
+                    class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                    title="Delete / Reverse Voucher"
+                    @click="confirmDeleteVoucher(e)"
+                  >
+                    <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -399,5 +564,23 @@ const triggerPrint = () => {
         </div>
       </div>
     </div>
+
+    <!-- Voucher Detail Modal (View Mode) -->
+    <VoucherDetailModal
+      v-model="showDetailModal"
+      :voucher-id="selectedVoucherId"
+      @edit="handleEditFromDetail"
+      @deleted="handleVoucherDeleted"
+      @refresh="loadStatement"
+    />
+
+    <!-- Voucher Modal (Edit Mode) -->
+    <VoucherModal
+      v-model="showEditModal"
+      :is-edit="true"
+      :voucher-group-id="editingVoucherGroupId"
+      :initial-data="editingVoucherData"
+      @saved="handleVoucherSaved"
+    />
   </div>
 </template>
