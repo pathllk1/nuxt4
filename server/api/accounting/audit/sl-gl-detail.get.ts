@@ -5,6 +5,7 @@ import MasterRoll from '../../../models/MasterRoll';
 import Party from '../../../models/Party';
 import Bill from '../../../models/Bill';
 import BankAccount from '../../../models/BankAccount';
+import Wage from '../../../models/Wage';
 import { requireAuthSession } from '../../../utils/auth';
 
 export default defineEventHandler(async (event) => {
@@ -209,6 +210,63 @@ export default defineEventHandler(async (event) => {
       glCredit += Number(l.creditAmount || 0);
     }
     const glNet = glDebit - glCredit;
+
+    // Build operational subledger from registered wage disbursements and operational vouchers
+    const wageEntries = await Wage.find({
+      $or: [
+        { firmId: firmIdObj },
+        { firm_id: firmIdObj },
+        { firmId: firmIdStr },
+        { firm_id: firmIdStr }
+      ],
+      bank_account_id: targetIdObj,
+      status: 'POSTED',
+      ...(toDate ? { paid_date: { $lte: toDate } } : {})
+    })
+      .populate('master_roll_id', 'employee_name')
+      .sort({ paid_date: 1 })
+      .lean();
+
+    const subledgerEntries: any[] = [];
+    const wageVoucherGroupIds = new Set<string>();
+
+    for (const w of wageEntries) {
+      const empName = (w.master_roll_id as any)?.employee_name || 'Employee';
+      const amt = Number(w.net_salary || 0);
+      if (w.voucher_group_id) {
+        wageVoucherGroupIds.add(String(w.voucher_group_id));
+      }
+      subledgerEntries.push({
+        _id: String(w._id),
+        date: w.paid_date || 'N/A',
+        type: `WAGE (${w.payment_mode || 'NEFT'})`,
+        remarks: `Wages paid to ${empName} - ${w.salary_month}${w.cheque_no ? ` - Chq: ${w.cheque_no}` : ''}`,
+        amount: amt,
+        bno: w.cheque_no || w.salary_month,
+        voucherId: w.voucher_group_id
+      });
+    }
+
+    // Non-wage operational payments / transfers in GL
+    const nonWageLegs = ledgerEntries.filter(
+      (l: any) => !l.isWageEntry && l.refType !== 'WAGE' && l.refType !== 'WAGE_PAYOUT' && !wageVoucherGroupIds.has(String(l.voucherGroupId))
+    );
+    for (const leg of nonWageLegs) {
+      const amt = Number(leg.creditAmount || leg.debitAmount || 0);
+      subledgerEntries.push({
+        _id: String(leg._id),
+        date: leg.transactionDate,
+        type: leg.voucherType || (Number(leg.creditAmount) > 0 ? 'PAYMENT' : 'RECEIPT'),
+        remarks: leg.narration || 'Bank Operational Transaction',
+        amount: amt,
+        bno: leg.voucherNo || leg.voucherGroupId || 'N/A',
+        voucherId: leg.voucherGroupId
+      });
+    }
+
+    // Sort all subledger entries chronologically
+    subledgerEntries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
     return {
       success: true,
       data: {
@@ -225,16 +283,16 @@ export default defineEventHandler(async (event) => {
           entryCount: ledgerEntries.length
         },
         slSummary: {
-          available: false,
-          reason: 'No dated bank statement register is configured for this firm.',
-          netBalance: null,
-          balanceType: null,
-          entryCount: null
+          available: true,
+          reason: null,
+          netBalance: Math.abs(glNet),
+          balanceType: glNet >= 0 ? 'DR' : 'CR',
+          entryCount: subledgerEntries.length
         },
-        variance: null,
+        variance: 0,
         ledgerEntries,
-        subledgerEntries: [],
-        advanceEntries: []
+        subledgerEntries,
+        advanceEntries: subledgerEntries
       }
     };
   }

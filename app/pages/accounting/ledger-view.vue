@@ -91,13 +91,24 @@
               <th class="py-2.5 px-4 text-right">Debit</th>
               <th class="py-2.5 px-4 text-right">Credit</th>
               <th class="py-2.5 px-4 text-right">Balance</th>
+              <th class="py-2.5 px-3 text-center w-24">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-zinc-800">
-            <tr v-for="(entry, idx) in runningLedger" :key="idx" class="hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+            <tr v-for="(entry, idx) in runningLedger" :key="idx" class="hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors group">
               <td class="py-2 px-4 text-gray-600 dark:text-zinc-400 whitespace-nowrap">{{ entry.transactionDate }}</td>
               <td class="py-2 px-4">
-                <div class="font-bold text-gray-900 dark:text-white">{{ entry.voucherNo || entry.refType }}</div>
+                <button
+                  v-if="entry.voucherGroupId || entry.voucherNo"
+                  type="button"
+                  class="font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer flex items-center gap-1 text-left"
+                  title="Click to view full voucher details"
+                  @click="openVoucherView(entry)"
+                >
+                  <span>{{ entry.voucherNo || entry.voucherGroupId || entry.refType }}</span>
+                  <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-blue-500" />
+                </button>
+                <div v-else class="font-bold text-gray-900 dark:text-white">{{ entry.voucherNo || entry.refType }}</div>
                 <div class="text-[9px] text-gray-400 dark:text-zinc-500 uppercase font-bold tracking-wider mt-0.5">{{ entry.voucherType }}</div>
               </td>
               <td class="py-2 px-4">
@@ -112,9 +123,33 @@
               <td class="py-2 px-4 text-right font-bold bg-gray-50/30 dark:bg-zinc-850/20 font-mono">
                 {{ formatCurrency(Math.abs(entry.runningBalance)) }} {{ entry.runningBalance >= 0 ? 'Dr' : 'Cr' }}
               </td>
+              <td class="py-2 px-3 text-center">
+                <div class="flex items-center justify-center gap-1">
+                  <UButton
+                    v-if="entry.voucherGroupId || entry.voucherNo"
+                    size="2xs"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-heroicons-eye"
+                    title="View Voucher Particulars"
+                    class="cursor-pointer"
+                    @click="openVoucherView(entry)"
+                  />
+                  <UButton
+                    v-if="isEditableVoucher(entry)"
+                    size="2xs"
+                    color="primary"
+                    variant="ghost"
+                    icon="i-heroicons-pencil-square"
+                    title="Edit Voucher"
+                    class="cursor-pointer"
+                    @click="openVoucherEdit(entry)"
+                  />
+                </div>
+              </td>
             </tr>
             <tr v-if="!runningLedger || runningLedger.length === 0">
-              <td colspan="6" class="py-16 text-center text-gray-400 dark:text-zinc-500 italic">
+              <td colspan="7" class="py-16 text-center text-gray-400 dark:text-zinc-500 italic">
                 {{ accountHead ? 'No transactions found for this account in the selected range.' : 'Please select an account head above to view the ledger statement.' }}
               </td>
             </tr>
@@ -122,6 +157,24 @@
         </table>
       </div>
     </UCard>
+
+    <!-- Voucher Detail Viewer Modal -->
+    <VoucherDetailModal
+      v-model="showDetailModal"
+      :voucher-id="selectedVoucherId"
+      @edit="handleEditFromDetail"
+      @deleted="loadLedger"
+      @refresh="loadLedger"
+    />
+
+    <!-- Voucher Edit Modal -->
+    <VoucherModal
+      v-model="showEditModal"
+      :is-edit="true"
+      :voucher-group-id="selectedVoucherId"
+      :initial-data="editingVoucherData"
+      @saved="loadLedger"
+    />
   </div>
 </template>
 
@@ -131,9 +184,11 @@ import { useRoute } from 'vue-router';
 import { useAccounting } from '@/composables/useAccounting';
 import { formatCurrency } from '@/utils/formatters';
 import AccountSelectMenu from '~/components/accounting/AccountSelectMenu.vue';
+import VoucherDetailModal from '~/components/accounting/VoucherDetailModal.vue';
+import VoucherModal from '~/components/accounting/VoucherModal.vue';
 
 const route = useRoute();
-const { ledgerEntries, accountBalance, fetchLedger, fetchAccountBalance, fetchCOA, chartOfAccounts, exportLedgerPdf, exportLedgerExcel, loading } = useAccounting();
+const { ledgerEntries, accountBalance, fetchLedger, fetchAccountBalance, fetchCOA, chartOfAccounts, exportLedgerPdf, exportLedgerExcel, getVoucher, loading } = useAccounting();
 
 const exportLoading = ref(false);
 
@@ -220,4 +275,55 @@ const runningLedger = computed(() => {
     return { ...entry, runningBalance: bal };
   });
 });
+
+// Voucher View & Edit mechanism
+const showDetailModal = ref(false);
+const showEditModal = ref(false);
+const selectedVoucherId = ref('');
+const editingVoucherData = ref<any>(null);
+
+function isEditableVoucher(entry: any) {
+  if (!entry) return false;
+  const refType = String(entry.refType || '').toUpperCase();
+  if (['BILL', 'SALE', 'PURCHASE', 'WAGE', 'WAGE_PAYOUT'].includes(refType)) return false;
+  if (entry.isWageEntry || entry.isReversed) return false;
+  const vtype = String(entry.voucherType || '').toUpperCase();
+  return ['PAYMENT', 'RECEIPT', 'JOURNAL', 'CONTRA'].includes(vtype);
+}
+
+function openVoucherView(entry: any) {
+  const id = entry.voucherGroupId || entry.voucherNo;
+  if (!id) return;
+  selectedVoucherId.value = id;
+  showDetailModal.value = true;
+}
+
+async function openVoucherEdit(entry: any) {
+  const id = entry.voucherGroupId || entry.voucherNo;
+  if (!id) return;
+  selectedVoucherId.value = id;
+  try {
+    const res = await getVoucher(id);
+    if (res.success && res.data) {
+      if (!res.data.isEditable) {
+        // If not editable (e.g. locked/settled), open in viewer mode so user sees explanation
+        selectedVoucherId.value = id;
+        showDetailModal.value = true;
+        return;
+      }
+      editingVoucherData.value = res.data;
+      showEditModal.value = true;
+    }
+  } catch (err: any) {
+    console.error('Failed to load voucher for edit:', err);
+    selectedVoucherId.value = id;
+    showDetailModal.value = true;
+  }
+}
+
+function handleEditFromDetail(voucherData: any) {
+  editingVoucherData.value = voucherData;
+  selectedVoucherId.value = voucherData.voucherGroupId || voucherData.voucherNo;
+  showEditModal.value = true;
+}
 </script>

@@ -20,16 +20,40 @@ export default defineEventHandler(async (event) => {
     await connectDB();
 
     // 1. Locate existing entries for this voucher
-    const entries = await Ledger.find({
+    const targetId = voucherGroupId.trim();
+    let entries = await Ledger.find({
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-      voucherGroupId: voucherGroupId.trim()
+      $and: [
+        {
+          $or: [
+            { voucherGroupId: targetId },
+            { voucherNo: targetId }
+          ]
+        }
+      ]
     }).lean();
+
+    if (!entries || entries.length === 0) {
+      const altTarget = targetId.replace(/\//g, '-');
+      entries = await Ledger.find({
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
+        $and: [
+          {
+            $or: [
+              { voucherGroupId: altTarget },
+              { voucherNo: altTarget }
+            ]
+          }
+        ]
+      }).lean();
+    }
 
     if (!entries || entries.length === 0) {
       throw createError({ statusCode: 404, statusMessage: `Voucher "${voucherGroupId}" not found in General Ledger` });
     }
 
     const firstEntry = entries[0]!;
+    const canonicalVoucherGroupId = firstEntry.voucherGroupId || targetId;
 
     // 2. Period Lock Guard
     if (firstEntry.transactionDate) {
@@ -50,7 +74,7 @@ export default defineEventHandler(async (event) => {
       if (!sql) sql = await connectPostgres();
       if (sql) {
         const [activeSettlement] = await sql`
-          SELECT id, period_id FROM labor_settlements WHERE ledger_voucher_group_id = ${voucherGroupId} LIMIT 1
+          SELECT id, period_id FROM labor_settlements WHERE ledger_voucher_group_id = ${canonicalVoucherGroupId} LIMIT 1
         `;
         if (activeSettlement) {
           throw createError({
@@ -68,7 +92,7 @@ export default defineEventHandler(async (event) => {
       await Ledger.updateMany(
         {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-          voucherGroupId: voucherGroupId.trim(),
+          voucherGroupId: canonicalVoucherGroupId,
           isReversed: { $ne: true }
         },
         {
@@ -116,7 +140,7 @@ export default defineEventHandler(async (event) => {
       if (sql) {
         await sql`
           DELETE FROM labor_advances 
-          WHERE ledger_voucher_group_id = ${voucherGroupId} AND firm_id = ${firmIdStr}
+          WHERE ledger_voucher_group_id = ${canonicalVoucherGroupId} AND firm_id = ${firmIdStr}
         `;
       }
     } catch (laborSyncErr) {
@@ -125,7 +149,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      message: `Voucher ${voucherGroupId} (${entries[0]?.voucherNo || voucherGroupId}) was cancelled successfully in compliance with audit trail standards.`,
+      message: `Voucher ${canonicalVoucherGroupId} (${entries[0]?.voucherNo || canonicalVoucherGroupId}) was cancelled successfully in compliance with audit trail standards.`,
       deletedCount: entries.length
     };
   } catch (err: any) {

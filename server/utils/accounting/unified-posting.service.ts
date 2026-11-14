@@ -616,6 +616,7 @@ export class UnifiedPostingService {
       masterRollId,
       replacesVoucherGroupId: voucherGroupId.trim(),
       statutory: leg.statutory || null,
+      sourcePaymentRef: leg.sourcePaymentRef || (leg.statutory as any)?.sourcePaymentRef || null,
       isReversed: false,
       createdBy: firstEntry.createdBy || payload.createdBy,
       createdAt: firstEntry.createdAt,

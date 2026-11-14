@@ -204,7 +204,7 @@ export const useAccounting = () => {
     }
   };
 
-  const checkTdsThreshold = async (params: { accountHead?: string; partyId?: string; leaderId?: string; amount?: number; paymentDate?: string; rate?: number }) => {
+  const checkTdsThreshold = async (params: { accountHead?: string; partyId?: string; leaderId?: string; amount?: number; paymentDate?: string; rate?: number; excludeVoucherGroupId?: string }) => {
     try {
       const response = await api.get('/accounting/tds/threshold-check', { params });
       return response;

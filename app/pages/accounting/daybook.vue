@@ -365,6 +365,17 @@
                         title="Print Voucher PDF"
                       />
 
+                      <!-- View Voucher -->
+                      <UButton
+                        color="neutral"
+                        variant="ghost"
+                        icon="i-heroicons-eye"
+                        size="xs"
+                        @click="openViewVoucher(v)"
+                        title="View Voucher Details"
+                        class="cursor-pointer"
+                      />
+
                       <!-- Edit Voucher -->
                       <UButton
                         v-if="canEditVoucher(v)"
@@ -375,8 +386,9 @@
                         :loading="editLoading && editingVoucherGroupId === v.voucherGroupId"
                         @click="openEditVoucher(v)"
                         title="Edit Voucher"
+                        class="cursor-pointer"
                       />
-                      <span v-else class="text-gray-300 dark:text-zinc-600 inline-flex items-center p-1" title="Commercial bill: modify in Bills module">
+                      <span v-else class="text-gray-300 dark:text-zinc-600 inline-flex items-center p-1" title="Locked / Source-evidenced voucher: click view to inspect">
                         <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
                       </span>
 
@@ -470,6 +482,17 @@
                       title="Print Voucher PDF"
                     />
 
+                    <!-- View Voucher -->
+                    <UButton
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-heroicons-eye"
+                      size="xs"
+                      @click="openViewVoucher(v)"
+                      title="View Voucher Details"
+                      class="cursor-pointer"
+                    />
+
                     <!-- Edit Voucher -->
                     <UButton
                       v-if="canEditVoucher(v)"
@@ -480,6 +503,7 @@
                       :loading="editLoading && editingVoucherGroupId === v.voucherGroupId"
                       @click="openEditVoucher(v)"
                       title="Edit Voucher"
+                      class="cursor-pointer"
                     />
                     <span v-else class="text-gray-300 dark:text-zinc-600 inline-flex items-center p-1" title="Commercial bill: modify in Bills module">
                       <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
@@ -555,6 +579,15 @@
       @saved="loadDayBook"
     />
 
+    <!-- 8. Voucher Detail Viewer Modal -->
+    <VoucherDetailModal
+      v-model="showDetailModal"
+      :voucher-id="selectedVoucherId"
+      @edit="handleEditFromDetail"
+      @deleted="loadDayBook"
+      @refresh="loadDayBook"
+    />
+
     <!-- 8. Delete Confirmation Modal -->
     <UModal v-model:open="showDeleteConfirmModal">
       <template #content>
@@ -605,6 +638,7 @@ import { useAccounting } from '@/composables/useAccounting';
 import { formatCurrency } from '@/utils/formatters';
 import AccountSelectMenu from '~/components/accounting/AccountSelectMenu.vue';
 import VoucherModal from '~/components/accounting/VoucherModal.vue';
+import VoucherDetailModal from '~/components/accounting/VoucherDetailModal.vue';
 
 const router = useRouter();
 const {
@@ -623,6 +657,8 @@ const {
 const exportLoading = ref(false);
 const showVoucherModal = ref(false);
 const showEditVoucherModal = ref(false);
+const showDetailModal = ref(false);
+const selectedVoucherId = ref('');
 const editingVoucherGroupId = ref('');
 const editingVoucherData = ref<any>(null);
 const editLoading = ref(false);
@@ -814,6 +850,13 @@ function canEditVoucher(v: any) {
   return ['PAYMENT', 'RECEIPT', 'JOURNAL', 'CONTRA'].includes(vtype);
 }
 
+function openViewVoucher(v: any) {
+  const id = v?.voucherGroupId || v?.voucherNo;
+  if (!id) return;
+  selectedVoucherId.value = id;
+  showDetailModal.value = true;
+}
+
 async function openEditVoucher(v: any) {
   if (!v?.voucherGroupId) return;
   editLoading.value = true;
@@ -822,7 +865,9 @@ async function openEditVoucher(v: any) {
     const res = await getVoucher(v.voucherGroupId);
     if (res.success && res.data) {
       if (!res.data.isEditable) {
-        alert(res.data.notEditableReason || 'This voucher cannot be edited.');
+        // Open detail view so user can review the voucher and reason
+        selectedVoucherId.value = v.voucherGroupId;
+        showDetailModal.value = true;
         return;
       }
       editingVoucherData.value = res.data;
@@ -833,6 +878,12 @@ async function openEditVoucher(v: any) {
   } finally {
     editLoading.value = false;
   }
+}
+
+function handleEditFromDetail(voucherData: any) {
+  editingVoucherData.value = voucherData;
+  editingVoucherGroupId.value = voucherData.voucherGroupId || voucherData.voucherNo;
+  showEditVoucherModal.value = true;
 }
 
 function confirmDeleteVoucher(v: any) {

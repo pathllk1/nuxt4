@@ -151,11 +151,11 @@ export const TdsCalculator = {
     netAmount: number;
     ratePercent: number;
     isGrossUp: boolean;
-    catchUpBaseAmount: number;
+    catchUpBaseAmount?: number;
   }): TdsComputationResult {
     const net = params.netAmount;
     const rate = params.ratePercent;
-    const catchUpBase = params.catchUpBaseAmount;
+    const catchUpBase = params.catchUpBaseAmount ?? 0;
     if (
       !Number.isFinite(net) || net < 0 ||
       !Number.isFinite(rate) || rate < 0 || rate > 20 ||

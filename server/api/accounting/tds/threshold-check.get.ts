@@ -155,6 +155,14 @@ export default defineEventHandler(async (event) => {
       matchFilter.accountHead = resolvedAccountHead;
     }
 
+    const excludeVoucherGroupId = typeof query.excludeVoucherGroupId === 'string' ? query.excludeVoucherGroupId.trim() : '';
+    if (excludeVoucherGroupId) {
+      const altExclude = excludeVoucherGroupId.replace(/\//g, '-');
+      const altExclude2 = excludeVoucherGroupId.replace(/-/g, '/');
+      matchFilter.voucherGroupId = { $nin: [excludeVoucherGroupId, altExclude, altExclude2] };
+      matchFilter.voucherNo = { $nin: [excludeVoucherGroupId, altExclude, altExclude2] };
+    }
+
     const priorEntries = await Ledger.find(matchFilter, 'debitAmount transactionDate voucherGroupId accountHead partyId sourcePaymentRef statutory').lean();
     let priorYtd = priorEntries.reduce((sum: number, entry: any) => {
       const amount = Number(entry.debitAmount);

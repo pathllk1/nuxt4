@@ -848,17 +848,30 @@ function onAmountInput(entry: LocalVoucherEntry, rawValue: string) {
   const lineIndex = form.entries.indexOf(entry);
   if (lineIndex >= 0) {
     originalAmounts[lineIndex] = val;
-  }
 
-  // 1. If TDS assistant panel is open for this line, re-fetch calculation with debounce
-  if (activeTdsLineIndex.value === lineIndex && val > 0) {
-    clearTimeout(tdsInputDebounce);
-    tdsInputDebounce = setTimeout(() => {
-      fetchTdsForLine(lineIndex);
-    }, 250);
-  }
+    // 1. If TDS assistant panel is open for this line, re-fetch calculation with debounce
+    if (activeTdsLineIndex.value === lineIndex && val > 0) {
+      clearTimeout(tdsInputDebounce);
+      tdsInputDebounce = setTimeout(() => {
+        fetchTdsForLine(lineIndex);
+      }, 250);
+    }
 
-  invalidateTdsForLine(index);
+    // 2. If this line already had TDS attached and amount changed, invalidate attached TDS lines
+    if (entry.sourcePaymentRef) {
+      invalidateTdsForLine(lineIndex);
+    }
+  }
+}
+
+function invalidateTdsForLine(index: number) {
+  const entry = form.entries[index];
+  if (!entry?.sourcePaymentRef) return;
+  const sourcePaymentRef = entry.sourcePaymentRef;
+  form.entries = form.entries.filter(line => line === entry || line.sourcePaymentRef !== sourcePaymentRef);
+  delete entry.sourcePaymentRef;
+  delete entry.statutory;
+  closeTdsAssistant();
 }
 
 function formatINR(val: number) {
@@ -900,7 +913,8 @@ async function fetchTdsForLine(index: number) {
     const res: any = await checkTdsThreshold({
       accountHead: entry.accountHead,
       amount: amtToCheck,
-      paymentDate: form.vdate
+      paymentDate: form.vdate,
+      excludeVoucherGroupId: (props.isEdit && props.voucherGroupId) ? props.voucherGroupId : undefined
     });
     if (res.success && res.data) {
       tdsResult.value = res.data;
@@ -933,9 +947,17 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
     await fetchTdsForLine(index);
   }
 
-  if (!tdsResult.value || tdsResult.value.isAuthoritative !== true) {
-    alert(tdsResult.value?.warning || 'TDS cannot be applied because the payment history is incomplete.');
+  if (!tdsResult.value) {
+    alert('TDS computation is unavailable. Please check the transaction amount.');
     return;
+  }
+
+  if (tdsResult.value.isAuthoritative !== true) {
+    const confirmMsg = (tdsResult.value.warning || 'Historical payment history is incomplete.') +
+      '\n\nDo you want to proceed and apply this statutory TDS calculation?';
+    if (!confirm(confirmMsg)) {
+      return;
+    }
   }
 
   const option = optionType === 'GROSS_UP' ? tdsResult.value.grossUpOption : tdsResult.value.standardOption;
@@ -1056,16 +1078,6 @@ async function applyTdsOption(optionType: 'GROSS_UP' | 'STANDARD', index: number
         statutory
       });
     }
-  }
-
-  function invalidateTdsForLine(index: number) {
-    const entry = form.entries[index];
-    if (!entry?.sourcePaymentRef) return;
-    const sourcePaymentRef = entry.sourcePaymentRef;
-    form.entries = form.entries.filter(line => line === entry || line.sourcePaymentRef !== sourcePaymentRef);
-    delete entry.sourcePaymentRef;
-    delete entry.statutory;
-    closeTdsAssistant();
   }
 
   // 3. Append mode to narration if not already present

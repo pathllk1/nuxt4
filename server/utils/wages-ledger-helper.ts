@@ -468,7 +468,7 @@ export async function postWageDisbursement(
       accountType: payoutAcc.account_type,
       debitAmount: 0,
       creditAmount: disburseAmt,
-      bankAccountId: wage.bank_account_id || null,
+      bankAccountId: payoutAcc.account_type === 'BANK' ? (wage.bank_account_id || null) : null,
       paymentMode: wage.payment_mode || 'CASH',
       narration: `Salary payout to ${empName} (${wage.payment_mode || 'CASH'})${wage.cheque_no ? ` - Chq: ${wage.cheque_no}` : ''}`,
     }

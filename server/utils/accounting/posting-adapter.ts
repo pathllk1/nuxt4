@@ -183,9 +183,7 @@ export function convertVoucherInputToLegs(params: {
             partyId: entry.partyId || null,
             narration: entry.narration || narration,
             sourcePaymentRef: entry.sourcePaymentRef || null,
-            statutory: (entry.accountType || '').toUpperCase() === 'DUTIES_AND_TAXES'
-              ? entry.statutory || undefined
-              : undefined,
+            statutory: entry.statutory || undefined,
           });
         } else {
           // Negative amount (Deduction/TDS/Discount) -> CREDIT
@@ -200,9 +198,7 @@ export function convertVoucherInputToLegs(params: {
             partyId: entry.partyId || null,
             narration: entry.narration || narration,
             sourcePaymentRef: entry.sourcePaymentRef || null,
-            statutory: (entry.accountType || '').toUpperCase() === 'DUTIES_AND_TAXES'
-              ? entry.statutory || undefined
-              : undefined,
+            statutory: entry.statutory || undefined,
           });
         }
       }

@@ -9,7 +9,7 @@ import { TdsCalculator } from '../../utils/accounting/tds-calculator';
 import { requireAuthSession } from '../../utils/auth';
 import { getFinancialYearFromDate } from '../../utils/accounting/period-lock.service';
 import { resolveVoucherLiquidityAccount } from '../../utils/accounting/voucher-liquidity-account';
-import { type IVoucherLeg } from '../../types/accounting';
+import { type IVoucherLeg, type IStatutoryMetadata } from '../../types/accounting';
 import { connectDB } from '../../plugins/mongodb';
 
 const isUuid = (value: unknown): value is string =>
@@ -204,19 +204,41 @@ export default defineEventHandler(async (event) => {
     const sourcePaymentRef = `SUBCONTRACTOR-${String(firmIdObj)}-${idempotencyKey}`;
     const legs: IVoucherLeg[] = [];
 
-    // Leg 1: Debit Subcontractor Direct Expense (Gross Amount)
-    legs.push({
-      accountHead: expenseHead,
-      accountType: 'DIRECT_EXPENSE',
-      debitAmount: tdsComputation.grossAmount,
-      creditAmount: 0,
-      narration: `Subcontract payout to ${subconUser.name}${hasTds ? ` (TDS u/s 194C @ ${effectiveRate}%${isGrossUp ? ' Gross-Up' : ''})` : ''}`,
-      sourcePaymentRef
-    });
+    if (isGrossUp && tdsComputation.tdsAmount > 0) {
+      // Gross-Up u/s 195A: Subcontractor expense receives net contractual amount,
+      // and tax borne by the firm is debited to 'TDS Borne by Company'.
+      legs.push({
+        accountHead: expenseHead,
+        accountType: 'DIRECT_EXPENSE',
+        debitAmount: tdsComputation.netPayout,
+        creditAmount: 0,
+        narration: `Subcontract payout to ${subconUser.name} (Gross-Up u/s 195A)`,
+        sourcePaymentRef
+      });
+
+      legs.push({
+        accountHead: 'TDS Borne by Company',
+        accountType: 'EXPENSE',
+        debitAmount: tdsComputation.tdsAmount,
+        creditAmount: 0,
+        narration: `TDS Borne by Company on payout to ${subconUser.name} (${effectiveRate}% u/s 195A)`,
+        sourcePaymentRef
+      });
+    } else {
+      // Standard Deduction or No TDS: Debit Subcontractor Direct Expense (Gross Amount)
+      legs.push({
+        accountHead: expenseHead,
+        accountType: 'DIRECT_EXPENSE',
+        debitAmount: tdsComputation.grossAmount,
+        creditAmount: 0,
+        narration: `Subcontract payout to ${subconUser.name}${hasTds ? ` (TDS u/s 194C @ ${effectiveRate}%)` : ''}`,
+        sourcePaymentRef
+      });
+    }
 
     // Statutory TDS snapshot for canonical register tracking (F-04)
     // ONLY set if TDS is actually withheld (> 0) and populate taxableAmount explicitly!
-    const statutorySnapshot = tdsComputation.tdsAmount > 0 ? {
+    const statutorySnapshot: IStatutoryMetadata | undefined = tdsComputation.tdsAmount > 0 ? {
       isTds: true,
       tdsSection: '194C',
       tdsRate: effectiveRate,
@@ -228,7 +250,7 @@ export default defineEventHandler(async (event) => {
       pan: panValidation.pan,
       deducteeName: subconUser.name,
       deducteeId: String(subconUser._id),
-      deducteeType: 'SUBCONTRACTOR',
+      deducteeType: '02' as const,
       sourcePaymentRef,
       certificateNumber,
       isExempt: certificateNumber !== null,

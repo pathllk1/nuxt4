@@ -393,7 +393,7 @@ const formatINR = (n: number | null | undefined) => {
                               @click="toggleDetail(v.entityId, v.category)"
                             />
                             <UButton
-                              v-if="v.category === 'LABOR'"
+                              v-if="v.category === 'ADVANCE' && v.entityId !== 'UNTAGGED' && v.entityId !== 'UNKNOWN'"
                               size="xs"
                               color="primary"
                               variant="solid"
