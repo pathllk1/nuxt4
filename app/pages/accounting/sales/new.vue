@@ -327,7 +327,7 @@ import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
 const router = useRouter();
 const route = useRoute();
-const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo } = useBillingState();
+const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo, normalizePartyGstInfo } = useBillingState();
 const { saveFocus, restoreFocus, trackPageFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
 
 const docTypeSelectRef = ref<HTMLSelectElement | null>(null);
@@ -1001,10 +1001,11 @@ async function loadBillForEditing(id: string) {
 }
 
 function onPartySelect(party: any) {
-  state.selectedParty = party;
-  const primaryLoc = party.gstLocations?.find((l: any) => l.isPrimary) || party.gstLocations?.[0] || null;
+  const normParty = normalizePartyGstInfo(party);
+  state.selectedParty = normParty;
+  const primaryLoc = normParty.gstLocations?.find((l: any) => l.isPrimary) || normParty.gstLocations?.[0] || null;
   state.selectedPartyLocation = primaryLoc;
-  state.selectedPartyGstin = primaryLoc?.gstin || party.gstin || 'UNREGISTERED';
+  state.selectedPartyGstin = primaryLoc?.gstin || normParty.gstin || 'UNREGISTERED';
   determineGstBillType();
   populateConsigneeFromBillTo();
   showPartyModal.value = false;

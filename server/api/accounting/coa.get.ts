@@ -6,6 +6,7 @@ import Ledger from '../../models/Ledger';
 import { LedgerService } from '../../utils/accounting/ledger.service';
 import { requireAuthSession } from '../../utils/auth';
 import { getSql, connectPostgres } from '../../utils/pg.config';
+import { GST_STATE_CODE_MAP } from '../../utils/accounting/gst-address-helper';
 
 function getCurrentFinancialYear(): string {
   const now = new Date();
@@ -184,10 +185,30 @@ export default defineEventHandler(async (event) => {
     const resolvedPan = acc.pan || party?.pan || null;
     const resolvedPhone = acc.phone || party?.contact || party?.phone || null;
     const resolvedAddress = acc.address || party?.address || null;
-    const resolvedState = acc.state || party?.state || null;
-    const resolvedStateCode = acc.stateCode || party?.stateCode || null;
-    const resolvedPin = acc.pin || acc.pincode || party?.pin || party?.pincode || null;
-    const resolvedGstLocations = (acc.gstLocations && acc.gstLocations.length > 0) ? acc.gstLocations : (party?.gstLocations || []);
+    const rawGstLocations = (acc.gstLocations && acc.gstLocations.length > 0) ? acc.gstLocations : (party?.gstLocations || []);
+    const resolvedGstLocations = rawGstLocations.map((loc: any) => {
+      const locGstin = (loc.gstin || '').toUpperCase().trim();
+      if (locGstin && /^\d{2}/.test(locGstin) && locGstin !== 'UNREGISTERED') {
+        const sc = locGstin.substring(0, 2);
+        return {
+          ...loc,
+          gstin: locGstin,
+          stateCode: sc,
+          state: GST_STATE_CODE_MAP[sc] || loc.state
+        };
+      }
+      return loc;
+    });
+
+    let resolvedState = acc.state || party?.state || null;
+    let resolvedStateCode = acc.stateCode || party?.stateCode || null;
+    if (resolvedGstin && /^\d{2}/.test(resolvedGstin.trim())) {
+      const sc = resolvedGstin.trim().substring(0, 2);
+      resolvedStateCode = sc;
+      if (!resolvedState || resolvedState === '-' || resolvedState.toLowerCase() === 'null') {
+        resolvedState = GST_STATE_CODE_MAP[sc] || resolvedState;
+      }
+    }
 
     return {
       ...acc,

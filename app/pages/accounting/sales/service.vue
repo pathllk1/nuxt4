@@ -316,7 +316,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useApi } from '@/utils/api';
 import { useAccountingInvoiceState, type COAAccount } from '@/composables/useAccountingInvoiceState';
-import { INDIA_STATE_CODES } from '@/composables/useBillingState';
+import { INDIA_STATE_CODES, extractGstStateCode, normalizePartyGstInfo } from '@/composables/useBillingState';
 import PartyManager from '@/components/accounting/PartyManager.vue';
 import LedgerCartManager from '@/components/accounting/LedgerCartManager.vue';
 import LedgerModal from '@/components/accounting/LedgerModal.vue';
@@ -570,14 +570,31 @@ function onNarrationKeydown(e: KeyboardEvent) {
 
 // ─── Automatic GST Bill Type Detection ───
 function determineGstBillType() {
-  const firmCode = activeFirmLocation.value?.state_code || activeFirmLocation.value?.gst_number?.substring(0, 2);
-  const partyCode = selectedPartyLocation.value?.stateCode ||
-                    selectedParty.value?.stateCode ||
-                    (selectedPartyGstin.value && selectedPartyGstin.value !== 'UNREGISTERED' && selectedPartyGstin.value.length >= 2 ? selectedPartyGstin.value.substring(0, 2) : null) ||
-                    (selectedParty.value?.state ? INDIA_STATE_CODES[selectedParty.value.state.toLowerCase()] : null);
+  const firmGstin = activeFirmLocation.value?.gst_number || firmLocations.value?.[0]?.gst_number;
+  const firmCode = extractGstStateCode(
+    firmGstin,
+    activeFirmLocation.value?.state_code,
+    activeFirmLocation.value?.state
+  );
 
-  if (firmCode && partyCode) {
-    if (firmCode.toString().padStart(2, '0') === partyCode.toString().padStart(2, '0')) {
+  const partyGstin = selectedPartyLocation.value?.gstin || selectedPartyGstin.value || selectedParty.value?.gstin;
+  const partyCode = extractGstStateCode(
+    partyGstin,
+    selectedPartyLocation.value?.stateCode || selectedParty.value?.stateCode,
+    selectedPartyLocation.value?.state || selectedParty.value?.state
+  );
+
+  let destCode = partyCode;
+  if (!partyState.consigneeSameAsBillTo && partyState.selectedConsignee) {
+    destCode = extractGstStateCode(
+      partyState.selectedConsignee.gstin,
+      partyState.selectedConsignee.stateCode,
+      partyState.selectedConsignee.state
+    ) || partyCode;
+  }
+
+  if (firmCode && destCode) {
+    if (firmCode.toString().padStart(2, '0') === destCode.toString().padStart(2, '0')) {
       meta.value.billType = 'intra-state';
     } else {
       meta.value.billType = 'inter-state';
@@ -621,7 +638,7 @@ async function fetchNextBillNo() {
 async function fetchParties() {
   try {
     const res = await api.get('/accounting/parties');
-    parties.value = res.data || [];
+    parties.value = (res.data || []).map((p: any) => normalizePartyGstInfo(p));
   } catch (err: any) {
     console.error('Failed to fetch parties:', err);
   }
@@ -651,11 +668,12 @@ function onFirmGstinChange(e: Event) {
 
 // ─── Party Selection & Location Handling ───
 function selectParty(party: any) {
-  selectedParty.value = party;
-  const primaryLoc = party?.gstLocations?.find((l: any) => l.isPrimary) || party?.gstLocations?.[0] || null;
+  const normParty = normalizePartyGstInfo(party);
+  selectedParty.value = normParty;
+  const primaryLoc = normParty?.gstLocations?.find((l: any) => l.isPrimary) || normParty?.gstLocations?.[0] || null;
   selectedPartyLocation.value = primaryLoc;
-  selectedPartyGstin.value = primaryLoc?.gstin || party?.gstin || 'UNREGISTERED';
-  partyState.selectedParty = party;
+  selectedPartyGstin.value = primaryLoc?.gstin || normParty?.gstin || 'UNREGISTERED';
+  partyState.selectedParty = normParty;
   partyState.selectedPartyLocation = primaryLoc;
   partyState.selectedPartyGstin = selectedPartyGstin.value;
   showPartyDrawer.value = false;

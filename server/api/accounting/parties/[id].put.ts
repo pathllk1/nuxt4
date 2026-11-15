@@ -5,6 +5,7 @@ import { classifyAccountType } from '../../../types/accounting';
 import { resolveLedgerPostingAccount } from '../../../utils/accounting/ledger-account-resolver';
 import { OpeningBalanceService } from '../../../utils/accounting/opening-balance.service';
 import { requireAuthSession } from '../../../utils/auth';
+import { GST_STATE_CODE_MAP } from '../../../utils/accounting/gst-address-helper';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -43,19 +44,38 @@ export default defineEventHandler(async (event) => {
   const partyType = String(body.partyType || prevParty.partyType || 'CUSTOMER').toUpperCase();
   const fallbackType = partyType === 'SUPPLIER' ? 'SUNDRY_CREDITORS' : 'SUNDRY_DEBTORS';
 
+  const rawGstin = (body.gstin || 'UNREGISTERED').toUpperCase().trim();
+  const pSc = rawGstin && /^\d{2}/.test(rawGstin) && rawGstin !== 'UNREGISTERED' ? rawGstin.substring(0, 2) : '';
+  const pState = (pSc && GST_STATE_CODE_MAP[pSc]) ? GST_STATE_CODE_MAP[pSc] : (body.state || prevParty.state);
+  const pStateCode = pSc || body.stateCode || prevParty.stateCode;
+
+  const cleanGstLocations = (body.gstLocations || prevParty.gstLocations || []).map((loc: any) => {
+    const locGstin = (loc.gstin || '').toUpperCase().trim();
+    if (locGstin && /^\d{2}/.test(locGstin) && locGstin !== 'UNREGISTERED') {
+      const sc = locGstin.substring(0, 2);
+      return {
+        ...loc,
+        gstin: locGstin,
+        stateCode: sc,
+        state: GST_STATE_CODE_MAP[sc] || loc.state
+      };
+    }
+    return loc;
+  });
+
   const updated = await (Party as any).findOneAndUpdate(
     { _id: new mongoose.Types.ObjectId(partyId), firmId: firmIdObj },
     {
       $set: {
         name,
-        gstin: body.gstin || 'UNREGISTERED',
+        gstin: rawGstin,
         contact: body.contact,
-        state: body.state,
-        stateCode: body.stateCode,
+        state: pState,
+        stateCode: pStateCode,
         address: body.address,
         pin: body.pin,
         pan: body.pan,
-        gstLocations: body.gstLocations || [],
+        gstLocations: cleanGstLocations,
         primaryGstinIndex: Number(body.primaryGstinIndex) || 0,
         partyType,
         openingBalance: parseFloat(body.openingBalance) || 0,

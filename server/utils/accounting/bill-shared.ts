@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Firm from '../../models/Firm';
 import FirmSettings from '../../models/FirmSettings';
+import { GST_STATE_CODE_MAP } from './gst-address-helper';
 
 /* ── Resolve firm location for GST ── */
 export async function resolveFirmLocation(firmId: string | mongoose.Types.ObjectId, firmGstin?: string) {
@@ -15,7 +16,10 @@ export async function resolveFirmLocation(firmId: string | mongoose.Types.Object
     firmLoc = locations.find((l: any) => l.is_default) || locations[0] || null;
   }
 
-  const firmStateCode = firmLoc?.state_code || firmLoc?.gst_number?.substring(0, 2) || null;
+  const rawGst = firmLoc?.gst_number || firmGstin;
+  const firmStateCode = (rawGst && /^\d{2}/.test(rawGst.trim()))
+    ? rawGst.trim().substring(0, 2)
+    : (firmLoc?.state_code || null);
   return { firmLoc, firmStateCode };
 }
 
@@ -33,11 +37,20 @@ export async function resolvePartyLocation(partyDoc: any, requestedGstin?: strin
   }
 
   const gstin = partyLoc?.gstin || partyDoc.gstin || 'UNREGISTERED';
-  const stateCode = partyLoc?.stateCode || partyDoc.stateCode || (gstin && gstin !== 'UNREGISTERED' && gstin.length >= 2 ? gstin.substring(0, 2) : null);
+  let stateCode: string | null = null;
+  let state: string | null = null;
+
+  if (gstin && gstin !== 'UNREGISTERED' && /^\d{2}/.test(gstin.trim())) {
+    stateCode = gstin.trim().substring(0, 2);
+    state = GST_STATE_CODE_MAP[stateCode] || partyLoc?.state || partyDoc.state || null;
+  } else {
+    stateCode = partyLoc?.stateCode || partyDoc.stateCode || null;
+    state = partyLoc?.state || partyDoc.state || null;
+  }
   
   return {
     gstin,
-    state: partyLoc?.state || partyDoc.state,
+    state,
     stateCode,
     address: partyLoc?.address || partyDoc.address,
     pin: partyLoc?.pincode || partyDoc.pin

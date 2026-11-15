@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Party from '../../models/Party';
 import Ledger from '../../models/Ledger';
 import { requireAuthSession } from '../../utils/auth';
+import { GST_STATE_CODE_MAP } from '../../utils/accounting/gst-address-helper';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -104,8 +105,37 @@ export default defineEventHandler(async (event) => {
     const closingBalance = Math.abs(Number(netBalance.toFixed(2)));
     const closingBalanceType: 'DR' | 'CR' | 'NIL' = netBalance > 0.005 ? 'DR' : (netBalance < -0.005 ? 'CR' : 'NIL');
 
+    let cleanLocations = p.gstLocations;
+    if (Array.isArray(cleanLocations)) {
+      cleanLocations = cleanLocations.map((loc: any) => {
+        const rawGstin = (loc.gstin || '').toUpperCase().trim();
+        if (rawGstin && /^\d{2}/.test(rawGstin) && rawGstin !== 'UNREGISTERED') {
+          const sc = rawGstin.substring(0, 2);
+          return {
+            ...loc,
+            stateCode: sc,
+            state: GST_STATE_CODE_MAP[sc] || loc.state
+          };
+        }
+        return loc;
+      });
+    }
+
+    let pState = p.state;
+    let pStateCode = p.stateCode;
+    if (p.gstin && /^\d{2}/.test(p.gstin.trim()) && p.gstin !== 'UNREGISTERED') {
+      const sc = p.gstin.trim().substring(0, 2);
+      pStateCode = sc;
+      if (!pState || pState === '-' || pState.toLowerCase() === 'null') {
+        pState = GST_STATE_CODE_MAP[sc] || pState;
+      }
+    }
+
     return {
       ...p,
+      state: pState,
+      stateCode: pStateCode,
+      gstLocations: cleanLocations,
       closingBalance,
       closingBalanceType,
       formattedBalance: closingBalance === 0 ? '₹0.00' : `₹${closingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${closingBalanceType}`

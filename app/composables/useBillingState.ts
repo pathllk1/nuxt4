@@ -50,15 +50,67 @@ export interface BillingState {
   currentBill: any | null;
 }
 
+import { GST_STATE_CODE_MAP } from '@/utils/gst-address-helper';
+
 export const INDIA_STATE_CODES: Record<string, string> = {
   'jammu and kashmir': '01', 'himachal pradesh': '02', 'punjab': '03', 'chandigarh': '04',
   'uttarakhand': '05', 'haryana': '06', 'delhi': '07', 'rajasthan': '08', 'uttar pradesh': '09',
   'bihar': '10', 'sikkim': '11', 'arunachal pradesh': '12', 'nagaland': '13', 'manipur': '14',
   'mizoram': '15', 'tripura': '16', 'meghalaya': '17', 'assam': '18', 'west bengal': '19',
   'jharkhand': '20', 'odisha': '21', 'chhattisgarh': '22', 'madhya pradesh': '23', 'gujarat': '24',
-  'maharashtra': '27', 'andhra pradesh': '28', 'karnataka': '29', 'goa': '30', 'kerala': '32',
-  'tamil nadu': '33', 'telangana': '36'
+  'dadra and nagar haveli and daman and diu': '26', 'maharashtra': '27', 'andhra pradesh': '28',
+  'karnataka': '29', 'goa': '30', 'lakshadweep': '31', 'kerala': '32', 'tamil nadu': '33',
+  'puducherry': '34', 'andaman and nicobar islands': '35', 'telangana': '36', 'ladakh': '38',
+  'other territory': '97'
 };
+
+export function extractGstStateCode(
+  gstin?: string | null,
+  stateCode?: string | null,
+  stateName?: string | null
+): string | null {
+  // 1. Statutory Authority: First 2 digits of valid GSTIN
+  if (gstin && gstin !== 'UNREGISTERED') {
+    const clean = String(gstin).trim().toUpperCase();
+    const match = clean.match(/^(\d{2})/);
+    if (match) return match[1];
+  }
+  // 2. Explicit 2-digit state code
+  if (stateCode) {
+    const cleanCode = String(stateCode).trim();
+    if (/^\d{1,2}$/.test(cleanCode)) return cleanCode.padStart(2, '0');
+    const fromMap = INDIA_STATE_CODES[cleanCode.toLowerCase()];
+    if (fromMap) return fromMap;
+  }
+  // 3. From State Name
+  if (stateName) {
+    const cleanName = String(stateName).trim().toLowerCase();
+    const fromMap = INDIA_STATE_CODES[cleanName];
+    if (fromMap) return fromMap;
+  }
+  return null;
+}
+
+export function normalizePartyGstInfo(p: any) {
+  if (!p) return p;
+  if (p.gstin && /^\d{2}/.test(p.gstin.trim()) && p.gstin !== 'UNREGISTERED') {
+    const sc = p.gstin.trim().substring(0, 2);
+    p.stateCode = sc;
+    if (!p.state || p.state === '-' || p.state.toLowerCase() === 'null') {
+      p.state = GST_STATE_CODE_MAP[sc] || p.state;
+    }
+  }
+  if (Array.isArray(p.gstLocations)) {
+    p.gstLocations.forEach((loc: any) => {
+      if (loc.gstin && /^\d{2}/.test(loc.gstin.trim()) && loc.gstin !== 'UNREGISTERED') {
+        const sc = loc.gstin.trim().substring(0, 2);
+        loc.stateCode = sc;
+        loc.state = GST_STATE_CODE_MAP[sc] || loc.state;
+      }
+    });
+  }
+  return p;
+}
 
 export const useBillingState = () => {
   const api = useApi();
@@ -95,15 +147,34 @@ export const useBillingState = () => {
   const loading = ref(false);
 
   const determineGstBillType = () => {
-    const firmCode = state.activeFirmLocation?.state_code || state.activeFirmLocation?.gst_number?.substring(0, 2);
-    
-    const partyCode = state.selectedPartyLocation?.stateCode || 
-                     state.selectedParty?.stateCode ||
-                     (state.selectedPartyGstin && state.selectedPartyGstin !== 'UNREGISTERED' && state.selectedPartyGstin.length >= 2 ? state.selectedPartyGstin.substring(0, 2) : null) ||
-                     (state.selectedParty?.state ? INDIA_STATE_CODES[state.selectedParty.state.toLowerCase()] : null);
+    // 1. Seller State Code
+    const firmGstin = state.activeFirmLocation?.gst_number || state.firmLocations?.[0]?.gst_number;
+    const firmCode = extractGstStateCode(
+      firmGstin,
+      state.activeFirmLocation?.state_code,
+      state.activeFirmLocation?.state
+    );
 
-    if (firmCode && partyCode) {
-      if (firmCode.toString().padStart(2, '0') === partyCode.toString().padStart(2, '0')) {
+    // 2. Buyer State Code (GSTIN prefix is authoritative)
+    const partyGstin = state.selectedPartyLocation?.gstin || state.selectedPartyGstin || state.selectedParty?.gstin;
+    const partyCode = extractGstStateCode(
+      partyGstin,
+      state.selectedPartyLocation?.stateCode || state.selectedParty?.stateCode,
+      state.selectedPartyLocation?.state || state.selectedParty?.state
+    );
+
+    // 3. Place of Supply / Consignee destination if different ship-to
+    let destCode = partyCode;
+    if (!state.consigneeSameAsBillTo && state.selectedConsignee) {
+      destCode = extractGstStateCode(
+        state.selectedConsignee.gstin,
+        state.selectedConsignee.stateCode,
+        state.selectedConsignee.state
+      ) || partyCode;
+    }
+
+    if (firmCode && destCode) {
+      if (firmCode.toString().padStart(2, '0') === destCode.toString().padStart(2, '0')) {
         state.meta.billType = 'intra-state';
       } else {
         state.meta.billType = 'inter-state';
@@ -117,12 +188,18 @@ export const useBillingState = () => {
     const party = state.selectedParty;
     const loc = state.selectedPartyLocation;
 
+    const gstin = loc?.gstin || party.gstin || 'UNREGISTERED';
+    const stateCode = extractGstStateCode(gstin, loc?.stateCode || party.stateCode, loc?.state || party.state) || '';
+    const stateName = (stateCode && GST_STATE_CODE_MAP[stateCode])
+      ? GST_STATE_CODE_MAP[stateCode]
+      : (loc?.state || party.state || '');
+
     state.selectedConsignee = {
       name: party.name || party.firm || '',
-      gstin: loc?.gstin || party.gstin || 'UNREGISTERED',
+      gstin,
       address: loc?.address || party.address || '',
-      state: loc?.state || party.state || '',
-      stateCode: loc?.stateCode || party.stateCode || (loc?.gstin && loc.gstin !== 'UNREGISTERED' && loc.gstin.length >= 2 ? loc.gstin.substring(0, 2) : ''),
+      state: stateName,
+      stateCode,
       pin: loc?.pincode || party.pin || '',
       contact: loc?.contact || party.contact || '',
       deliveryInstructions: state.selectedConsignee?.deliveryInstructions || ''
@@ -130,6 +207,13 @@ export const useBillingState = () => {
   };
 
   const setBillToLocation = (location: PartyLocation | null) => {
+    if (location && location.gstin && /^\d{2}/.test(location.gstin.trim()) && location.gstin !== 'UNREGISTERED') {
+      const sc = location.gstin.trim().substring(0, 2);
+      location.stateCode = sc;
+      if (GST_STATE_CODE_MAP[sc]) {
+        location.state = GST_STATE_CODE_MAP[sc];
+      }
+    }
     state.selectedPartyLocation = location;
     state.selectedPartyGstin = location?.gstin || state.selectedParty?.gstin || 'UNREGISTERED';
     determineGstBillType();
@@ -227,7 +311,7 @@ export const useBillingState = () => {
       ]);
 
       if (stocksRes.success) state.stocks = stocksRes.data || [];
-      if (partiesRes.success) state.parties = partiesRes.data || [];
+      if (partiesRes.success) state.parties = (partiesRes.data || []).map((p: any) => normalizePartyGstInfo(p));
       
       if (firmRes.success && firmRes.data) {
         const firm = firmRes.data;
@@ -262,6 +346,8 @@ export const useBillingState = () => {
     populateConsigneeFromBillTo,
     setBillToLocation,
     setConsigneeFromLocation,
+    normalizePartyGstInfo,
+    extractGstStateCode,
     fetchData,
     fetchNextBillNo
   };

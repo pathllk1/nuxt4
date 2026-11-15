@@ -232,7 +232,7 @@
                         maxlength="15"
                         placeholder="27ABCDE1234F1Z5"
                         class="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg font-mono font-bold text-xs uppercase text-slate-900 dark:text-white outline-none"
-                        @input="loc.gstin = loc.gstin.toUpperCase()"
+                        @input="onLocationGstinInput(index)"
                         @blur="onGstinBlur(index)"
                         @keydown.enter.prevent="onGstinEnter($event, index)"
                       />
@@ -940,28 +940,36 @@ function hydrateInitialData(data: any) {
     form.value.balance_type = data.balance_type || data.balanceType || 'DR';
   }
   if (data.gstLocations && data.gstLocations.length > 0) {
-    form.value.gstLocations = data.gstLocations.map((l: any) => ({
-      _uid: l._uid || nextUid(),
-      fetchStatus: l.fetchStatus || (l.gstin && l.gstin.length === 15 ? 'success' : 'none'),
-      gstin: l.gstin || '',
-      state: l.state || '',
-      stateCode: l.stateCode || (l.gstin && l.gstin.length >= 2 && l.gstin !== 'UNREGISTERED' ? l.gstin.substring(0, 2) : ''),
-      address: l.address || '',
-      pincode: l.pincode || l.pin || '',
-      contact: l.contact || '',
-      isPrimary: !!l.isPrimary
-    }));
+    form.value.gstLocations = data.gstLocations.map((l: any) => {
+      const gstin = (l.gstin || '').toUpperCase().trim();
+      const sc = gstin && /^\d{2}/.test(gstin) && gstin !== 'UNREGISTERED' ? gstin.substring(0, 2) : '';
+      const stateName = (sc && GST_STATE_CODE_MAP[sc]) ? GST_STATE_CODE_MAP[sc] : (l.state || '');
+      return {
+        _uid: l._uid || nextUid(),
+        fetchStatus: l.fetchStatus || (gstin.length === 15 ? 'success' : 'none'),
+        gstin,
+        state: stateName,
+        stateCode: sc || l.stateCode || '',
+        address: l.address || '',
+        pincode: l.pincode || l.pin || '',
+        contact: l.contact || '',
+        isPrimary: !!l.isPrimary
+      };
+    });
   } else if (data.gstin || data.address || data.state) {
+    const rawGstin = data.gstin === 'UNREGISTERED' ? '' : (data.gstin || '').toUpperCase().trim();
+    const sc = rawGstin && /^\d{2}/.test(rawGstin) ? rawGstin.substring(0, 2) : '';
+    const stateName = (sc && GST_STATE_CODE_MAP[sc]) ? GST_STATE_CODE_MAP[sc] : (data.state || '');
     form.value.gstLocations = [{
       _uid: nextUid(),
-      gstin: data.gstin === 'UNREGISTERED' ? '' : (data.gstin || ''),
-      state: data.state || '',
-      stateCode: data.stateCode || (data.gstin && data.gstin.length >= 2 && data.gstin !== 'UNREGISTERED' ? data.gstin.substring(0, 2) : ''),
+      gstin: rawGstin,
+      state: stateName,
+      stateCode: sc || data.stateCode || '',
       address: data.address || '',
       pincode: data.pin || data.pincode || '',
       contact: data.contact || data.phone || '',
       isPrimary: true,
-      fetchStatus: data.gstin && data.gstin.length === 15 ? 'success' : 'none'
+      fetchStatus: rawGstin && rawGstin.length === 15 ? 'success' : 'none'
     }];
   }
 }
@@ -1050,6 +1058,19 @@ function removeGstLocation(idx: number) {
 
 function setPrimaryGstLocation(idx: number) {
   form.value.gstLocations.forEach((l, i) => l.isPrimary = i === idx);
+}
+
+function onLocationGstinInput(index: number) {
+  const loc = form.value.gstLocations[index];
+  if (!loc) return;
+  loc.gstin = (loc.gstin || '').toUpperCase();
+  if (loc.gstin.length >= 2 && /^\d{2}/.test(loc.gstin)) {
+    const sc = loc.gstin.substring(0, 2);
+    loc.stateCode = sc;
+    if (GST_STATE_CODE_MAP[sc]) {
+      loc.state = GST_STATE_CODE_MAP[sc];
+    }
+  }
 }
 
 async function fetchGstForLocation(index: number) {
