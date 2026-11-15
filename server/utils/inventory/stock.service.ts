@@ -162,7 +162,7 @@ export class StockService {
       { _id: stock._id },
       updateQuery,
       {
-        new: true,
+        returnDocument: 'after',
         session: session || null,
         arrayFilters: arrayFilters.length > 0 ? arrayFilters : undefined
       }
@@ -315,7 +315,7 @@ export class StockService {
         }
       },
       {
-        new: true,
+        returnDocument: 'after',
         session: session || null,
         arrayFilters: arrayFilters.length > 0 ? arrayFilters : undefined
       }
@@ -402,7 +402,7 @@ export class StockService {
           user: user
         }
       },
-      { new: true, session: session || null }
+      { returnDocument: 'after', session: session || null }
     );
 
     if (!updatedStock) throw new Error('Failed to update stock');

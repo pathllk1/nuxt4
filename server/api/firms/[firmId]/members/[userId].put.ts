@@ -132,7 +132,7 @@ export default defineEventHandler(async (event) => {
               created_by: currentUserId
             }
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         );
 
         targetFirmAssignment.linkedLedgerHead = targetAccountHead;
@@ -169,7 +169,7 @@ export default defineEventHandler(async (event) => {
               created_by: currentUserId
             }
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         );
 
         targetFirmAssignment.linkedLedgerHead = targetAccountHead;

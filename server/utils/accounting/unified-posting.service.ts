@@ -932,7 +932,7 @@ export class UnifiedPostingService {
     const seq = await VoucherSequence.findOneAndUpdate(
       { firmId, vtype, financialYear },
       { $inc: { lastNo: 1 } },
-      { returnDocument: 'after', new: true, upsert: true, ...(session ? { session } : {}) }
+      { returnDocument: 'after', upsert: true, ...(session ? { session } : {}) }
     );
 
     if (!seq || !seq.lastNo) {

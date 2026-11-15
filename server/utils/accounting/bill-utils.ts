@@ -73,7 +73,7 @@ export async function getNextVoucherNumber(firmId: mongoose.Types.ObjectId) {
   const seq = await VoucherSequence.findOneAndUpdate(
     { firmId, vtype: 'JOURNAL' } as any,
     { $inc: { lastNo: 1 } },
-    { returnDocument: 'after', new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return (seq as any)?.lastNo || 1;
 }

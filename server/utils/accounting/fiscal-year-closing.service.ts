@@ -198,7 +198,7 @@ export class FiscalYearClosingService {
           fenceNumber: 1, // Monotonic fencing sequence number (F-01)
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (existingLockUpdate) {
@@ -452,7 +452,7 @@ export class FiscalYearClosingService {
             closeExecutionToken: null
           },
         },
-        { session, new: true }
+        { session, returnDocument: 'after' }
       );
 
       if (!finalizedLock) {
