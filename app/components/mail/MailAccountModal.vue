@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { reactive, ref, watch } from 'vue';
 import { useAuth } from '@/composables/useAuth';
 import { useMailVault } from '@/composables/useMailVault';
 import { useMail } from '@/composables/useMail';
@@ -16,8 +16,64 @@ const emit = defineEmits<{
 
 const { apiFetch } = useAuth();
 const { unlockVault, storeLocalCredentials } = useMailVault();
-const { fetchAccounts, fetchFolders, fetchMessages, syncMailbox } = useMail();
+const {
+  accounts,
+  activeAccount,
+  switchAccount,
+  deleteAccount,
+  fetchAccounts,
+  fetchFolders,
+  fetchMessages,
+  syncMailbox
+} = useMail();
 const toast = useToast();
+
+const activeTab = ref<'connected' | 'add'>('connected');
+
+watch(() => props.open, (isOpen) => {
+  if (isOpen) {
+    activeTab.value = accounts.value.length > 0 ? 'connected' : 'add';
+  }
+}, { immediate: true });
+
+const getProviderBadge = (provider?: string, email?: string) => {
+  const e = (email || '').toLowerCase();
+  const p = (provider || '').toUpperCase();
+  if (p === 'GMAIL' || e.includes('@gmail.')) {
+    return { name: 'Gmail', icon: 'G', bg: 'bg-red-500', text: 'text-red-500' };
+  }
+  if (p === 'YAHOO' || e.includes('@yahoo.')) {
+    return { name: 'Yahoo', icon: 'Y!', bg: 'bg-purple-600', text: 'text-purple-600' };
+  }
+  if (p === 'HOTMAIL' || p === 'OUTLOOK' || e.includes('@outlook.') || e.includes('@hotmail.')) {
+    return { name: 'Outlook', icon: 'O', bg: 'bg-blue-600', text: 'text-blue-600' };
+  }
+  return { name: 'IMAP', icon: '✉', bg: 'bg-slate-700', text: 'text-slate-700' };
+};
+
+const onSwitchAccount = async (account: any) => {
+  await switchAccount(account);
+  toast.add({ title: 'Mailbox Switched', description: `Switched to ${account.emailAddress}`, color: 'success' });
+  emit('update:open', false);
+};
+
+const deletingId = ref<string | null>(null);
+const onDeleteAccount = async (account: any) => {
+  if (!confirm(`Are you sure you want to disconnect ${account.emailAddress}? Local credentials and synced cache will be removed.`)) {
+    return;
+  }
+  deletingId.value = account.id;
+  try {
+    const ok = await deleteAccount(account.id);
+    if (ok) {
+      if (accounts.value.length === 0) {
+        activeTab.value = 'add';
+      }
+    }
+  } finally {
+    deletingId.value = null;
+  }
+};
 
 const form = reactive({
   emailAddress: '',
@@ -185,8 +241,12 @@ const onSaveAccount = async () => {
       emit('update:open', false);
       emit('success');
       await fetchAccounts();
-      await fetchFolders();
-      await fetchMessages();
+      if (res.data) {
+        await switchAccount(res.data);
+      } else {
+        await fetchFolders();
+        await fetchMessages();
+      }
       // Auto-trigger initial mailbox sync right after connect
       syncMailbox().catch((err: any) => console.warn('[MailAccountModal] Auto sync notice:', err));
     }
@@ -205,14 +265,133 @@ const onSaveAccount = async () => {
 <template>
   <UModal
     :open="open"
-    title="Connect Mail Account (Outlook Client)"
+    title="Mail Accounts & Setup (Outlook Client)"
     description="Zero-knowledge enterprise setup: your credentials remain securely encrypted on the client side."
     :ui="{ content: 'w-full sm:max-w-4xl lg:max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden' }"
     @update:open="emit('update:open', $event)"
   >
     <template #body>
-      <!-- Two-Column Master Layout -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start text-xs select-none">
+      <!-- Top Tab Navigation (When Accounts Exist) -->
+      <div v-if="accounts.length > 0" class="flex items-center gap-2 pb-3.5 mb-4 border-b border-slate-200 dark:border-slate-800 select-none">
+        <button
+          type="button"
+          @click="activeTab = 'connected'"
+          class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 border"
+          :class="activeTab === 'connected'
+            ? 'bg-primary-50 dark:bg-primary-950/60 border-primary-300 dark:border-primary-800 text-primary-700 dark:text-primary-300 shadow-2xs'
+            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'"
+        >
+          <UIcon name="i-heroicons-user-group" class="w-4 h-4" />
+          <span>Connected Accounts</span>
+          <span class="px-1.5 py-0.2 rounded-full bg-primary-200/60 dark:bg-primary-800/60 text-primary-800 dark:text-primary-200 text-[10px] font-mono">
+            {{ accounts.length }}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          @click="activeTab = 'add'"
+          class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 border"
+          :class="activeTab === 'add'
+            ? 'bg-primary-50 dark:bg-primary-950/60 border-primary-300 dark:border-primary-800 text-primary-700 dark:text-primary-300 shadow-2xs'
+            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'"
+        >
+          <UIcon name="i-heroicons-plus-circle" class="w-4 h-4" />
+          <span>Connect Another Account</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: Connected Accounts List -->
+      <div v-if="activeTab === 'connected'" class="space-y-4 select-none">
+        <div class="flex items-center justify-between pb-1">
+          <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            You currently have <strong class="text-slate-800 dark:text-slate-200">{{ accounts.length }}</strong> mail account{{ accounts.length === 1 ? '' : 's' }} connected. Switch between mailboxes or disconnect accounts below.
+          </p>
+          <UButton
+            icon="i-heroicons-plus"
+            size="xs"
+            color="primary"
+            variant="soft"
+            label="Connect Another"
+            @click="activeTab = 'add'"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div
+            v-for="acc in accounts"
+            :key="acc.id"
+            class="p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 shadow-2xs"
+            :class="activeAccount?.id === acc.id
+              ? 'bg-white dark:bg-slate-850 border-primary-500/70 ring-2 ring-primary-500/20'
+              : 'bg-slate-50/80 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 hover:border-slate-300'"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3 min-w-0">
+                <div 
+                  class="w-10 h-10 rounded-xl text-white flex items-center justify-center font-black text-sm shrink-0 shadow-sm"
+                  :class="getProviderBadge(acc.provider, acc.emailAddress).bg"
+                >
+                  {{ getProviderBadge(acc.provider, acc.emailAddress).icon }}
+                </div>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <h4 class="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      {{ acc.displayName }}
+                    </h4>
+                    <UBadge
+                      v-if="activeAccount?.id === acc.id"
+                      color="primary"
+                      size="xs"
+                      variant="subtle"
+                      class="font-mono text-[9px] font-bold"
+                    >
+                      CURRENT ACTIVE
+                    </UBadge>
+                  </div>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
+                    {{ acc.emailAddress }}
+                  </p>
+                  <div class="flex items-center gap-2 mt-2 text-[10px] text-slate-400 dark:text-slate-500 font-mono flex-wrap">
+                    <span>IMAP: {{ acc.imapConfig?.host }}:{{ acc.imapConfig?.port }}</span>
+                    <span>•</span>
+                    <span>SMTP: {{ acc.smtpConfig?.host }}:{{ acc.smtpConfig?.port }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
+              <UButton
+                v-if="activeAccount?.id !== acc.id"
+                size="xs"
+                variant="soft"
+                color="primary"
+                icon="i-heroicons-arrow-path-rounded-square"
+                label="Switch to this Mailbox"
+                @click="onSwitchAccount(acc)"
+              />
+              <div v-else class="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1 font-mono">
+                <UIcon name="i-heroicons-check-circle" class="w-4 h-4" />
+                <span>Currently Active</span>
+              </div>
+
+              <UButton
+                size="xs"
+                variant="ghost"
+                color="error"
+                icon="i-heroicons-trash"
+                label="Disconnect"
+                :loading="deletingId === acc.id"
+                @click="onDeleteAccount(acc)"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Connect Account Form -->
+      <div v-else class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start text-xs select-none">
         
         <!-- LEFT PART (7 Cols): Account Connection Form -->
         <div class="lg:col-span-7 space-y-3.5">
@@ -497,7 +676,26 @@ const onSaveAccount = async () => {
     </template>
 
     <template #footer>
-      <div class="flex items-center justify-between w-full">
+      <div v-if="activeTab === 'connected'" class="flex items-center justify-between w-full">
+        <UButton
+          icon="i-heroicons-plus"
+          size="sm"
+          color="primary"
+          variant="soft"
+          label="Connect Another Account"
+          @click="activeTab = 'add'"
+        />
+
+        <UButton
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          label="Close"
+          @click="emit('update:open', false)"
+        />
+      </div>
+
+      <div v-else class="flex items-center justify-between w-full">
         <UButton
           variant="outline"
           color="neutral"
@@ -510,6 +708,15 @@ const onSaveAccount = async () => {
 
         <div class="flex items-center gap-2">
           <UButton
+            v-if="accounts.length > 0"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            label="Back to Accounts"
+            @click="activeTab = 'connected'"
+          />
+          <UButton
+            v-else
             variant="ghost"
             color="neutral"
             size="sm"

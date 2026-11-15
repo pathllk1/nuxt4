@@ -29,7 +29,14 @@ const fonts = {
   }
 };
 
-(pdfMake as any).setFonts(fonts);
+if (typeof (pdfMake as any).addFonts === 'function') {
+  (pdfMake as any).addFonts(fonts);
+} else {
+  (pdfMake as any).setFonts({
+    ...((pdfMake as any).fonts || {}),
+    ...fonts,
+  });
+}
 
 // Silence pdfMake security warnings by setting explicit access policies
 if (typeof (pdfMake as any).setUrlAccessPolicy === 'function') {
@@ -190,6 +197,16 @@ export async function createPdfBufferFromDocDef(docDefinition: any): Promise<Buf
     }
   }
 
+  // Ensure DejaVuSans & Helvetica fonts are registered (fail-safe against singleton clobbering)
+  if (typeof (pdfMake as any).addFonts === 'function') {
+    (pdfMake as any).addFonts(fonts);
+  } else {
+    (pdfMake as any).setFonts({
+      ...((pdfMake as any).fonts || {}),
+      ...fonts,
+    });
+  }
+
   const doc = (pdfMake as any).createPdf(docDefinition);
   const stream = await doc.getStream();
   
@@ -316,14 +333,16 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
   const formattedBuyerAddress = [billObj.partyAddress, billObj.partyPin ? `PIN: ${billObj.partyPin}` : '']
     .filter(Boolean).join(', ');
 
-  const rightBoxName = isPurchase ? seller.name : (billObj.consigneeName || '');
+  const rightBoxName = isPurchase 
+    ? (billObj.consigneeName?.trim() || seller.name) 
+    : (billObj.consigneeName?.trim() || billObj.partyName || (billObj.party as any)?.name || '');
   const rightBoxAddr = isPurchase
-    ? seller.address
+    ? (billObj.consigneeAddress ? [billObj.consigneeAddress, billObj.consigneePin ? `PIN: ${billObj.consigneePin}` : ''].filter(Boolean).join(', ') : seller.address)
     : (billObj.consigneeAddress
       ? [billObj.consigneeAddress, billObj.consigneePin ? `PIN: ${billObj.consigneePin}` : ''].filter(Boolean).join(', ')
       : formattedBuyerAddress);
-  const rightBoxState = isPurchase ? '' : (billObj.consigneeState || billObj.partyState || '');
-  const rightBoxGstin = isPurchase ? seller.gstin : (billObj.consigneeGstin || billObj.partyGstin || '');
+  const rightBoxState = isPurchase ? (billObj.consigneeState || (seller as any).state || '') : (billObj.consigneeState || billObj.partyState || '');
+  const rightBoxGstin = isPurchase ? (billObj.consigneeGstin || seller.gstin) : (billObj.consigneeGstin || billObj.partyGstin || '');
 
   const taxableValue = billObj.grossTotal || 0;
   const totalTax = gstEnabled ? ((billObj.cgst || 0) + (billObj.sgst || 0) + (billObj.igst || 0)) : 0;
@@ -546,7 +565,7 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
             {
               stack: [
                 { text: isPurchase ? 'BILL FROM (SUPPLIER)' : 'BILL TO (BUYER)', style: 'partyBoxTitle' },
-                { text: billObj.partyName || '', style: 'partyName', margin: [0, 3, 0, 1] },
+                { text: billObj.partyName || (billObj.party as any)?.name || '', style: 'partyName', margin: [0, 3, 0, 1] },
                 { text: formattedBuyerAddress, style: 'partyMeta' },
                 { text: billObj.partyState ? `State: ${billObj.partyState}` : '', style: 'partyMeta' },
                 { text: billObj.partyGstin ? `GSTIN: ${billObj.partyGstin}` : '', style: 'partyGstin' },

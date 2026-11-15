@@ -327,6 +327,16 @@ watch(showPrintModal, (isOpen) => {
     nextTick(() => {
       printModalContainerRef.value?.focus();
     });
+  } else {
+    if (isEditMode.value) {
+      router.push('/accounting/bills');
+    } else {
+      resetFormState();
+      nextTick(() => {
+        firstInputRef.value?.focus();
+        (firstInputRef.value as HTMLInputElement)?.select?.();
+      });
+    }
   }
 });
 
@@ -435,12 +445,6 @@ function handlePrintModalKeydown(e: KeyboardEvent) {
 
 function closePrintModal() {
   showPrintModal.value = false;
-  if (isEditMode.value) {
-    router.push('/accounting/bills');
-  } else {
-    resetFormState();
-    nextTick(() => firstInputRef.value?.focus());
-  }
 }
 
 function resetFormState() {
@@ -455,7 +459,13 @@ function resetFormState() {
   state.meta.dispatchThrough = '';
   state.meta.narration = '';
   state.meta.reverseCharge = false;
+  state.meta.billDate = new Date().toISOString().split('T')[0];
+  state.meta.billNo = '';
   state.otherCharges = [];
+  state.currentBill = null;
+  state.isReturnMode = false;
+  state.returnFromBillId = null;
+  createdBill.value = null;
   fetchNextBillNo(state.meta.btype);
 }
 

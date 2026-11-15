@@ -87,6 +87,27 @@ export class MailCouchbaseService {
     return res.status === 'success';
   }
 
+  static async deleteAccount(accountId: string, firmId: string, userId: string): Promise<boolean> {
+    const { bucket, scope, collection } = this.getCfg();
+    await this.ensureIndexes();
+
+    // 1. Delete account document
+    const delAccountStmt = `
+      DELETE FROM \`${bucket}\`.\`${scope}\`.\`${collection}\`
+      WHERE type = 'account' AND id = $accountId AND firmId = $firmId AND userId = $userId
+    `;
+    await CouchbaseService.query(delAccountStmt, { $accountId: accountId, $firmId: firmId, $userId: userId });
+
+    // 2. Cascade delete folders and messages belonging to this account and firm
+    const delCascadeStmt = `
+      DELETE FROM \`${bucket}\`.\`${scope}\`.\`${collection}\`
+      WHERE firmId = $firmId AND accountId = $accountId AND type IN ['folder', 'message']
+    `;
+    await CouchbaseService.query(delCascadeStmt, { $firmId: firmId, $accountId: accountId });
+
+    return true;
+  }
+
   // -------------------------------------------------------------
   // Folders
   // -------------------------------------------------------------

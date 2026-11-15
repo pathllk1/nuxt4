@@ -11,7 +11,7 @@ import { connectDB } from '../../plugins/mongodb';
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const body = await readBody(event) || {};
-  const { meta, party, cart, otherCharges } = body;
+  const { meta, party, cart, otherCharges, consignee } = body;
 
   if (!cart?.length) {
     throw createError({ statusCode: 400, statusMessage: 'At least one ledger entry is required' });
@@ -118,6 +118,12 @@ export default defineEventHandler(async (event) => {
       otherCharges: otherCharges || [],
       supplierBillNo: meta?.supplierBillNo,
       orderNo: meta?.referenceNo,
+      consigneeName: consignee?.name || meta?.consigneeName,
+      consigneeGstin: consignee?.gstin || meta?.consigneeGstin,
+      consigneeAddress: consignee?.address || meta?.consigneeAddress,
+      consigneeState: consignee?.state || meta?.consigneeState,
+      consigneePin: consignee?.pin || meta?.consigneePin,
+      consigneeStateCode: consignee?.stateCode || meta?.consigneeStateCode,
       narration: meta?.narration,
       reverseCharge: !!meta?.reverseCharge,
       createdBy: username,
@@ -138,7 +144,7 @@ export default defineEventHandler(async (event) => {
     }));
 
     // Post to Double-Entry Ledger
-    await LedgerService.postAccountingPurchaseLedger({
+    const postResult = await LedgerService.postAccountingPurchaseLedger({
       firmId: firmIdObj,
       billId: newBill._id,
       voucherId: String(voucherId),
@@ -156,6 +162,16 @@ export default defineEventHandler(async (event) => {
       createdBy: username,
       session,
     });
+
+    if (postResult?.voucherGroupId) {
+      newBill.voucherId = postResult.voucherGroupId;
+      const updateQuery = Bill.updateOne(
+        { _id: newBill._id },
+        { $set: { voucherId: postResult.voucherGroupId } }
+      );
+      if (session) updateQuery.session(session);
+      await updateQuery.exec();
+    }
 
     // Intelligent Master Learning: Sync SAC code, GST rate & description back to Chart of Accounts if empty
     for (const item of cart) {

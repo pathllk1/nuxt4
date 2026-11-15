@@ -40,7 +40,7 @@ const setFilter = (filter: 'all' | 'unread' | 'flagged' | 'files') => {
 </script>
 
 <template>
-  <div class="w-80 md:w-96 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shrink-0 select-none">
+  <div class="w-80 md:w-96 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shrink-0 select-none min-h-0">
     <!-- Top Search Bar -->
     <div class="p-2.5 border-b border-slate-200/80 dark:border-slate-800">
       <UInput
@@ -101,7 +101,7 @@ const setFilter = (filter: 'all' | 'unread' | 'flagged' | 'files') => {
     </div>
 
     <!-- Messages Scroll Container -->
-    <div class="flex-1 overflow-y-auto">
+    <div class="flex-1 overflow-y-auto min-h-0">
       <div v-if="loadingMessages" class="p-6 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
         <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin text-primary-500" />
         <span>Loading messages from Couchbase...</span>

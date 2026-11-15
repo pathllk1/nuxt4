@@ -14,7 +14,13 @@
       <div class="header-fields">
         <label>
           <span>Supplier bill no</span>
-          <input v-model="state.meta.supplierBillNo" type="text" placeholder="INV-000" />
+          <input 
+            ref="supplierBillNoInputRef" 
+            v-model="state.meta.supplierBillNo" 
+            type="text" 
+            placeholder="INV-000" 
+            @keydown.enter.prevent="onSupplierBillNoEnter" 
+          />
         </label>
         <label>
           <span>System purchase no</span>
@@ -22,11 +28,24 @@
         </label>
         <label>
           <span>Bill date</span>
-          <input v-model="state.meta.billDate" type="date" />
+          <input 
+            ref="billDateInputRef" 
+            v-model="state.meta.billDate" 
+            type="date" 
+            @keydown.enter.prevent="onDateEnter" 
+            @keydown.backspace="onDateBackspace($event)"
+          />
         </label>
         <label v-if="state.firmLocations.length >= 1">
           <span>Receiving GSTIN</span>
-          <select :value="state.activeFirmLocation?.gst_number || ''" :disabled="state.isReturnMode" @change="onFirmGstinChange">
+          <select 
+            ref="firmGstinSelectRef"
+            :value="state.activeFirmLocation?.gst_number || ''" 
+            :disabled="state.isReturnMode" 
+            @change="onFirmGstinChange"
+            @keydown.enter.prevent="onFirmGstinEnter"
+            @keydown.backspace="onFirmGstinBackspace($event)"
+          >
             <option v-for="location in state.firmLocations" :key="location.gst_number || location.state_code" :value="location.gst_number || ''">
               {{ location.gst_number || 'No GSTIN' }} - {{ location.state || location.state_code || '' }}{{ location.is_default ? ' (Default)' : '' }}
             </option>
@@ -34,13 +53,26 @@
         </label>
         <label v-if="state.gstEnabled">
           <span>Transaction type</span>
-          <select v-model="state.meta.billType" :disabled="state.isReturnMode">
+          <select 
+            ref="txTypeSelectRef"
+            v-model="state.meta.billType" 
+            :disabled="state.isReturnMode"
+            @keydown.enter.prevent="onTxTypeEnter"
+            @keydown.backspace="onTxTypeBackspace($event)"
+          >
             <option value="intra-state">Intra-State (CGST + SGST)</option>
             <option value="inter-state">Inter-State (IGST)</option>
           </select>
         </label>
         <label v-if="state.gstEnabled" class="inline-toggle">
-          <input v-model="state.meta.reverseCharge" type="checkbox" :disabled="state.isReturnMode" />
+          <input 
+            ref="reverseChargeInputRef"
+            v-model="state.meta.reverseCharge" 
+            type="checkbox" 
+            :disabled="state.isReturnMode" 
+            @keydown.enter.prevent="onReverseChargeEnter"
+            @keydown.backspace="onReverseChargeBackspace($event)"
+          />
           <span>Reverse Charge</span>
         </label>
         <div class="gst-status" :class="{ off: !state.gstEnabled }">
@@ -49,8 +81,8 @@
       </div>
 
       <div class="header-actions">
-        <button class="ghost-btn" type="button" @click="resetForm">Discard</button>
-        <button class="primary-btn" type="button" :disabled="loading || !canSave" @click="saveInvoice">
+        <button class="ghost-btn" type="button" @click="resetForm" title="Clear Bill (F9)">Discard (F9)</button>
+        <button class="primary-btn" type="button" :disabled="loading || !canSave" @click="saveInvoice" title="Save Bill (F8)">
           {{ loading ? 'Saving...' : state.isReturnMode ? 'Create Debit Note' : (isEditMode ? 'Update Bill' : 'Receive Stock') }}
           <span>F8</span>
         </button>
@@ -62,7 +94,7 @@
         <PartyManager
           :state="state"
           title="Supplier (Bill From)"
-          empty-subtitle="Supplier record"
+          empty-subtitle="Supplier record (Press F3 to Select)"
           @open-modal="showPartyModal = true"
           @create-party="showCreatePartyModal = true"
           @edit-party="openEditPartyModal(state.selectedParty)"
@@ -81,15 +113,36 @@
           <div class="field-grid">
             <label class="wide">
               <span>Dispatch mode / reference</span>
-              <input v-model="state.meta.dispatchThrough" type="text" placeholder="Transport, hand delivery, self pickup" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
+              <input 
+                ref="dispatchInputRef" 
+                v-model="state.meta.dispatchThrough" 
+                type="text" 
+                placeholder="Transport, hand delivery, self pickup" 
+                @keydown.enter.prevent="onDispatchEnter" 
+                @keydown.backspace="onDispatchBackspace($event)" 
+              />
             </label>
             <label class="wide">
               <span>Reference</span>
-              <input v-model="state.meta.referenceNo" type="text" placeholder="Optional GRN or PO reference" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
+              <input 
+                ref="referenceInputRef" 
+                v-model="state.meta.referenceNo" 
+                type="text" 
+                placeholder="Optional GRN or PO reference" 
+                @keydown.enter.prevent="onReferenceEnter" 
+                @keydown.backspace="onReferenceBackspace($event)" 
+              />
             </label>
             <label class="wide">
               <span>Narration</span>
-              <textarea v-model="state.meta.narration" rows="4" placeholder="Additional notes... (Enter jumps to Stock F2)" @keydown.enter="onNarrationEnter" @keydown.backspace="onDetailBackspace($event)"></textarea>
+              <textarea 
+                ref="narrationInputRef" 
+                v-model="state.meta.narration" 
+                rows="4" 
+                placeholder="Additional notes... (Enter jumps to Stock F2)" 
+                @keydown.enter="onNarrationEnter" 
+                @keydown.backspace="onNarrationBackspace($event)"
+              ></textarea>
             </label>
           </div>
         </section>
@@ -113,38 +166,90 @@
     <PartyModal v-model="showEditPartyModal" :account-id="selectedPartyToEdit?._id" :initial-data="selectedPartyToEdit" default-type="SUNDRY_CREDITORS" @saved="onPartyEditedAndSaved" />
     <OtherChargesModal v-model="showOtherChargesModal" :other-charges="state.otherCharges" />
 
+    <!-- Print & Success Modal with Complete Zero-Mouse Keyboard Support -->
     <UModal v-model:open="showPrintModal" title="Bill Saved Successfully">
       <template #body>
-        <div class="p-4 flex flex-col items-center text-center gap-4 bg-white dark:bg-zinc-900 rounded-2xl">
-          <div class="p-3 bg-green-500/10 dark:bg-green-500/20 rounded-full">
-            <UIcon name="i-heroicons-check-circle" class="w-12 h-12 text-green-600 dark:text-green-400" />
+        <div 
+          class="p-6 flex flex-col items-center text-center gap-4 bg-white dark:bg-zinc-900 rounded-2xl outline-none" 
+          tabindex="0" 
+          ref="printModalContainerRef"
+          @keydown="handlePrintModalKeydown"
+        >
+          <div class="p-3 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-full text-emerald-600 dark:text-emerald-400">
+            <UIcon name="i-heroicons-check-circle" class="w-12 h-12" />
           </div>
           <div>
-            <h3 class="text-lg font-bold text-gray-900 dark:text-white">Bill #{{ createdBill?.bno }} Saved</h3>
-            <p class="text-sm text-gray-500 dark:text-zinc-400 mt-1">Would you like to print or download the bill now?</p>
+            <h3 class="text-lg font-black text-gray-900 dark:text-white">Bill #{{ createdBill?.bno }} Saved</h3>
+            <p class="text-xs text-gray-500 dark:text-zinc-400 mt-1 font-medium">
+              Press <kbd class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 rounded font-bold font-mono">P</kbd> for PDF, <kbd class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 rounded font-bold font-mono">E</kbd> for Excel, or <kbd class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 rounded font-bold font-mono">Enter / ESC</kbd> for Next Bill
+            </p>
           </div>
-          <div class="flex gap-3 mt-4 w-full justify-center">
+          <div class="flex flex-wrap gap-2.5 mt-2 w-full justify-center">
             <UButton 
               color="primary" 
               icon="i-heroicons-arrow-down-tray" 
-              label="Download PDF" 
-              class="flex-1 sm:flex-none font-bold"
+              label="Download PDF (P)" 
+              class="font-bold print-btn cursor-pointer"
               @click="downloadCreatedPDF" 
             />
             <UButton 
               color="success" 
               icon="i-heroicons-table-cells" 
-              label="Export Excel" 
-              class="flex-1 sm:flex-none font-bold"
+              label="Export Excel (E)" 
+              class="font-bold print-btn cursor-pointer"
               @click="downloadCreatedExcel" 
             />
             <UButton 
               color="neutral" 
               variant="outline" 
-              label="Close" 
-              class="flex-1 sm:flex-none font-bold"
+              label="Next Bill (ESC / Enter)" 
+              class="font-bold print-btn cursor-pointer"
               @click="closePrintModal" 
             />
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Keyboard Shortcuts Cheatsheet Modal (F1 / ?) -->
+    <UModal v-model:open="showHelpModal" title="Purchase Bill Keyboard Cheatsheet">
+      <template #body>
+        <div class="p-4 space-y-4 text-xs">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-primary text-sm">F2</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Stock Browser</p>
+              <p class="text-[10px] text-slate-400">Search & add products/batches</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-emerald-600 text-sm">F3</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Supplier Selector</p>
+              <p class="text-[10px] text-slate-400">Search & select vendor record</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-indigo-600 text-sm">F4</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Other Charges</p>
+              <p class="text-[10px] text-slate-400">Add freight, packing, delivery</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-rose-600 text-sm">F8 / Ctrl+S</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Save Bill</p>
+              <p class="text-[10px] text-slate-400">Finalize & receive stock</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-amber-600 text-sm">F9</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Discard (Clear)</p>
+              <p class="text-[10px] text-slate-400">Clear and reset voucher</p>
+            </div>
+            <div class="p-3 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700">
+              <span class="font-mono font-black text-purple-600 text-sm">Insert / Ctrl+N</span>
+              <p class="font-bold text-slate-800 dark:text-white mt-1">Register New</p>
+              <p class="text-[10px] text-slate-400">Quick create Party or Stock</p>
+            </div>
+          </div>
+          <div class="pt-2 border-t border-slate-200 dark:border-zinc-700 text-slate-500 text-[11px] flex justify-between items-center">
+            <span><kbd class="font-bold">Enter</kbd> Next Field • <kbd class="font-bold">Backspace</kbd> Prev Field • <kbd class="font-bold">Del</kbd> Remove Row</span>
+            <UButton size="xs" color="neutral" variant="outline" label="Got it (ESC)" class="cursor-pointer" @click="showHelpModal = false" />
           </div>
         </div>
       </template>
@@ -224,9 +329,17 @@ const route = useRoute();
 const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo } = useBillingState();
 const { saveFocus, restoreFocus, trackPageFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
 
-const firstInputRef = ref<HTMLElement | null>(null);
-const referenceInputRef = ref<HTMLElement | null>(null);
+const supplierBillNoInputRef = ref<HTMLInputElement | null>(null);
+const firstInputRef = computed(() => supplierBillNoInputRef.value);
+const billDateInputRef = ref<HTMLInputElement | null>(null);
+const firmGstinSelectRef = ref<HTMLSelectElement | null>(null);
+const txTypeSelectRef = ref<HTMLSelectElement | null>(null);
+const reverseChargeInputRef = ref<HTMLInputElement | null>(null);
+const dispatchInputRef = ref<HTMLInputElement | null>(null);
+const referenceInputRef = ref<HTMLInputElement | null>(null);
+const narrationInputRef = ref<HTMLTextAreaElement | null>(null);
 const partySearchInputRef = ref<HTMLInputElement | null>(null);
+const printModalContainerRef = ref<HTMLElement | null>(null);
 const partySelectedIndex = ref(0);
 
 const showStockModal = ref(false);
@@ -234,6 +347,7 @@ const showPartyModal = ref(false);
 const partySearchQuery = ref('');
 const showPrintModal = ref(false);
 const showPrintConfigModal = ref(false);
+const showHelpModal = ref(false);
 const createdBill = ref<any>(null);
 const isEditMode = ref(false);
 
@@ -244,7 +358,45 @@ watch(showPartyModal, (isOpen) => {
     nextTick(() => partySearchInputRef.value?.focus());
   } else {
     partySearchQuery.value = '';
+  }
+});
+
+watch(showPrintModal, (isOpen) => {
+  if (isOpen) {
+    nextTick(() => {
+      printModalContainerRef.value?.focus();
+    });
+  } else {
+    if (isEditMode.value) {
+      router.push('/accounting/bills');
+    } else {
+      resetFormState();
+      nextTick(() => {
+        supplierBillNoInputRef.value?.focus();
+        supplierBillNoInputRef.value?.select();
+      });
+    }
+  }
+});
+
+watch(showHelpModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
     restoreFocus();
+  }
+});
+
+watch(showStockModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || active.tagName === 'BODY' || active.closest('.drawer-backdrop, .fixed, [role="dialog"]')) {
+        restoreFocus();
+      }
+    }, 60);
   }
 });
 
@@ -299,6 +451,188 @@ function handlePartyDrawerKeydown(e: KeyboardEvent) {
   }
 }
 
+// ─── Header Enter & Backspace Flow ───
+function onSupplierBillNoEnter() {
+  if (billDateInputRef.value) {
+    billDateInputRef.value.focus();
+  } else {
+    advanceToFirmOrParty();
+  }
+}
+
+function onDateEnter() {
+  advanceToFirmOrParty();
+}
+
+function onDateBackspace(e: KeyboardEvent) {
+  const target = e.target as HTMLInputElement;
+  if (!target.value || e.ctrlKey || e.altKey) {
+    e.preventDefault();
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
+  }
+}
+
+function advanceToFirmOrParty() {
+  if (state.firmLocations.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else if (state.gstEnabled && txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else {
+    advanceToPartyOrInward();
+  }
+}
+
+function onFirmGstinEnter() {
+  if (state.gstEnabled && txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else {
+    advanceToPartyOrInward();
+  }
+}
+
+function onFirmGstinBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  billDateInputRef.value?.focus();
+}
+
+function onTxTypeEnter() {
+  if (reverseChargeInputRef.value) {
+    reverseChargeInputRef.value.focus();
+  } else {
+    advanceToPartyOrInward();
+  }
+}
+
+function onTxTypeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (state.firmLocations.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    billDateInputRef.value?.focus();
+  }
+}
+
+function onReverseChargeEnter() {
+  advanceToPartyOrInward();
+}
+
+function onReverseChargeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (state.gstEnabled && txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else if (state.firmLocations.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    billDateInputRef.value?.focus();
+  }
+}
+
+function focusPartySection() {
+  nextTick(() => {
+    // 1. If party has multiple branches/GSTIN locations, focus the billing branch select
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
+    // 2. Focus the "Ship to billing address" checkbox directly!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. Fallback to dispatchInputRef
+    dispatchInputRef.value?.focus();
+    dispatchInputRef.value?.select();
+  });
+}
+
+function advanceToPartyOrInward() {
+  if (!state.selectedParty) {
+    saveFocus();
+    showPartyModal.value = true;
+  } else {
+    focusPartySection();
+  }
+}
+
+// ─── Inward Configuration Flow ───
+function onDispatchEnter() {
+  referenceInputRef.value?.focus();
+  referenceInputRef.value?.select();
+}
+
+function onDispatchBackspace(e: KeyboardEvent) {
+  const target = e.target as HTMLInputElement;
+  if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
+    e.preventDefault();
+    // 1. If consignee is expanded, move back to the last visible consignee field
+    if (!state.consigneeSameAsBillTo && state.selectedConsignee) {
+      const shipInputs = Array.from(document.querySelectorAll('.party-panel .ship-fields input:not([type="hidden"]), .party-panel .ship-fields textarea, .party-panel .ship-fields select')) as HTMLElement[];
+      const lastInput = shipInputs[shipInputs.length - 1];
+      if (lastInput) {
+        lastInput.focus();
+        if (lastInput instanceof HTMLInputElement || lastInput instanceof HTMLTextAreaElement) {
+          lastInput.select?.();
+        }
+        return;
+      }
+    }
+    // 2. Otherwise focus the "Ship to billing address" checkbox!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. Fallback to header
+    if (reverseChargeInputRef.value) {
+      reverseChargeInputRef.value.focus();
+    } else {
+      supplierBillNoInputRef.value?.focus();
+      supplierBillNoInputRef.value?.select();
+    }
+  }
+}
+
+function onReferenceEnter() {
+  narrationInputRef.value?.focus();
+  narrationInputRef.value?.select();
+}
+
+function onReferenceBackspace(e: KeyboardEvent) {
+  const target = e.target as HTMLInputElement;
+  if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
+    e.preventDefault();
+    dispatchInputRef.value?.focus();
+    dispatchInputRef.value?.select();
+  }
+}
+
+function onNarrationEnter(e: KeyboardEvent) {
+  if (e.shiftKey) return;
+  e.preventDefault();
+  if (state.cart.length > 0) {
+    const firstRowInput = document.querySelector('tr[data-row="0"] input.qty-input, tr[data-row="0"] input.item-name-input') as HTMLElement;
+    if (firstRowInput) {
+      firstRowInput.focus();
+      if (firstRowInput instanceof HTMLInputElement) firstRowInput.select();
+      return;
+    }
+  }
+  saveFocus();
+  showStockModal.value = true;
+}
+
+function onNarrationBackspace(e: KeyboardEvent) {
+  const target = e.target as HTMLTextAreaElement;
+  if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
+    e.preventDefault();
+    referenceInputRef.value?.focus();
+    referenceInputRef.value?.select();
+  }
+}
+
 function onDetailEnter(e: KeyboardEvent) {
   const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
   if (container) {
@@ -313,25 +647,30 @@ function onDetailBackspace(e: KeyboardEvent) {
   }
 }
 
-function onNarrationEnter(e: KeyboardEvent) {
-  if (e.shiftKey) return;
-  e.preventDefault();
-  if (state.cart.length > 0) {
-    const firstQtyInput = document.querySelector('tr[data-row="0"] input.qty-input, tr[data-row="0"] input.item-name-input') as HTMLElement;
-    if (firstQtyInput) {
-      firstQtyInput.focus();
-      if (firstQtyInput instanceof HTMLInputElement) firstQtyInput.select();
-      return;
-    }
+function handlePrintModalKeydown(e: KeyboardEvent) {
+  if (e.key === 'p' || e.key === 'P') {
+    e.preventDefault();
+    downloadCreatedPDF();
+  } else if (e.key === 'e' || e.key === 'E') {
+    e.preventDefault();
+    downloadCreatedExcel();
+  } else if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    closePrintModal();
   }
-  saveFocus();
-  showStockModal.value = true;
 }
 
 function closePrintModal() {
   showPrintModal.value = false;
-  if (isEditMode.value) {
-    router.push('/accounting/bills');
+}
+
+function resetForm() {
+  if (confirm('Clear current bill details?')) {
+    resetFormState();
+    nextTick(() => {
+      supplierBillNoInputRef.value?.focus();
+      supplierBillNoInputRef.value?.select();
+    });
   }
 }
 
@@ -348,7 +687,13 @@ function resetFormState() {
   state.meta.narration = '';
   state.meta.reverseCharge = false;
   state.meta.supplierBillNo = '';
+  state.meta.billDate = new Date().toISOString().split('T')[0];
+  state.meta.billNo = '';
   state.otherCharges = [];
+  state.currentBill = null;
+  state.isReturnMode = false;
+  state.returnFromBillId = null;
+  createdBill.value = null;
   fetchNextBillNo(state.meta.btype);
 }
 
@@ -407,14 +752,6 @@ const selectedStockToEdit = ref<any>(null);
 const loading = ref(false);
 
 watch(showOtherChargesModal, (isOpen) => {
-  if (isOpen) {
-    saveFocus();
-  } else {
-    restoreFocus();
-  }
-});
-
-watch(showStockModal, (isOpen) => {
   if (isOpen) {
     saveFocus();
   } else {
@@ -485,12 +822,16 @@ const handleKeydown = (e: KeyboardEvent) => {
     showEditStockModal.value ||
     showOtherChargesModal.value ||
     showPrintModal.value ||
-    showPrintConfigModal.value
+    showPrintConfigModal.value ||
+    showHelpModal.value
   ) {
     return;
   }
 
-  if ((e.altKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'e' || e.key === 'E')) {
+  if (e.key === 'F1' || (e.shiftKey && e.key === '?')) {
+    e.preventDefault();
+    showHelpModal.value = !showHelpModal.value;
+  } else if ((e.altKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'e' || e.key === 'E')) {
     e.preventDefault();
     if (state.selectedParty) {
       openEditPartyModal(state.selectedParty);
@@ -519,6 +860,23 @@ const handleKeydown = (e: KeyboardEvent) => {
     showOtherChargesModal.value = true;
   } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
     e.preventDefault();
+    if (!canSave.value) {
+      if (!state.meta.supplierBillNo && !state.isReturnMode) {
+        supplierBillNoInputRef.value?.focus();
+        supplierBillNoInputRef.value?.select();
+        return;
+      }
+      if (!state.selectedParty) {
+        saveFocus();
+        showPartyModal.value = true;
+        return;
+      }
+      if (state.cart.length === 0) {
+        saveFocus();
+        showStockModal.value = true;
+        return;
+      }
+    }
     if (canSave.value) saveInvoice();
   } else if (e.key === 'F9') {
     e.preventDefault();
@@ -557,6 +915,11 @@ onMounted(async () => {
   }
 
   trackPageFocus();
+
+  nextTick(() => {
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
+  });
 });
 
 onUnmounted(() => {
@@ -671,6 +1034,7 @@ function onPartySelect(party: any) {
   determineGstBillType();
   populateConsigneeFromBillTo();
   showPartyModal.value = false;
+  focusPartySection();
 }
 
 function onPartyLocationChange() {
@@ -688,8 +1052,10 @@ function onStockSelect(stock: any) {
   const selectedBatch = stock.selectedBatch;
   const batchNo = selectedBatch?.batch || '';
   const existing = state.cart.find(item => item.stockId === stock._id && (item.batch || '') === batchNo);
+  let targetIndex = 0;
   if (existing) {
     existing.qty++;
+    targetIndex = state.cart.indexOf(existing);
   } else {
     state.cart.push({
       stockId: stock._id,
@@ -706,8 +1072,19 @@ function onStockSelect(stock: any) {
       pno: stock.pno,
       oem: stock.oem
     });
+    targetIndex = state.cart.length - 1;
   }
   showStockModal.value = false;
+  nextTick(() => {
+    const targetRow = document.querySelector(`tr[data-row="${targetIndex}"]`);
+    if (targetRow) {
+      const targetInput = (targetRow.querySelector('input.qty-input') || targetRow.querySelector('input.item-name-input')) as HTMLElement;
+      if (targetInput) {
+        targetInput.focus();
+        if (targetInput instanceof HTMLInputElement) targetInput.select();
+      }
+    }
+  });
 }
 
 function removeCartItem(index: number) {
@@ -734,12 +1111,6 @@ function removeCartItem(index: number) {
       narration?.focus();
     }
   });
-}
-
-function resetForm() {
-  if (confirm('Clear current bill details?')) {
-    location.reload();
-  }
 }
 
 async function saveInvoice() {
@@ -780,7 +1151,6 @@ async function saveInvoice() {
     if (res.success) {
       createdBill.value = res.data || { _id: route.params.id, bno: state.meta.billNo };
       showPrintModal.value = true;
-      resetFormState();
     }
   } catch (err: any) {
     alert(err.message || 'Failed to save bill');

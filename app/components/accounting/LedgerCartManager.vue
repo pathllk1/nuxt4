@@ -13,6 +13,8 @@ const emit = defineEmits<{
   'remove-item': [index: number];
   'update-item': [index: number, field: keyof AccountingCartItem, value: any];
   'open-ledger-modal': [];
+  'backspace-out': [];
+  'cart-complete': [];
 }>();
 
 const tableWrapRef = ref<HTMLElement | null>(null);
@@ -50,6 +52,13 @@ const rowFieldOrder = ['sacCode', 'description', 'amount', 'gstRate', 'narration
 function onCellEnter(e: KeyboardEvent, rowIndex: number, field: string) {
   e.preventDefault();
   e.stopPropagation();
+
+  if (e.shiftKey) {
+    // Shift+Enter anywhere in cart completes to Save Bill
+    emit('cart-complete');
+    return;
+  }
+
   const currentIdx = rowFieldOrder.indexOf(field);
 
   if (currentIdx < rowFieldOrder.length - 1) {
@@ -62,10 +71,16 @@ function onCellEnter(e: KeyboardEvent, rowIndex: number, field: string) {
       // Advance to next row's SAC
       focusCell(rowIndex + 1, 'sacCode');
     } else {
-      // Last cell of last row — trigger ledger modal to add next account head
-      setTimeout(() => {
+      // Last cell of last row — check if valid amount entered
+      const currentItem = props.cart[rowIndex];
+      const hasAmount = (parseFloat(String(currentItem?.amount)) || 0) > 0;
+      if (hasAmount) {
+        // Line complete with amount: open Ledger Modal to select next line item!
         emit('open-ledger-modal');
-      }, 50);
+      } else {
+        // No amount: prompt user to enter amount
+        focusCell(rowIndex, 'amount');
+      }
     }
   }
 }
@@ -86,6 +101,11 @@ function onCellBackspace(e: KeyboardEvent, rowIndex: number, field: string) {
       e.preventDefault();
       e.stopPropagation();
       focusCell(rowIndex - 1, rowFieldOrder[rowFieldOrder.length - 1]!);
+    } else if (rowIndex === 0 && currentIdx === 0) {
+      // First cell of first row: step back out of cart into parent page details!
+      e.preventDefault();
+      e.stopPropagation();
+      emit('backspace-out');
     }
   }
 }
@@ -107,7 +127,20 @@ function onCellArrowUp(e: KeyboardEvent, rowIndex: number, field: string) {
 }
 
 function onRowDelete(e: KeyboardEvent, rowIndex: number) {
+  const target = e.target as HTMLElement;
+
+  if (e.key === 'F2' || e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n')) {
+    e.preventDefault();
+    e.stopPropagation();
+    emit('open-ledger-modal');
+    return;
+  }
+
   if (e.key === 'Delete' || (e.ctrlKey && e.key.toLowerCase() === 'd')) {
+    // Only delete row if input is empty or if explicitly Ctrl+D
+    if (target instanceof HTMLInputElement && target.value !== '' && !e.ctrlKey) {
+      return; // Allow standard character deletion inside text
+    }
     e.preventDefault();
     e.stopPropagation();
     emit('remove-item', rowIndex);
@@ -120,10 +153,6 @@ function onRowDelete(e: KeyboardEvent, rowIndex: number) {
         emptyBtn?.focus();
       }
     });
-  } else if (e.key === 'F2') {
-    e.preventDefault();
-    e.stopPropagation();
-    emit('open-ledger-modal');
   }
 }
 
@@ -156,7 +185,8 @@ defineExpose({
       </h3>
       <div class="flex items-center gap-3">
         <span class="text-[9px] text-slate-400 hidden sm:inline">
-          <kbd class="px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-[9px] font-bold">Enter</kbd> Next • 
+          <kbd class="px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-[9px] font-bold">Enter</kbd> Next/Add Line • 
+          <kbd class="px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-[9px] font-bold">Shift+Enter</kbd> Save • 
           <kbd class="px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-[9px] font-bold">Del</kbd> Remove • 
           <kbd class="px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-[9px] font-bold">F2</kbd> Add Account
         </span>
@@ -189,6 +219,7 @@ defineExpose({
         class="acct-cart-empty-btn px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 flex items-center gap-1.5"
         @click="emit('open-ledger-modal')"
         @keydown.enter.prevent.stop="emit('open-ledger-modal')"
+        @keydown.backspace.prevent.stop="emit('backspace-out')"
       >
         <UIcon name="i-heroicons-plus-circle" class="w-4 h-4" />
         <span>+ Add Ledger Entry (F2)</span>

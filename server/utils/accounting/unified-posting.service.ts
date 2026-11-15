@@ -259,7 +259,7 @@ export class UnifiedPostingService {
           session
         );
         voucherGroupId = `${VOUCHER_PREFIX_MAP[payload.voucherType]}-${financialYear}-${String(seq).padStart(6, '0')}`;
-        voucherNo = `${VOUCHER_PREFIX_MAP[payload.voucherType]}/${financialYear}/${String(seq).padStart(4, '0')}`;
+        voucherNo = payload.externalVoucherNo || `${VOUCHER_PREFIX_MAP[payload.voucherType]}/${financialYear}/${String(seq).padStart(4, '0')}`;
       }
 
       // ── Step 5: Construct Ledger Documents ──
@@ -932,7 +932,7 @@ export class UnifiedPostingService {
     const seq = await VoucherSequence.findOneAndUpdate(
       { firmId, vtype, financialYear },
       { $inc: { lastNo: 1 } },
-      { returnDocument: 'after', upsert: true, ...(session ? { session } : {}) }
+      { returnDocument: 'after', new: true, upsert: true, ...(session ? { session } : {}) }
     );
 
     if (!seq || !seq.lastNo) {

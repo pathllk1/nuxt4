@@ -101,8 +101,8 @@ export async function adaptLegacyVoucherPost(params: {
     createdBy,
     refType,
     refId,
-    // Preserve legacy IDs for backward compatibility
-    externalVoucherGroupId: String(voucherId),
+    // Preserve legacy IDs for backward compatibility (omit bare numeric counters to avoid cross-tenant/cross-type collisions)
+    externalVoucherGroupId: /^\d+$/.test(String(voucherId || '').trim()) ? undefined : String(voucherId),
     externalVoucherNo: voucherNo,
   };
 

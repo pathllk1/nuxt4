@@ -57,7 +57,7 @@ const onEmailContact = (contact: MailContact) => {
 </script>
 
 <template>
-  <div class="flex flex-col h-[calc(100vh-4rem)] w-full overflow-hidden bg-white dark:bg-slate-900 select-none">
+  <div class="flex flex-col h-[calc(100vh-5.5rem)] h-[calc(100dvh-5.5rem)] -mb-8 w-full overflow-hidden bg-white dark:bg-slate-900 select-none">
     <!-- Top Bar -->
     <div class="h-14 border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between gap-4 shrink-0 bg-slate-50/50 dark:bg-slate-900/40">
       <div class="flex items-center gap-3">

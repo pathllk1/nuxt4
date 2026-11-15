@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useMail } from '@/composables/useMail';
 import { useMailVault } from '@/composables/useMailVault';
+import { printMailContent } from '@/utils/mail-print';
+import { exportMailToEml, exportMailToPdf, exportMailToText } from '@/utils/mail-export';
 
 const {
   activeAccount,
   selectedMessage,
+  selectedThread,
   isSyncing,
   syncMailbox,
   openComposer,
@@ -13,10 +17,89 @@ const {
 } = useMail();
 
 const { isVaultUnlocked } = useMailVault();
+const toast = useToast();
+
 const emit = defineEmits<{
   (e: 'open-account-modal'): void;
   (e: 'open-vault-modal'): void;
 }>();
+
+const onPrintRibbon = () => {
+  if (!selectedMessage.value) return;
+  printMailContent({
+    message: selectedMessage.value,
+    thread: selectedThread.value,
+    printEntireThread: (selectedThread.value?.length || 0) > 1
+  });
+};
+
+const ribbonExportItems = computed(() => {
+  const items: any[] = [
+    {
+      label: 'Export as PDF (.pdf)',
+      icon: 'i-heroicons-document-arrow-down',
+      onSelect: async () => {
+        if (!selectedMessage.value) return;
+        try {
+          toast.add({ title: 'Downloading PDF...', color: 'neutral' });
+          await exportMailToPdf({
+            messageId: selectedMessage.value.id,
+            subject: selectedMessage.value.subject,
+            isThread: false
+          });
+          toast.add({ title: 'PDF Downloaded', color: 'success' });
+        } catch (err: any) {
+          toast.add({ title: 'Export Failed', description: err.message, color: 'error' });
+        }
+      }
+    },
+    {
+      label: 'Export as EML (.eml)',
+      icon: 'i-heroicons-envelope',
+      onSelect: () => {
+        if (!selectedMessage.value) return;
+        exportMailToEml(selectedMessage.value);
+        toast.add({ title: 'EML Exported', description: 'Compatible with Outlook & Mail apps', color: 'success' });
+      }
+    },
+    {
+      label: 'Export as Text (.txt)',
+      icon: 'i-heroicons-document-text',
+      onSelect: () => {
+        if (!selectedMessage.value) return;
+        exportMailToText({
+          message: selectedMessage.value,
+          thread: selectedThread.value,
+          exportEntireThread: false
+        });
+        toast.add({ title: 'Transcript Exported', color: 'success' });
+      }
+    }
+  ];
+
+  if ((selectedThread.value?.length || 0) > 1) {
+    items.push({
+      label: `Export Thread (PDF - ${selectedThread.value.length} msgs)`,
+      icon: 'i-heroicons-chat-bubble-left-right',
+      onSelect: async () => {
+        if (!selectedMessage.value) return;
+        try {
+          toast.add({ title: 'Downloading Thread PDF...', color: 'neutral' });
+          await exportMailToPdf({
+            messageId: selectedMessage.value.id,
+            subject: selectedMessage.value.subject,
+            isThread: true
+          });
+          toast.add({ title: 'Thread PDF Downloaded', color: 'success' });
+        } catch (err: any) {
+          toast.add({ title: 'Export Failed', description: err.message, color: 'error' });
+        }
+      }
+    });
+  }
+
+  return [items];
+});
 </script>
 
 <template>
@@ -101,6 +184,35 @@ const emit = defineEmits<{
         :disabled="!selectedMessage"
         class="text-xs font-semibold hidden md:inline-flex"
       />
+
+      <div class="h-5 w-px bg-slate-200 dark:bg-slate-800 mx-1 hidden sm:block" />
+
+      <!-- Print -->
+      <UButton
+        variant="ghost"
+        color="neutral"
+        size="xs"
+        icon="i-heroicons-printer"
+        label="Print"
+        :disabled="!selectedMessage"
+        class="text-xs font-semibold"
+        title="Print email or conversation (Ctrl+P)"
+        @click="onPrintRibbon"
+      />
+
+      <!-- Export Dropdown -->
+      <UDropdownMenu :items="ribbonExportItems" :disabled="!selectedMessage">
+        <UButton
+          variant="ghost"
+          color="neutral"
+          size="xs"
+          icon="i-heroicons-arrow-down-tray"
+          label="Export"
+          :disabled="!selectedMessage"
+          class="text-xs font-semibold"
+          title="Export email to PDF, EML or Text"
+        />
+      </UDropdownMenu>
     </div>
 
     <!-- Right Sync & Security Vault Status -->

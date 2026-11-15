@@ -5,6 +5,9 @@ import { useAuth } from '@/composables/useAuth';
 import { useToast } from '#imports';
 
 const {
+  accounts,
+  activeAccount,
+  switchAccount,
   isComposerOpen,
   composerState,
   composerData,
@@ -14,6 +17,8 @@ const {
 
 const { apiFetch } = useAuth();
 const toast = useToast();
+
+const selectedSenderAccountId = ref<string>('');
 
 const form = reactive({
   toInput: '',
@@ -41,6 +46,7 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 
 watch(isComposerOpen, (open) => {
   if (open) {
+    selectedSenderAccountId.value = activeAccount.value?.id || accounts.value[0]?.id || '';
     form.toList = composerData.value.to ? [...composerData.value.to] : [];
     form.ccList = composerData.value.cc ? [...composerData.value.cc] : [];
     form.subject = composerData.value.subject || '';
@@ -142,6 +148,9 @@ const onSubmit = async () => {
 
   isSending.value = true;
   try {
+    if (selectedSenderAccountId.value && selectedSenderAccountId.value !== activeAccount.value?.id) {
+      await switchAccount(selectedSenderAccountId.value);
+    }
     await sendEmail({
       to: form.toList,
       cc: form.ccList,
@@ -229,6 +238,21 @@ const toggleMinimize = () => {
     <div v-show="composerState !== 'minimized'" class="flex-1 flex flex-col min-h-0 overflow-hidden">
       <!-- Header Fields (To, CC, Subject) -->
       <div class="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0">
+        <!-- From Line (Visible when multiple accounts exist) -->
+        <div v-if="accounts.length > 1" class="flex items-center gap-2">
+          <span class="text-xs font-bold text-slate-400 w-10">From:</span>
+          <div class="flex-1">
+            <select
+              v-model="selectedSenderAccountId"
+              class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 text-xs font-mono font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+            >
+              <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
+                {{ acc.displayName }} &lt;{{ acc.emailAddress }}&gt;
+              </option>
+            </select>
+          </div>
+        </div>
+
         <!-- To Line with Auto-Complete -->
         <div class="relative flex items-center gap-2">
           <span class="text-xs font-bold text-slate-400 w-10">To:</span>

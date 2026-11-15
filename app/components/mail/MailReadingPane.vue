@@ -4,6 +4,8 @@ import { useMail } from '@/composables/useMail';
 import type { MailMessage } from '@/types/mail';
 import MailContactCard from './MailContactCard.vue';
 import MailHtmlViewer from './MailHtmlViewer.vue';
+import { printMailContent } from '@/utils/mail-print';
+import { exportMailToEml, exportMailToPdf, exportMailToText } from '@/utils/mail-export';
 
 const {
   selectedMessage,
@@ -176,10 +178,120 @@ const downloadAttachment = (att: any, msgId?: string) => {
   const url = att.downloadUrl || `/api/mail/attachment?messageId=${encodeURIComponent(mid)}&attachmentId=${encodeURIComponent(att.id)}`;
   window.open(url, '_blank');
 };
+
+const toast = useToast();
+
+const onPrint = (printEntireThread = false) => {
+  if (!selectedMessage.value) return;
+  printMailContent({
+    message: selectedMessage.value,
+    thread: sortedThread.value,
+    printEntireThread
+  });
+};
+
+const onPrintSingle = (msg: MailMessage) => {
+  printMailContent({
+    message: msg,
+    printEntireThread: false
+  });
+};
+
+const onExportEml = (targetMsg?: MailMessage) => {
+  const msg = targetMsg || selectedMessage.value;
+  if (!msg) return;
+  try {
+    exportMailToEml(msg);
+    toast.add({
+      title: 'EML Exported',
+      description: 'Saved message file compatible with Outlook & Mail apps',
+      color: 'success'
+    });
+  } catch (err: any) {
+    toast.add({ title: 'Export Failed', description: err.message, color: 'error' });
+  }
+};
+
+const onExportPdf = async (isThread = false) => {
+  if (!selectedMessage.value) return;
+  try {
+    toast.add({
+      title: 'Downloading PDF...',
+      description: isThread ? 'Exporting entire conversation to PDF' : 'Exporting email to PDF',
+      color: 'neutral'
+    });
+    await exportMailToPdf({
+      messageId: selectedMessage.value.id,
+      subject: selectedMessage.value.subject,
+      isThread
+    });
+    toast.add({
+      title: 'PDF Downloaded',
+      description: 'Your email PDF file has been saved',
+      color: 'success'
+    });
+  } catch (err: any) {
+    toast.add({ title: 'Export Failed', description: err.message, color: 'error' });
+  }
+};
+
+const onExportText = (isThread = false) => {
+  if (!selectedMessage.value) return;
+  try {
+    exportMailToText({
+      message: selectedMessage.value,
+      thread: sortedThread.value,
+      exportEntireThread: isThread
+    });
+    toast.add({
+      title: 'Text Transcript Exported',
+      description: 'Saved clean plain-text archive',
+      color: 'success'
+    });
+  } catch (err: any) {
+    toast.add({ title: 'Export Failed', description: err.message, color: 'error' });
+  }
+};
+
+const exportMenuItems = computed(() => {
+  const group1: any[] = [
+    {
+      label: 'Export as PDF (.pdf)',
+      icon: 'i-heroicons-document-arrow-down',
+      onSelect: () => onExportPdf(false)
+    },
+    {
+      label: 'Export as EML (.eml - Outlook)',
+      icon: 'i-heroicons-envelope',
+      onSelect: () => onExportEml()
+    },
+    {
+      label: 'Export as Text (.txt)',
+      icon: 'i-heroicons-document-text',
+      onSelect: () => onExportText(false)
+    }
+  ];
+
+  const group2: any[] = [];
+  if (isThreadView.value) {
+    group2.push({
+      label: `Export Full Thread (PDF - ${sortedThread.value.length} msgs)`,
+      icon: 'i-heroicons-chat-bubble-left-right',
+      onSelect: () => onExportPdf(true)
+    });
+    group2.push({
+      label: 'Export Full Thread (Text)',
+      icon: 'i-heroicons-queue-list',
+      onSelect: () => onExportText(true)
+    });
+  }
+
+  return group2.length > 0 ? [group1, group2] : [group1];
+});
 </script>
 
 <template>
-  <div class="flex-1 bg-white dark:bg-slate-900 flex flex-col h-full min-w-0 overflow-y-auto select-text">
+  <div class="flex-1 bg-white dark:bg-slate-900 flex flex-col h-full min-w-0 overflow-hidden select-text">
     <!-- Empty State -->
     <div
       v-if="!selectedMessage"
@@ -219,6 +331,51 @@ const downloadAttachment = (att: any, msgId?: string) => {
             >
               DKIM: PASS
             </UBadge>
+
+            <div class="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
+
+            <!-- Print Action -->
+            <template v-if="isThreadView">
+              <UDropdownMenu :items="[[
+                { label: `Print Entire Thread (${sortedThread.length} msgs)`, icon: 'i-heroicons-printer', onSelect: () => onPrint(true) },
+                { label: 'Print Active Message', icon: 'i-heroicons-document-text', onSelect: () => onPrint(false) }
+              ]]">
+                <UButton
+                  size="xs"
+                  variant="subtle"
+                  color="neutral"
+                  icon="i-heroicons-printer"
+                  label="Print"
+                  class="font-semibold text-xs"
+                  title="Print email or thread"
+                />
+              </UDropdownMenu>
+            </template>
+            <template v-else>
+              <UButton
+                size="xs"
+                variant="subtle"
+                color="neutral"
+                icon="i-heroicons-printer"
+                label="Print"
+                class="font-semibold text-xs"
+                title="Print email (Ctrl+P)"
+                @click="() => onPrint(false)"
+              />
+            </template>
+
+            <!-- Export Dropdown -->
+            <UDropdownMenu :items="exportMenuItems">
+              <UButton
+                size="xs"
+                variant="subtle"
+                color="neutral"
+                icon="i-heroicons-arrow-down-tray"
+                label="Export"
+                class="font-semibold text-xs"
+                title="Export to PDF, EML or Text"
+              />
+            </UDropdownMenu>
           </div>
         </div>
 
@@ -254,9 +411,9 @@ const downloadAttachment = (att: any, msgId?: string) => {
       </div>
 
       <!-- Scrollable Message Stream -->
-      <div class="flex-1 overflow-y-auto">
+      <div class="flex-1 overflow-y-auto min-h-0">
         <!-- MODE A: Continuous Trailing Conversation Stream (2+ messages) -->
-        <div v-if="isThreadView" class="p-4 sm:p-6 space-y-4">
+        <div v-if="isThreadView" class="p-4 sm:p-6 space-y-4 pb-12">
           <div
             v-for="(msg, idx) in sortedThread"
             :key="msg.id"
@@ -351,6 +508,26 @@ const downloadAttachment = (att: any, msgId?: string) => {
                   size="xs"
                   variant="ghost"
                   color="neutral"
+                  icon="i-heroicons-printer"
+                  label="Print"
+                  class="font-semibold text-xs"
+                  title="Print this message"
+                  @click="onPrintSingle(msg)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-heroicons-arrow-down-tray"
+                  label="EML"
+                  class="font-semibold text-xs"
+                  title="Export message as .eml (Outlook compatible)"
+                  @click="onExportEml(msg)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
                   icon="i-heroicons-arrow-uturn-left"
                   label="Reply"
                   class="font-semibold text-xs"
@@ -371,7 +548,7 @@ const downloadAttachment = (att: any, msgId?: string) => {
         </div>
 
         <!-- MODE B: Standard Single Message View (1 message) -->
-        <div v-else class="flex flex-col h-full">
+        <div v-else class="flex flex-col flex-1 min-h-0 h-full">
           <!-- Sender & Recipient Detail -->
           <div class="p-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
             <div class="flex items-start justify-between gap-4">
@@ -465,7 +642,7 @@ const downloadAttachment = (att: any, msgId?: string) => {
           </div>
 
           <!-- Body Area -->
-          <div class="flex-1 p-4 sm:p-6 overflow-y-auto">
+          <div class="flex-1 p-4 sm:p-6 overflow-y-auto min-h-0 pb-12">
             <!-- View Mode Switcher -->
             <div
               v-if="selectedMessage.bodyHtml && selectedMessage.bodyText"

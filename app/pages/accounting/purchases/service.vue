@@ -8,7 +8,18 @@
 
       <div class="header-fields">
         <label>
-          <span>Bill No</span>
+          <span>Supplier Bill No</span>
+          <input 
+            ref="supplierBillNoInputRef"
+            v-model="meta.supplierBillNo" 
+            type="text" 
+            placeholder="Vendor invoice #" 
+            @keydown.enter.prevent="onSupplierBillNoEnter"
+            @keydown.backspace="onSupplierBillNoBackspace"
+          />
+        </label>
+        <label>
+          <span>System Bill No</span>
           <input :value="meta.billNo || 'API/AUTO'" type="text" readonly class="readonly-input font-mono" />
         </label>
         <label>
@@ -19,16 +30,7 @@
             type="date" 
             class="first-input" 
             @keydown.enter.prevent="onDateEnter" 
-          />
-        </label>
-        <label>
-          <span>Supplier Bill No</span>
-          <input 
-            ref="supplierBillNoInputRef"
-            v-model="meta.supplierBillNo" 
-            type="text" 
-            placeholder="Vendor invoice #" 
-            @keydown.enter.prevent="onSupplierBillNoEnter"
+            @keydown.backspace="onDateBackspace"
           />
         </label>
 
@@ -40,6 +42,7 @@
             :value="activeFirmLocation?.gst_number || ''" 
             @change="onFirmGstinChange"
             @keydown.enter.prevent="onFirmGstinEnter"
+            @keydown.backspace="onFirmGstinBackspace"
           >
             <option v-for="location in firmLocations" :key="location.gst_number || location.state_code" :value="location.gst_number || ''">
               {{ location.gst_number || 'No GSTIN' }} - {{ location.state || location.state_code || '' }}{{ location.is_default ? ' (Default)' : '' }}
@@ -54,6 +57,7 @@
             ref="txTypeSelectRef"
             v-model="meta.billType"
             @keydown.enter.prevent="onTxTypeEnter"
+            @keydown.backspace="onTxTypeBackspace"
           >
             <option value="intra-state">Intra-State (CGST + SGST)</option>
             <option value="inter-state">Inter-State (IGST)</option>
@@ -61,14 +65,29 @@
         </label>
 
         <label v-if="gstEnabled" class="inline-toggle">
-          <input v-model="meta.reverseCharge" type="checkbox" @keydown.enter.prevent="onReverseChargeEnter" />
+          <input 
+            ref="reverseChargeInputRef"
+            v-model="meta.reverseCharge" 
+            type="checkbox" 
+            @keydown.enter.prevent="onReverseChargeEnter"
+            @keydown.backspace="onReverseChargeBackspace"
+          />
           <span>Reverse Charge (RCM)</span>
         </label>
       </div>
 
       <div class="header-actions">
         <button class="ghost-btn" type="button" @click="resetForm" title="Discard (F9)">Discard (F9)</button>
-        <button class="primary-btn purchase" type="button" :disabled="saving || !canSave" @click="handleSave" title="Save Bill (F8)">
+        <button 
+          ref="saveBtnRef"
+          class="primary-btn purchase" 
+          type="button" 
+          :disabled="saving || !canSave" 
+          @click="handleSave" 
+          @keydown.enter.prevent="handleSave"
+          @keydown.backspace.prevent="onSaveBtnBackspace"
+          title="Save Bill (F8)"
+        >
           {{ saving ? 'Saving...' : 'Save Bill' }}
           <span>F8</span>
         </button>
@@ -165,6 +184,8 @@
           @remove-item="(idx) => removeItem(idx)"
           @update-item="(idx, field, val) => updateItem(idx, field, val)"
           @open-ledger-modal="openLedgerModal"
+          @backspace-out="onCartBackspaceOut"
+          @cart-complete="onCartComplete"
         />
       </section>
     </main>
@@ -316,9 +337,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useApi } from '@/utils/api';
 import { useAccountingInvoiceState, type COAAccount } from '@/composables/useAccountingInvoiceState';
+import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 import { INDIA_STATE_CODES } from '@/composables/useBillingState';
 import PartyManager from '@/components/accounting/PartyManager.vue';
 import LedgerCartManager from '@/components/accounting/LedgerCartManager.vue';
@@ -328,6 +350,7 @@ import OtherChargesModal from '@/components/accounting/OtherChargesModal.vue';
 
 const api = useApi();
 const { cart, addItem, removeItem, updateItem, clearCart, computeTotals, saving, saveInvoice, saveError } = useAccountingInvoiceState('PURCHASE');
+const { saveFocus, restoreFocus, trackPageFocus } = useKeyboardNavigation();
 
 // ─── Firm & Statutory State ───
 const currentFirmName = ref('Loading...');
@@ -340,6 +363,24 @@ const parties = ref<any[]>([]);
 const selectedParty = ref<any>(null);
 const selectedPartyLocation = ref<any>(null);
 const selectedPartyGstin = ref<string | null>(null);
+
+// ─── Party State for PartyManager Component (Reactive ERP Object) ───
+const partyState = reactive<any>({
+  selectedParty: null,
+  selectedPartyGstin: null,
+  selectedPartyLocation: null,
+  parties: [],
+  gstEnabled: true,
+  isReturnMode: false,
+  consigneeSameAsBillTo: true,
+  selectedConsignee: null,
+});
+
+watch(parties, (val) => { partyState.parties = val || []; }, { immediate: true });
+watch(gstEnabled, (val) => { partyState.gstEnabled = val; }, { immediate: true });
+watch(selectedParty, (val) => { partyState.selectedParty = val; });
+watch(selectedPartyGstin, (val) => { partyState.selectedPartyGstin = val; });
+watch(selectedPartyLocation, (val) => { partyState.selectedPartyLocation = val; });
 
 // ─── Bill Metadata ───
 const meta = ref({
@@ -371,9 +412,11 @@ const firstInputRef = ref<HTMLInputElement | null>(null);
 const supplierBillNoInputRef = ref<HTMLInputElement | null>(null);
 const firmGstinSelectRef = ref<HTMLSelectElement | null>(null);
 const txTypeSelectRef = ref<HTMLSelectElement | null>(null);
+const reverseChargeInputRef = ref<HTMLInputElement | null>(null);
 const referenceInputRef = ref<HTMLInputElement | null>(null);
 const narrationInputRef = ref<HTMLTextAreaElement | null>(null);
 const cartManagerRef = ref<any>(null);
+const saveBtnRef = ref<HTMLButtonElement | null>(null);
 
 // Party search
 const partySearch = ref('');
@@ -381,18 +424,6 @@ const partyActiveIdx = ref(0);
 const partySearchRef = ref<HTMLInputElement | null>(null);
 const partyListRef = ref<HTMLElement | null>(null);
 const successModalContainerRef = ref<HTMLElement | null>(null);
-
-// ─── Party State for PartyManager Component ───
-const partyState = computed(() => ({
-  selectedParty: selectedParty.value,
-  selectedPartyGstin: selectedPartyGstin.value,
-  selectedPartyLocation: selectedPartyLocation.value,
-  parties: parties.value,
-  gstEnabled: gstEnabled.value,
-  isReturnMode: false,
-  consigneeSameAsBillTo: true,
-  selectedConsignee: null,
-}));
 
 // ─── Modal Open/Close Helpers ───
 function openLedgerModal() {
@@ -412,10 +443,17 @@ function closePartyDrawer() {
   showPartyDrawer.value = false;
   nextTick(() => {
     if (selectedParty.value) {
-      referenceInputRef.value?.focus();
-      referenceInputRef.value?.select();
+      focusPartySection();
     } else {
-      firstInputRef.value?.focus();
+      if (reverseChargeInputRef.value) {
+        reverseChargeInputRef.value.focus();
+      } else if (txTypeSelectRef.value) {
+        txTypeSelectRef.value.focus();
+      } else if (firmLocations.value.length > 1 && firmGstinSelectRef.value) {
+        firmGstinSelectRef.value.focus();
+      } else {
+        firstInputRef.value?.focus();
+      }
     }
   });
 }
@@ -449,18 +487,27 @@ function openCreatePartyFromDrawer() {
   openCreatePartyModal();
 }
 
-// ─── Header & Form Enter Progression (Strict ERP Loop) ───
-function onDateEnter() {
-  if (supplierBillNoInputRef.value) {
-    supplierBillNoInputRef.value.focus();
-    supplierBillNoInputRef.value.select();
+// ─── Header & Form Enter / Backspace Progression (Strict ERP Loop) ───
+function onSupplierBillNoEnter() {
+  if (firstInputRef.value) {
+    firstInputRef.value.focus();
   } else {
     advanceToFirmOrParty();
   }
 }
 
-function onSupplierBillNoEnter() {
+function onSupplierBillNoBackspace(e: KeyboardEvent) {
+  // Start of voucher form
+}
+
+function onDateEnter() {
   advanceToFirmOrParty();
+}
+
+function onDateBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  supplierBillNoInputRef.value?.focus();
+  supplierBillNoInputRef.value?.select();
 }
 
 function advanceToFirmOrParty() {
@@ -468,35 +515,82 @@ function advanceToFirmOrParty() {
     firmGstinSelectRef.value.focus();
   } else if (gstEnabled.value && txTypeSelectRef.value) {
     txTypeSelectRef.value.focus();
+  } else if (gstEnabled.value && reverseChargeInputRef.value) {
+    reverseChargeInputRef.value.focus();
   } else {
-    advanceToPartyOrReference();
+    focusPartySection();
   }
 }
 
 function onFirmGstinEnter() {
   if (gstEnabled.value && txTypeSelectRef.value) {
     txTypeSelectRef.value.focus();
+  } else if (gstEnabled.value && reverseChargeInputRef.value) {
+    reverseChargeInputRef.value.focus();
   } else {
-    advanceToPartyOrReference();
+    focusPartySection();
   }
+}
+
+function onFirmGstinBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  firstInputRef.value?.focus();
 }
 
 function onTxTypeEnter() {
-  advanceToPartyOrReference();
+  if (gstEnabled.value && reverseChargeInputRef.value) {
+    reverseChargeInputRef.value.focus();
+  } else {
+    focusPartySection();
+  }
+}
+
+function onTxTypeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (firmLocations.value.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    firstInputRef.value?.focus();
+  }
 }
 
 function onReverseChargeEnter() {
-  advanceToPartyOrReference();
+  focusPartySection();
 }
 
-function advanceToPartyOrReference() {
-  if (!selectedParty.value) {
-    // If supplier not selected yet, automatically pop the party drawer!
-    openPartyDrawer();
+function onReverseChargeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else if (firmLocations.value.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
   } else {
+    firstInputRef.value?.focus();
+  }
+}
+
+function focusPartySection() {
+  if (!selectedParty.value) {
+    openPartyDrawer();
+    return;
+  }
+  nextTick(() => {
+    // 1. If party has multiple branches/GSTIN locations, focus the billing branch select
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
+    // 2. Focus the "Ship to billing address" checkbox directly!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. Fallback to reference / PO
     referenceInputRef.value?.focus();
     referenceInputRef.value?.select();
-  }
+  });
 }
 
 function onReferenceEnter() {
@@ -508,11 +602,42 @@ function onReferenceBackspace(e: KeyboardEvent) {
   const target = e.target as HTMLInputElement;
   if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
     e.preventDefault();
-    if (supplierBillNoInputRef.value) {
-      supplierBillNoInputRef.value.focus();
-      supplierBillNoInputRef.value.select();
+    // 1. If consignee is expanded, move back to the last visible consignee field
+    if (!partyState.consigneeSameAsBillTo && partyState.selectedConsignee) {
+      const shipInputs = Array.from(document.querySelectorAll('.party-panel .ship-fields input:not([type="hidden"]), .party-panel .ship-fields textarea, .party-panel .ship-fields select')) as HTMLElement[];
+      const lastInput = shipInputs[shipInputs.length - 1];
+      if (lastInput) {
+        lastInput.focus();
+        if (lastInput instanceof HTMLInputElement || lastInput instanceof HTMLTextAreaElement) {
+          lastInput.select?.();
+        }
+        return;
+      }
+    }
+    // 2. Focus the "Ship to billing address" checkbox!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. If multiple locations, focus location selector
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
+    // 4. Fallback to header
+    if (reverseChargeInputRef.value) {
+      reverseChargeInputRef.value.focus();
+    } else if (txTypeSelectRef.value) {
+      txTypeSelectRef.value.focus();
+    } else if (firmLocations.value.length > 1 && firmGstinSelectRef.value) {
+      firmGstinSelectRef.value.focus();
+    } else if (firstInputRef.value) {
+      firstInputRef.value.focus();
     } else {
-      firstInputRef.value?.focus();
+      supplierBillNoInputRef.value?.focus();
+      supplierBillNoInputRef.value?.select();
     }
   }
 }
@@ -533,6 +658,25 @@ function onNarrationKeydown(e: KeyboardEvent) {
       referenceInputRef.value?.focus();
       referenceInputRef.value?.select();
     }
+  }
+}
+
+function onCartBackspaceOut() {
+  narrationInputRef.value?.focus();
+  narrationInputRef.value?.select();
+}
+
+function onCartComplete() {
+  saveBtnRef.value?.focus();
+}
+
+function onSaveBtnBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (cart.value.length > 0) {
+    cartManagerRef.value?.focusCell(cart.value.length - 1, 'narration');
+  } else {
+    narrationInputRef.value?.focus();
+    narrationInputRef.value?.select();
   }
 }
 
@@ -613,19 +757,19 @@ function selectParty(party: any) {
   const primaryLoc = party?.gstLocations?.find((l: any) => l.isPrimary) || party?.gstLocations?.[0] || null;
   selectedPartyLocation.value = primaryLoc;
   selectedPartyGstin.value = primaryLoc?.gstin || party?.gstin || 'UNREGISTERED';
+  partyState.selectedParty = party;
+  partyState.selectedPartyLocation = primaryLoc;
+  partyState.selectedPartyGstin = selectedPartyGstin.value;
   showPartyDrawer.value = false;
   determineGstBillType();
-
-  // Move focus immediately to Reference / PO input
-  nextTick(() => {
-    referenceInputRef.value?.focus();
-    referenceInputRef.value?.select();
-  });
+  focusPartySection();
 }
 
 function onPartyLocationChange(location: any) {
   selectedPartyLocation.value = location;
   selectedPartyGstin.value = location?.gstin || selectedParty.value?.gstin || 'UNREGISTERED';
+  partyState.selectedPartyLocation = location;
+  partyState.selectedPartyGstin = selectedPartyGstin.value;
   determineGstBillType();
 }
 
@@ -635,25 +779,14 @@ function onPartySaved(party: any) {
 }
 
 // ─── Account Head Selection & Instant SAC Focus Handover ───
+let itemWasSelected = false;
+
 function onLedgerSelect(account: COAAccount) {
+  itemWasSelected = true;
   addItem(account);
   showLedgerModal.value = false;
   nextTick(() => {
-    const newIdx = cart.value.length - 1;
-    const sacInput = document.querySelector(`tr[data-row="${newIdx}"] input[data-field="sacCode"]`) as HTMLInputElement;
-    if (sacInput) {
-      sacInput.focus();
-      sacInput.select?.();
-    } else {
-      cartManagerRef.value?.focusRowSac(newIdx);
-    }
-  });
-}
-
-function onAddCartItem(account?: COAAccount) {
-  if (account) {
-    addItem(account);
-    nextTick(() => {
+    setTimeout(() => {
       const newIdx = cart.value.length - 1;
       const sacInput = document.querySelector(`tr[data-row="${newIdx}"] input[data-field="sacCode"]`) as HTMLInputElement;
       if (sacInput) {
@@ -662,11 +795,47 @@ function onAddCartItem(account?: COAAccount) {
       } else {
         cartManagerRef.value?.focusRowSac(newIdx);
       }
+      itemWasSelected = false;
+    }, 60);
+  });
+}
+
+function onAddCartItem(account?: COAAccount) {
+  if (account) {
+    itemWasSelected = true;
+    addItem(account);
+    nextTick(() => {
+      setTimeout(() => {
+        const newIdx = cart.value.length - 1;
+        const sacInput = document.querySelector(`tr[data-row="${newIdx}"] input[data-field="sacCode"]`) as HTMLInputElement;
+        if (sacInput) {
+          sacInput.focus();
+          sacInput.select?.();
+        } else {
+          cartManagerRef.value?.focusRowSac(newIdx);
+        }
+        itemWasSelected = false;
+      }, 60);
     });
   } else {
     openLedgerModal();
   }
 }
+
+watch(showLedgerModal, (isOpen) => {
+  if (!isOpen) {
+    if (!itemWasSelected) {
+      nextTick(() => {
+        if (cart.value.length > 0) {
+          saveBtnRef.value?.focus();
+        } else {
+          narrationInputRef.value?.focus();
+          narrationInputRef.value?.select();
+        }
+      });
+    }
+  }
+});
 
 async function handleSave() {
   if (!canSave.value) return;
@@ -691,6 +860,11 @@ async function handleSave() {
         narration: meta.value.narration,
         partyGstin: selectedPartyGstin.value,
         firmGstin: activeFirmLocation.value?.gst_number,
+        consigneeName: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.name : undefined,
+        consigneeGstin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.gstin : undefined,
+        consigneeAddress: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.address : undefined,
+        consigneeState: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.state : undefined,
+        consigneePin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.pin : undefined,
       },
       otherCharges: otherCharges.value,
     });
@@ -706,6 +880,11 @@ function resetForm() {
   selectedParty.value = null;
   selectedPartyLocation.value = null;
   selectedPartyGstin.value = null;
+  partyState.selectedParty = null;
+  partyState.selectedPartyLocation = null;
+  partyState.selectedPartyGstin = null;
+  partyState.selectedConsignee = null;
+  partyState.consigneeSameAsBillTo = true;
   otherCharges.value = [];
   meta.value = { 
     billNo: '',
@@ -719,7 +898,8 @@ function resetForm() {
   createdBill.value = null;
   fetchNextBillNo();
   nextTick(() => {
-    firstInputRef.value?.focus();
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
   });
 }
 
@@ -778,6 +958,12 @@ function onPartySearchKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Escape') {
     e.preventDefault();
     closePartyDrawer();
+  } else if (e.key === 'Backspace') {
+    const target = e.target as HTMLInputElement;
+    if (target && target.value === '') {
+      e.preventDefault();
+      closePartyDrawer();
+    }
   } else if (e.key === 'Insert' || (e.ctrlKey && e.key.toLowerCase() === 'n')) {
     e.preventDefault();
     openCreatePartyFromDrawer();
@@ -797,6 +983,32 @@ function scrollActiveParty() {
 }
 
 watch(partySearch, () => { partyActiveIdx.value = 0; });
+
+watch(showSuccessModal, (isOpen) => {
+  if (isOpen) {
+    nextTick(() => {
+      successModalContainerRef.value?.focus();
+    });
+  } else {
+    resetForm();
+  }
+});
+
+watch(showOtherChargesModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
+
+watch(showHelpModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    restoreFocus();
+  }
+});
 
 // ─── Global Window Keyboard Handler ───
 function handleGlobalKeydown(e: KeyboardEvent) {
@@ -826,6 +1038,26 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     openOtherChargesModal();
   } else if (e.key === 'F8' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's')) {
     e.preventDefault();
+    if (!canSave.value) {
+      if (!meta.value.supplierBillNo) {
+        supplierBillNoInputRef.value?.focus();
+        supplierBillNoInputRef.value?.select();
+        return;
+      }
+      if (!selectedParty.value) {
+        openPartyDrawer();
+        return;
+      }
+      if (cart.value.length === 0) {
+        openLedgerModal();
+        return;
+      }
+      const zeroAmountIdx = cart.value.findIndex(item => (parseFloat(String(item.amount)) || 0) <= 0);
+      if (zeroAmountIdx !== -1) {
+        cartManagerRef.value?.focusRowAmount(zeroAmountIdx);
+        return;
+      }
+    }
     if (canSave.value) handleSave();
   } else if (e.key === 'F9') {
     e.preventDefault();
@@ -848,8 +1080,10 @@ onMounted(() => {
   fetchFirmData();
   fetchParties();
   fetchNextBillNo();
+  trackPageFocus(pageContainerRef.value);
   nextTick(() => {
-    firstInputRef.value?.focus();
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
   });
 });
 

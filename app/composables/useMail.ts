@@ -60,12 +60,86 @@ export function useMail() {
       const res: any = await apiFetch('/api/mail/accounts');
       if (res?.success && Array.isArray(res.data)) {
         accounts.value = res.data;
-        if (!activeAccount.value && accounts.value.length > 0) {
+        const savedId = typeof window !== 'undefined' ? window.localStorage.getItem('mail_active_account_id') : null;
+        const matchingSaved = accounts.value.find(a => a.id === savedId);
+        const matchingCurrent = activeAccount.value ? accounts.value.find(a => a.id === activeAccount.value!.id) : null;
+
+        if (matchingSaved) {
+          activeAccount.value = matchingSaved;
+        } else if (matchingCurrent) {
+          activeAccount.value = matchingCurrent;
+        } else if (accounts.value.length > 0) {
           activeAccount.value = accounts.value[0] || null;
+        } else {
+          activeAccount.value = null;
         }
       }
     } catch (err: any) {
       console.warn('[useMail] Fetch accounts notice:', err.message);
+    }
+  }
+
+  // 1b. Switch Active Account
+  async function switchAccount(accountOrId: MailAccount | string) {
+    const target = typeof accountOrId === 'string'
+      ? accounts.value.find(a => a.id === accountOrId)
+      : accountOrId;
+
+    if (!target) return;
+    if (activeAccount.value?.id === target.id) return;
+
+    activeAccount.value = target;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('mail_active_account_id', target.id);
+    }
+
+    // Reset view state for fresh mailbox load
+    activeFolderId.value = 'INBOX';
+    selectedMessage.value = null;
+    selectedThread.value = [];
+    messages.value = [];
+    totalMessages.value = 0;
+
+    // Auto-unlock vault with target account credentials if available
+    const { autoUnlockIfPossible } = useMailVault();
+    if (target.encryptedVaultBlob) {
+      await autoUnlockIfPossible(target.encryptedVaultBlob);
+    } else {
+      await autoUnlockIfPossible();
+    }
+
+    await fetchFolders();
+    await fetchMessages();
+  }
+
+  // 1c. Delete Account
+  async function deleteAccount(accountId: string) {
+    try {
+      const res: any = await apiFetch(`/api/mail/accounts/${accountId}`, {
+        method: 'DELETE'
+      });
+      if (res?.success) {
+        toast.add({ title: 'Account Disconnected', description: 'Mail account removed successfully', color: 'success' });
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(`mail_vault_${accountId}`);
+        }
+        await fetchAccounts();
+        if (activeAccount.value?.id === accountId) {
+          if (accounts.value.length > 0) {
+            await switchAccount(accounts.value[0]!);
+          } else {
+            activeAccount.value = null;
+            folders.value = [];
+            messages.value = [];
+            selectedMessage.value = null;
+            selectedThread.value = [];
+          }
+        }
+        return true;
+      }
+    } catch (err: any) {
+      toast.add({ title: 'Delete Failed', description: err.data?.message || err.message, color: 'error' });
+      return false;
     }
   }
 
@@ -371,6 +445,8 @@ export function useMail() {
     composerData,
     unreadCountForActive,
     fetchAccounts,
+    switchAccount,
+    deleteAccount,
     fetchFolders,
     fetchMessages,
     selectMessage,

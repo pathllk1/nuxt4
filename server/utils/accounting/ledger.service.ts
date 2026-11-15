@@ -75,6 +75,13 @@ export class LedgerService {
 
     const mappedVtype = mapLegacyVoucherType(params.voucherType);
 
+    // If params.voucherGroupId is a bare numeric ID (legacy counter from bill-utils, e.g. "60"),
+    // DO NOT pass it as externalVoucherGroupId because bare integers have no voucher-type scoping
+    // and cause cross-voucher-type collision errors (e.g. SALES vs PURCHASE).
+    // Let UnifiedPostingService generate the canonical, scoped voucherGroupId (e.g. PI-2026-27-000001).
+    const isBareNumericId = /^\d+$/.test(String(params.voucherGroupId || '').trim());
+    const externalVoucherGroupId = isBareNumericId ? undefined : params.voucherGroupId;
+
     return await UnifiedPostingService.postVoucher({
       firmId: params.firmId,
       voucherType: mappedVtype,
@@ -84,7 +91,7 @@ export class LedgerService {
       createdBy: params.createdBy || 'system',
       refType: params.refType || 'BILL',
       refId: params.refId,
-      externalVoucherGroupId: params.voucherGroupId,
+      externalVoucherGroupId,
       externalVoucherNo: params.voucherNo,
     }, params.session);
   }
@@ -213,7 +220,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'PURCHASE', billNo);
-    await this.executeUnifiedPost({
+    return await this.executeUnifiedPost({
       firmId,
       voucherType: 'PURCHASE',
       voucherGroupId: voucherId,
@@ -267,7 +274,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'SALES', billNo);
-    await this.executeUnifiedPost({
+    return await this.executeUnifiedPost({
       firmId,
       voucherType: 'SALES',
       voucherGroupId: voucherId,
@@ -323,7 +330,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_SALES', billNo);
-    await this.executeUnifiedPost({
+    return await this.executeUnifiedPost({
       firmId,
       voucherType: 'SALES',
       voucherGroupId: voucherId,
@@ -403,7 +410,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_PURCHASE', billNo);
-    await this.executeUnifiedPost({
+    return await this.executeUnifiedPost({
       firmId,
       voucherType: 'PURCHASE',
       voucherGroupId: voucherId,
@@ -460,7 +467,7 @@ export class LedgerService {
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_PURCHASE', billNo);
-    await this.executeUnifiedPost({
+    return await this.executeUnifiedPost({
       firmId,
       voucherType: 'DEBIT_NOTE',
       voucherGroupId: voucherId,

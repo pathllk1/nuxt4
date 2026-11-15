@@ -29,7 +29,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
+  <div class="flex flex-col h-[calc(100vh-5.5rem)] h-[calc(100dvh-5.5rem)] -mb-8 w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
     <!-- Top Simplified Ribbon -->
     <MailRibbon
       @open-account-modal="isAccountModalOpen = true"

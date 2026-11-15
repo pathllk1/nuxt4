@@ -187,7 +187,16 @@ export default defineEventHandler(async (event) => {
       session
     };
 
-    await LedgerService.postSalesLedger(ledgerParams as any);
+    const postResult = await LedgerService.postSalesLedger(ledgerParams as any);
+    if (postResult?.voucherGroupId) {
+      newBill.voucherId = postResult.voucherGroupId;
+      const updateQuery = Bill.updateOne(
+        { _id: newBill._id },
+        { $set: { voucherId: postResult.voucherGroupId } }
+      );
+      if (session) updateQuery.session(session);
+      await updateQuery.exec();
+    }
 
     return newBill;
   };

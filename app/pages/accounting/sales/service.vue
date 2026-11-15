@@ -674,6 +674,11 @@ async function handleSave() {
         narration: meta.value.narration,
         partyGstin: selectedPartyGstin.value,
         firmGstin: activeFirmLocation.value?.gst_number,
+        consigneeName: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.name : undefined,
+        consigneeGstin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.gstin : undefined,
+        consigneeAddress: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.address : undefined,
+        consigneeState: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.state : undefined,
+        consigneePin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.pin : undefined,
       },
       otherCharges: otherCharges.value,
     });
@@ -783,6 +788,16 @@ function scrollActiveParty() {
 }
 
 watch(partySearch, () => { partyActiveIdx.value = 0; });
+
+watch(showSuccessModal, (isOpen) => {
+  if (isOpen) {
+    nextTick(() => {
+      successModalContainerRef.value?.focus();
+    });
+  } else {
+    resetForm();
+  }
+});
 
 // ─── Global Window Keyboard Handler ───
 function handleGlobalKeydown(e: KeyboardEvent) {
