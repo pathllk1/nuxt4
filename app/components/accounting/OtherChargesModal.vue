@@ -451,7 +451,7 @@ const props = defineProps<{
   otherCharges: any[];
 }>();
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'update:otherCharges', 'apply']);
 const api = useApi();
 
 const modalContainerRef = ref<HTMLElement | null>(null);
@@ -539,6 +539,15 @@ watch(() => props.modelValue, (isOpen) => {
 
 function closeModal() {
   closeDropdown();
+  // Filter out completely blank lines (no name and zero amount)
+  for (let i = props.otherCharges.length - 1; i >= 0; i--) {
+    const c = props.otherCharges[i];
+    if (!c.name && (!c.amount || Number(c.amount) === 0)) {
+      props.otherCharges.splice(i, 1);
+    }
+  }
+  emit('update:otherCharges', [...props.otherCharges]);
+  emit('apply', [...props.otherCharges]);
   emit('update:modelValue', false);
 }
 
@@ -844,10 +853,30 @@ function clearAllCharges() {
   closeDropdown();
 }
 
+function onModalWindowKeydown(e: KeyboardEvent) {
+  if (!props.modelValue) return;
+  if (e.key === 'F8') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeModal();
+  } else if (e.key === 'Escape') {
+    if (isDropdownOpen.value) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeDropdown();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    closeModal();
+  }
+}
+
 onMounted(() => {
   if (import.meta.client) {
     window.addEventListener('resize', updateDropdownPosition);
     window.addEventListener('scroll', updateDropdownPosition, true);
+    window.addEventListener('keydown', onModalWindowKeydown, true);
   }
 });
 
@@ -855,6 +884,7 @@ onBeforeUnmount(() => {
   if (import.meta.client) {
     window.removeEventListener('resize', updateDropdownPosition);
     window.removeEventListener('scroll', updateDropdownPosition, true);
+    window.removeEventListener('keydown', onModalWindowKeydown, true);
   }
 });
 </script>

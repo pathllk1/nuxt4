@@ -3,6 +3,7 @@ import pdfMake from 'pdfmake';
 import mongoose from 'mongoose';
 import StockReg from '../../models/StockReg';
 import Bill from '../../models/Bill';
+import Party from '../../models/Party';
 import BankAccount from '../../models/BankAccount';
 import FirmSettings from '../../models/FirmSettings';
 import { dejavuVfs } from './vfs-dejavu-fonts';
@@ -330,12 +331,23 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
   const hsnSummary = buildHsnSummary(billObj, items, otherCharges, gstEnabled);
   const isPurchase = btype.toUpperCase() === 'PURCHASE';
 
+  let buyerName = (billObj.partyName || (billObj.party as any)?.name || '').trim();
+  if (!buyerName && billObj.partyId) {
+    try {
+      const pDoc = await Party.findById(billObj.partyId).select('name firm').lean();
+      if (pDoc) buyerName = ((pDoc as any).name || (pDoc as any).firm || '').trim();
+    } catch {
+      // ignore
+    }
+  }
+
   const formattedBuyerAddress = [billObj.partyAddress, billObj.partyPin ? `PIN: ${billObj.partyPin}` : '']
     .filter(Boolean).join(', ');
 
+  const consigneeName = (billObj.consigneeName || '').trim();
   const rightBoxName = isPurchase 
-    ? (billObj.consigneeName?.trim() || seller.name) 
-    : (billObj.consigneeName?.trim() || billObj.partyName || (billObj.party as any)?.name || '');
+    ? (consigneeName || seller.name) 
+    : (consigneeName || buyerName || seller.name);
   const rightBoxAddr = isPurchase
     ? (billObj.consigneeAddress ? [billObj.consigneeAddress, billObj.consigneePin ? `PIN: ${billObj.consigneePin}` : ''].filter(Boolean).join(', ') : seller.address)
     : (billObj.consigneeAddress
@@ -565,7 +577,7 @@ export async function exportSingleBillToPdfBuffer(bill: any, firm: any, printCon
             {
               stack: [
                 { text: isPurchase ? 'BILL FROM (SUPPLIER)' : 'BILL TO (BUYER)', style: 'partyBoxTitle' },
-                { text: billObj.partyName || (billObj.party as any)?.name || '', style: 'partyName', margin: [0, 3, 0, 1] },
+                { text: buyerName, style: 'partyName', margin: [0, 3, 0, 1] },
                 { text: formattedBuyerAddress, style: 'partyMeta' },
                 { text: billObj.partyState ? `State: ${billObj.partyState}` : '', style: 'partyMeta' },
                 { text: billObj.partyGstin ? `GSTIN: ${billObj.partyGstin}` : '', style: 'partyGstin' },

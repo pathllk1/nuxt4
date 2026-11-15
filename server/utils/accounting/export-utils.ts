@@ -226,14 +226,16 @@ export async function exportSingleBillToExcel(bill: any): Promise<Buffer> {
   const formattedBuyerAddress = [billObj.partyAddress, billObj.partyPin ? `PIN: ${billObj.partyPin}` : '']
     .filter(Boolean).join(', ');
 
-  const rightBoxName = isPurchase ? seller.name : (billObj.consigneeName || '');
+  const buyerName = (billObj.partyName || (billObj.party as any)?.name || '').trim();
+  const consigneeName = (billObj.consigneeName || '').trim();
+  const rightBoxName = isPurchase ? seller.name : (consigneeName || buyerName || seller.name);
   const rightBoxAddr = isPurchase
-    ? seller.address
+    ? (billObj.consigneeAddress ? [billObj.consigneeAddress, billObj.consigneePin ? `PIN: ${billObj.consigneePin}` : ''].filter(Boolean).join(', ') : seller.address)
     : (billObj.consigneeAddress
       ? [billObj.consigneeAddress, billObj.consigneePin ? `PIN: ${billObj.consigneePin}` : ''].filter(Boolean).join(', ')
       : formattedBuyerAddress);
-  const rightBoxState = isPurchase ? '' : (billObj.consigneeState || billObj.partyState || '');
-  const rightBoxGstin = isPurchase ? seller.gstin : (billObj.consigneeGstin || billObj.partyGstin || '');
+  const rightBoxState = isPurchase ? (billObj.consigneeState || (seller as any).state || '') : (billObj.consigneeState || billObj.partyState || '');
+  const rightBoxGstin = isPurchase ? (billObj.consigneeGstin || seller.gstin) : (billObj.consigneeGstin || billObj.partyGstin || '');
 
   const taxableValue = billObj.grossTotal || 0;
   const totalTax = gstEnabled ? ((billObj.cgst || 0) + (billObj.sgst || 0) + (billObj.igst || 0)) : 0;

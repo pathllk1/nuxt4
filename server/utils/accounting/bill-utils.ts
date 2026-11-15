@@ -114,37 +114,55 @@ export function calcBillTotals(
 ) {
   const getQty = qtyFn || ((item: any) => parseFloat(item.qty));
 
-  let grossTotal = 0;
-  let totalTax = 0;
+  let itemsGrossTotal = 0;
+  let itemsTaxTotal = 0;
 
   cart.forEach(item => {
-    const lineVal = getQty(item) * item.rate * (1 - (item.disc || 0) / 100);
-    if (gstEnabled) totalTax += lineVal * (item.grate / 100);
-    grossTotal += lineVal;
+    const qty = getQty(item) || 0;
+    const rate = parseFloat(item.rate) || 0;
+    const disc = parseFloat(item.disc) || 0;
+    const lineVal = Number((qty * rate * (1 - disc / 100)).toFixed(2));
+    if (gstEnabled) {
+      const grate = parseFloat(item.grate) || 0;
+      itemsTaxTotal += Number(((lineVal * grate) / 100).toFixed(2));
+    }
+    itemsGrossTotal += lineVal;
   });
+
+  itemsGrossTotal = Number(itemsGrossTotal.toFixed(2));
+  itemsTaxTotal = Number(itemsTaxTotal.toFixed(2));
 
   let otherChargesTotal = 0;
   let otherChargesGstTotal = 0;
   if (otherCharges?.length > 0) {
     for (const charge of otherCharges) {
-      const amt = parseFloat(charge.amount) || 0;
+      const amt = Number((parseFloat(charge.amount) || 0).toFixed(2));
       otherChargesTotal += amt;
-      if (gstEnabled) otherChargesGstTotal += (amt * (parseFloat(charge.grate || charge.gstRate) || 0)) / 100;
+      if (gstEnabled) {
+        const crate = parseFloat(charge.grate || charge.gstRate) || 0;
+        otherChargesGstTotal += Number(((amt * crate) / 100).toFixed(2));
+      }
     }
   }
-  grossTotal += otherChargesTotal;
+  otherChargesTotal = Number(otherChargesTotal.toFixed(2));
+  otherChargesGstTotal = Number(otherChargesGstTotal.toFixed(2));
+
+  const grossTotal = Number((itemsGrossTotal + otherChargesTotal).toFixed(2));
+  const totalTax = Number((itemsTaxTotal + otherChargesGstTotal).toFixed(2));
 
   let cgst = 0, sgst = 0, igst = 0;
   if (gstEnabled && (billType === 'intra-state' || billType === 'INTRA-STATE')) {
-    cgst = (totalTax / 2) + (otherChargesGstTotal / 2);
-    sgst = (totalTax / 2) + (otherChargesGstTotal / 2);
+    const halfTax = Number((totalTax / 2).toFixed(2));
+    cgst = halfTax;
+    sgst = Number((totalTax - halfTax).toFixed(2)); // Guarantees cgst + sgst === totalTax to the exact paise
   } else if (gstEnabled) {
-    igst = totalTax + otherChargesGstTotal;
+    igst = totalTax;
   }
 
-  let netTotalBeforeRoundOff = grossTotal + (reverseCharge ? 0 : cgst + sgst + igst);
+  const taxSum = reverseCharge ? 0 : Number((cgst + sgst + igst).toFixed(2));
+  const netTotalBeforeRoundOff = Number((grossTotal + taxSum).toFixed(2));
   const netTotal = Math.round(netTotalBeforeRoundOff);
-  const roundOff = netTotal - netTotalBeforeRoundOff;
+  const roundOff = Number((netTotal - netTotalBeforeRoundOff).toFixed(2));
 
   return { grossTotal, totalTax, otherChargesTotal, otherChargesGstTotal, cgst, sgst, igst, netTotal, roundOff };
 }

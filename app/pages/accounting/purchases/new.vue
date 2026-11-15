@@ -375,6 +375,10 @@ watch(showPrintModal, (isOpen) => {
         supplierBillNoInputRef.value?.focus();
         supplierBillNoInputRef.value?.select();
       });
+      setTimeout(() => {
+        supplierBillNoInputRef.value?.focus();
+        supplierBillNoInputRef.value?.select();
+      }, 50);
     }
   }
 });
@@ -662,6 +666,19 @@ function handlePrintModalKeydown(e: KeyboardEvent) {
 
 function closePrintModal() {
   showPrintModal.value = false;
+  if (!isEditMode.value) {
+    resetFormState();
+    nextTick(() => {
+      supplierBillNoInputRef.value?.focus();
+      supplierBillNoInputRef.value?.select();
+    });
+    setTimeout(() => {
+      supplierBillNoInputRef.value?.focus();
+      supplierBillNoInputRef.value?.select();
+    }, 50);
+  } else {
+    router.push('/accounting/bills');
+  }
 }
 
 function resetForm() {
@@ -920,6 +937,14 @@ onMounted(async () => {
     supplierBillNoInputRef.value?.focus();
     supplierBillNoInputRef.value?.select();
   });
+  setTimeout(() => {
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
+  }, 50);
+  setTimeout(() => {
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
+  }, 150);
 });
 
 onUnmounted(() => {

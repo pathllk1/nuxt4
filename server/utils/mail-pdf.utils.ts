@@ -3,8 +3,22 @@ import pdfMake from 'pdfmake';
 // @ts-ignore - pdfkit for safe image validation
 import PDFDocument from 'pdfkit';
 import { parseDocument, DomUtils } from 'htmlparser2';
+import { dejavuVfs } from './accounting/vfs-dejavu-fonts';
+
+// Register in-memory VFS fonts for serverless & local environments
+if ((pdfMake as any).virtualfs) {
+  for (const [fontFile, base64Data] of Object.entries(dejavuVfs)) {
+    (pdfMake as any).virtualfs.writeFileSync(fontFile, base64Data, 'base64');
+  }
+}
 
 const fonts = {
+  DejaVuSans: {
+    normal: 'DejaVuSans.ttf',
+    bold: 'DejaVuSans-Bold.ttf',
+    italics: 'DejaVuSans-Oblique.ttf',
+    bolditalics: 'DejaVuSans-BoldOblique.ttf',
+  },
   Helvetica: {
     normal: 'Helvetica',
     bold: 'Helvetica-Bold',
@@ -626,7 +640,7 @@ export async function generateMailPdfBuffer(options: {
 
   const docDefinition = {
     defaultStyle: {
-      font: 'Helvetica',
+      font: 'DejaVuSans',
       fontSize: 10,
       color: '#0F172A'
     },

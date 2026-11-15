@@ -14,7 +14,12 @@
       <div class="header-fields">
         <label v-if="!state.isReturnMode && !isEditMode">
           <span>Document Type</span>
-          <select ref="firstInputRef" v-model="state.meta.btype" @change="onDocTypeChange">
+          <select 
+            ref="docTypeSelectRef" 
+            v-model="state.meta.btype" 
+            @change="onDocTypeChange"
+            @keydown.enter.prevent="onDocTypeEnter"
+          >
             <option value="SALES">Sales Invoice</option>
             <option value="PROFORMA">Proforma Invoice</option>
             <option value="DELIVERY_NOTE">Delivery Note</option>
@@ -30,11 +35,23 @@
         </label>
         <label>
           <span>Invoice date</span>
-          <input v-model="state.meta.billDate" type="date" />
+          <input 
+            ref="billDateInputRef"
+            v-model="state.meta.billDate" 
+            type="date" 
+            @keydown.enter.prevent="onDateEnter"
+            @keydown.backspace="onDateBackspace($event)"
+          />
         </label>
         <label v-if="state.firmLocations.length >= 1">
           <span>Billing from GSTIN</span>
-          <select :value="state.activeFirmLocation?.gst_number || ''" @change="onFirmGstinChange">
+          <select 
+            ref="firmGstinSelectRef"
+            :value="state.activeFirmLocation?.gst_number || ''" 
+            @change="onFirmGstinChange"
+            @keydown.enter.prevent="onFirmGstinEnter"
+            @keydown.backspace="onFirmGstinBackspace($event)"
+          >
             <option v-for="location in state.firmLocations" :key="location.gst_number || location.state_code" :value="location.gst_number || ''">
               {{ location.gst_number || 'No GSTIN' }} - {{ location.state || location.state_code || '' }}{{ location.is_default ? ' (Default)' : '' }}
             </option>
@@ -42,13 +59,24 @@
         </label>
         <label v-if="state.gstEnabled">
           <span>Transaction type</span>
-          <select v-model="state.meta.billType">
+          <select 
+            ref="txTypeSelectRef"
+            v-model="state.meta.billType"
+            @keydown.enter.prevent="onTxTypeEnter"
+            @keydown.backspace="onTxTypeBackspace($event)"
+          >
             <option value="intra-state">Intra-State (CGST + SGST)</option>
             <option value="inter-state">Inter-State (IGST)</option>
           </select>
         </label>
         <label v-if="state.gstEnabled" class="inline-toggle">
-          <input v-model="state.meta.reverseCharge" type="checkbox" @keydown.enter.prevent="onReverseChargeEnter" />
+          <input 
+            ref="reverseChargeInputRef"
+            v-model="state.meta.reverseCharge" 
+            type="checkbox" 
+            @keydown.enter.prevent="onReverseChargeEnter"
+            @keydown.backspace="onReverseChargeBackspace($event)"
+          />
           <span>Reverse Charge</span>
         </label>
         <div class="gst-status" :class="{ off: !state.gstEnabled }">
@@ -89,7 +117,7 @@
           <div class="field-grid">
             <label>
               <span>Reference / PO</span>
-              <input ref="referenceInputRef" v-model="state.meta.referenceNo" type="text" placeholder="Optional" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onDetailBackspace($event)" />
+              <input ref="referenceInputRef" v-model="state.meta.referenceNo" type="text" placeholder="Optional" @keydown.enter.prevent="onDetailEnter($event)" @keydown.backspace="onReferenceBackspace($event)" />
             </label>
             <label>
               <span>Vehicle no</span>
@@ -255,8 +283,13 @@
             type="button" 
             @click="onPartySelect(party)"
           >
-            <strong>{{ party.name || party.firm }}</strong>
-            <span>{{ party.gstin || 'UNREGISTERED' }} | {{ party.state || '-' }}</span>
+            <div class="flex items-center justify-between w-full">
+              <strong>{{ party.name || party.firm }}</strong>
+              <span v-if="party.gstLocations?.length > 1" class="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                {{ party.gstLocations.length }} Branches / GSTINs
+              </span>
+            </div>
+            <span>{{ party.gstin || party.gstLocations?.[0]?.gstin || 'UNREGISTERED' }} | {{ party.state || party.gstLocations?.[0]?.state || '-' }}</span>
           </button>
           <div v-if="filteredParties.length === 0" class="p-8 text-center text-slate-400 text-xs">
             <p>No matching party found.</p>
@@ -297,11 +330,36 @@ const route = useRoute();
 const { state, totals, fetchData, fetchNextBillNo, determineGstBillType, populateConsigneeFromBillTo } = useBillingState();
 const { saveFocus, restoreFocus, trackPageFocus, handleEnterKey, handleBackspaceKey } = useKeyboardNavigation();
 
-const firstInputRef = ref<HTMLElement | null>(null);
+const docTypeSelectRef = ref<HTMLSelectElement | null>(null);
+const billDateInputRef = ref<HTMLInputElement | null>(null);
+const firmGstinSelectRef = ref<HTMLSelectElement | null>(null);
+const txTypeSelectRef = ref<HTMLSelectElement | null>(null);
+const reverseChargeInputRef = ref<HTMLInputElement | null>(null);
 const referenceInputRef = ref<HTMLElement | null>(null);
 const partySearchInputRef = ref<HTMLInputElement | null>(null);
 const printModalContainerRef = ref<HTMLElement | null>(null);
 const partySelectedIndex = ref(0);
+
+function focusInitialInput() {
+  nextTick(() => {
+    if (docTypeSelectRef.value) {
+      docTypeSelectRef.value.focus();
+      return;
+    }
+    if (billDateInputRef.value) {
+      billDateInputRef.value.focus();
+      billDateInputRef.value.select?.();
+      return;
+    }
+    const first = document.querySelector(
+      '.header-fields select:not([disabled]), .header-fields input:not([readonly]):not([type="hidden"])'
+    ) as HTMLElement;
+    if (first && typeof first.focus === 'function') {
+      first.focus();
+      if (first instanceof HTMLInputElement) first.select?.();
+    }
+  });
+}
 
 const showStockModal = ref(false);
 const showPartyModal = ref(false);
@@ -332,10 +390,8 @@ watch(showPrintModal, (isOpen) => {
       router.push('/accounting/bills');
     } else {
       resetFormState();
-      nextTick(() => {
-        firstInputRef.value?.focus();
-        (firstInputRef.value as HTMLInputElement)?.select?.();
-      });
+      focusInitialInput();
+      setTimeout(focusInitialInput, 50);
     }
   }
 });
@@ -351,13 +407,104 @@ watch(partySelectedIndex, () => {
   });
 });
 
-function onReverseChargeEnter(e: KeyboardEvent) {
+function onDocTypeEnter() {
+  if (billDateInputRef.value) {
+    billDateInputRef.value.focus();
+  } else {
+    advanceToFirmOrParty();
+  }
+}
+
+function onDateEnter() {
+  advanceToFirmOrParty();
+}
+
+function onDateBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  docTypeSelectRef.value?.focus();
+}
+
+function advanceToFirmOrParty() {
+  if (state.firmLocations.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else if (state.gstEnabled && txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else {
+    advanceToPartyOrInward();
+  }
+}
+
+function onFirmGstinEnter() {
+  if (state.gstEnabled && txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else {
+    advanceToPartyOrInward();
+  }
+}
+
+function onFirmGstinBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  billDateInputRef.value?.focus();
+}
+
+function onTxTypeEnter() {
+  if (reverseChargeInputRef.value) {
+    reverseChargeInputRef.value.focus();
+  } else {
+    advanceToPartyOrInward();
+  }
+}
+
+function onTxTypeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (state.firmLocations.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    billDateInputRef.value?.focus();
+  }
+}
+
+function onReverseChargeEnter() {
+  advanceToPartyOrInward();
+}
+
+function onReverseChargeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (state.gstEnabled && txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else if (state.firmLocations.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    billDateInputRef.value?.focus();
+  }
+}
+
+function focusPartySection() {
+  nextTick(() => {
+    // 1. If debtor has multiple branches/GSTIN locations, focus the billing branch select
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
+    // 2. Focus the "Ship to billing address" checkbox directly!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. Fallback to referenceInputRef
+    referenceInputRef.value?.focus();
+    if (referenceInputRef.value instanceof HTMLInputElement) referenceInputRef.value.select();
+  });
+}
+
+function advanceToPartyOrInward() {
   if (!state.selectedParty) {
     saveFocus();
     showPartyModal.value = true;
   } else {
-    const container = document.querySelector('.invoice-page') as HTMLElement;
-    if (container) handleEnterKey(e, container);
+    focusPartySection();
   }
 }
 
@@ -372,6 +519,43 @@ function onDetailBackspace(e: KeyboardEvent) {
   const container = ((e.target as HTMLElement)?.closest('.side-panel') || (e.target as HTMLElement)?.closest('.detail-panel')) as HTMLElement;
   if (container) {
     handleBackspaceKey(e, container);
+  }
+}
+
+function onReferenceBackspace(e: KeyboardEvent) {
+  const target = e.target as HTMLInputElement;
+  if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
+    e.preventDefault();
+    // 1. If consignee is expanded, move back to the last visible consignee field
+    if (!state.consigneeSameAsBillTo && state.selectedConsignee) {
+      const shipInputs = Array.from(document.querySelectorAll('.party-panel .ship-fields input:not([type="hidden"]), .party-panel .ship-fields textarea, .party-panel .ship-fields select')) as HTMLElement[];
+      const lastInput = shipInputs[shipInputs.length - 1];
+      if (lastInput) {
+        lastInput.focus();
+        if (lastInput instanceof HTMLInputElement || lastInput instanceof HTMLTextAreaElement) {
+          lastInput.select?.();
+        }
+        return;
+      }
+    }
+    // 2. Otherwise focus the "Ship to billing address" checkbox!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. Fallback to debtor GST location select if multiple branches
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
+    // 4. Fallback to header
+    if (reverseChargeInputRef.value) {
+      reverseChargeInputRef.value.focus();
+    } else if (billDateInputRef.value) {
+      billDateInputRef.value.focus();
+    }
   }
 }
 
@@ -445,6 +629,13 @@ function handlePrintModalKeydown(e: KeyboardEvent) {
 
 function closePrintModal() {
   showPrintModal.value = false;
+  if (!isEditMode.value) {
+    resetFormState();
+    focusInitialInput();
+    setTimeout(focusInitialInput, 50);
+  } else {
+    router.push('/accounting/bills');
+  }
 }
 
 function resetFormState() {
@@ -510,7 +701,13 @@ const filteredParties = computed(() => {
     const name = (party.name || party.firm || '').toLowerCase();
     const gstin = (party.gstin || '').toLowerCase();
     const stateName = (party.state || '').toLowerCase();
-    return name.includes(query) || gstin.includes(query) || stateName.includes(query);
+    const phone = (party.phone || '').toLowerCase();
+    const hasBranchMatch = party.gstLocations?.some((loc: any) => 
+      loc.gstin?.toLowerCase().includes(query) ||
+      loc.state?.toLowerCase().includes(query) ||
+      loc.address?.toLowerCase().includes(query)
+    );
+    return name.includes(query) || gstin.includes(query) || stateName.includes(query) || phone.includes(query) || hasBranchMatch;
   });
 });
 
@@ -691,9 +888,9 @@ onMounted(async () => {
 
   trackPageFocus();
 
-  nextTick(() => {
-    firstInputRef.value?.focus();
-  });
+  focusInitialInput();
+  setTimeout(focusInitialInput, 50);
+  setTimeout(focusInitialInput, 150);
 });
 
 async function onDocTypeChange() {
@@ -811,10 +1008,7 @@ function onPartySelect(party: any) {
   determineGstBillType();
   populateConsigneeFromBillTo();
   showPartyModal.value = false;
-  nextTick(() => {
-    referenceInputRef.value?.focus();
-    if (referenceInputRef.value instanceof HTMLInputElement) referenceInputRef.value.select();
-  });
+  focusPartySection();
 }
 
 function onPartyLocationChange() {

@@ -151,6 +151,10 @@
               <span>Taxable Amount</span>
               <span class="amount">₹{{ computedTotals.taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }) }}</span>
             </div>
+            <div v-if="computedTotals.otherChargesTotal > 0" class="totals-row">
+              <span>Other Charges</span>
+              <span class="amount">₹{{ computedTotals.otherChargesTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }) }}</span>
+            </div>
             <div v-if="meta.billType === 'intra-state'" class="totals-row">
               <span>CGST (Input Credit)</span>
               <span class="amount">₹{{ computedTotals.cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }) }}</span>
@@ -194,7 +198,7 @@
     <LedgerModal v-model="showLedgerModal" @select="onLedgerSelect" />
     <PartyModal v-model="showCreatePartyModal" default-type="SUNDRY_CREDITORS" @saved="onPartySaved" />
     <PartyModal v-model="showEditPartyModal" :account-id="selectedPartyToEdit?._id" :initial-data="selectedPartyToEdit" default-type="SUNDRY_CREDITORS" @saved="onPartyEditedAndSaved" />
-    <OtherChargesModal v-model="showOtherChargesModal" :other-charges="otherCharges" />
+    <OtherChargesModal v-model="showOtherChargesModal" :other-charges="otherCharges" @apply="onOtherChargesApplied" />
 
     <!-- Print & Success Modal with Complete Zero-Mouse Keyboard Support -->
     <UModal v-model:open="showSuccessModal" title="Service Purchase Bill Saved Successfully">
@@ -482,6 +486,10 @@ function openOtherChargesModal() {
   showOtherChargesModal.value = true;
 }
 
+function onOtherChargesApplied(updated: any[]) {
+  otherCharges.value = [...updated];
+}
+
 function openCreatePartyFromDrawer() {
   showPartyDrawer.value = false;
   openCreatePartyModal();
@@ -697,7 +705,7 @@ function determineGstBillType() {
   }
 }
 
-const computedTotals = computed(() => computeTotals(meta.value.billType, meta.value.reverseCharge));
+const computedTotals = computed(() => computeTotals(meta.value.billType, meta.value.reverseCharge, otherCharges.value));
 
 const canSave = computed(() => selectedParty.value && cart.value.length > 0 && cart.value.some(item => (parseFloat(String(item.amount)) || 0) > 0));
 
@@ -860,11 +868,21 @@ async function handleSave() {
         narration: meta.value.narration,
         partyGstin: selectedPartyGstin.value,
         firmGstin: activeFirmLocation.value?.gst_number,
-        consigneeName: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.name : undefined,
-        consigneeGstin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.gstin : undefined,
-        consigneeAddress: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.address : undefined,
-        consigneeState: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.state : undefined,
-        consigneePin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.pin : undefined,
+        consigneeName: partyState.consigneeSameAsBillTo
+          ? (selectedParty.value?.name || partyState.selectedConsignee?.name)
+          : (partyState.selectedConsignee?.name || selectedParty.value?.name),
+        consigneeGstin: partyState.consigneeSameAsBillTo
+          ? selectedPartyGstin.value
+          : (partyState.selectedConsignee?.gstin || selectedPartyGstin.value),
+        consigneeAddress: partyState.consigneeSameAsBillTo
+          ? (selectedPartyLocation.value?.address || selectedParty.value?.address)
+          : (partyState.selectedConsignee?.address || selectedPartyLocation.value?.address || selectedParty.value?.address),
+        consigneeState: partyState.consigneeSameAsBillTo
+          ? (selectedPartyLocation.value?.state || selectedParty.value?.state)
+          : (partyState.selectedConsignee?.state || selectedPartyLocation.value?.state || selectedParty.value?.state),
+        consigneePin: partyState.consigneeSameAsBillTo
+          ? (selectedPartyLocation.value?.pincode || selectedParty.value?.pin)
+          : (partyState.selectedConsignee?.pin || selectedPartyLocation.value?.pincode || selectedParty.value?.pin),
       },
       otherCharges: otherCharges.value,
     });
@@ -901,6 +919,10 @@ function resetForm() {
     supplierBillNoInputRef.value?.focus();
     supplierBillNoInputRef.value?.select();
   });
+  setTimeout(() => {
+    supplierBillNoInputRef.value?.focus();
+    supplierBillNoInputRef.value?.select();
+  }, 50);
 }
 
 function closeSuccess() { showSuccessModal.value = false; resetForm(); }
@@ -998,6 +1020,7 @@ watch(showOtherChargesModal, (isOpen) => {
   if (isOpen) {
     saveFocus();
   } else {
+    otherCharges.value = [...otherCharges.value];
     restoreFocus();
   }
 });

@@ -199,11 +199,6 @@ export class LedgerService {
       if (cessVal > 0) docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: cessVal, creditAmount: 0, narration: `Cess Input on Purchase: ${billNo}` });
     }
 
-    if (Math.abs(roundOff) > 0) {
-      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
-      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff > 0 ? roundOff : 0, creditAmount: roundOff < 0 ? Math.abs(roundOff) : 0, narration: `Round Off on Purchase: ${billNo}` });
-    }
-
     for (const charge of (otherCharges || [])) {
       const amt = parseFloat(charge.amount) || 0;
       if (amt > 0) {
@@ -217,6 +212,25 @@ export class LedgerService {
       if (lineVal > 0) {
         docs.push({ ...base, accountHead: 'Inventory', accountType: 'ASSET', stockId: pi.stockId, stockRegId: pi.stockRegId, debitAmount: lineVal, creditAmount: 0, narration: `Purchase of ${pi.item} - Bill No: ${billNo}` });
       }
+    }
+
+    // Exact Double-Entry Balance Guard:
+    // Any fractional paise difference between debits and credits is absorbed by Round Off
+    const totalDebitsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.debitAmount || 0) + Number.EPSILON) * 100), 0);
+    const totalCreditsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.creditAmount || 0) + Number.EPSILON) * 100), 0);
+    const diffPaise = totalDebitsPaise - totalCreditsPaise;
+
+    if (diffPaise !== 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
+      const rofAmount = Math.abs(diffPaise) / 100;
+      docs.push({
+        ...base,
+        accountHead: rofL.accountHead,
+        accountType: rofL.accountType,
+        debitAmount: diffPaise < 0 ? rofAmount : 0,
+        creditAmount: diffPaise > 0 ? rofAmount : 0,
+        narration: `Round Off on Purchase: ${billNo}`
+      });
     }
 
     this.assertBalanced(docs, 'PURCHASE', billNo);
@@ -250,11 +264,6 @@ export class LedgerService {
       if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `IGST on Sales: ${billNo}` });
     }
 
-    if (Math.abs(roundOff) > 0) {
-      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
-      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff < 0 ? Math.abs(roundOff) : 0, creditAmount: roundOff > 0 ? roundOff : 0, narration: `Round Off on Sales: ${billNo}` });
-    }
-
     for (const charge of (otherCharges || [])) {
       const amt = parseFloat(charge.amount) || 0;
       if (amt > 0) {
@@ -271,6 +280,25 @@ export class LedgerService {
         docs.push({ ...base, accountHead: 'COGS', accountType: 'EXPENSE', stockId: cl.stockId, stockRegId: cl.stockRegId, debitAmount: cl.cogsValue, creditAmount: 0, narration: `COGS: ${cl.item} - Bill No: ${billNo}` });
         docs.push({ ...base, accountHead: 'Inventory', accountType: 'ASSET', stockId: cl.stockId, stockRegId: cl.stockRegId, debitAmount: 0, creditAmount: cl.cogsValue, narration: `Inventory out: ${cl.item} - Bill No: ${billNo}` });
       }
+    }
+
+    // Exact Double-Entry Balance Guard:
+    // Any fractional paise difference between debits and credits is absorbed by Round Off
+    const totalDebitsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.debitAmount || 0) + Number.EPSILON) * 100), 0);
+    const totalCreditsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.creditAmount || 0) + Number.EPSILON) * 100), 0);
+    const diffPaise = totalCreditsPaise - totalDebitsPaise;
+
+    if (diffPaise !== 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
+      const rofAmount = Math.abs(diffPaise) / 100;
+      docs.push({
+        ...base,
+        accountHead: rofL.accountHead,
+        accountType: rofL.accountType,
+        debitAmount: diffPaise > 0 ? rofAmount : 0,
+        creditAmount: diffPaise < 0 ? rofAmount : 0,
+        narration: `Round Off on Sales: ${billNo}`
+      });
     }
 
     this.assertBalanced(docs, 'SALES', billNo);
@@ -314,12 +342,6 @@ export class LedgerService {
       if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: 0, creditAmount: igst, narration: `IGST on Service Sales: ${billNo}` });
     }
 
-    // Round Off
-    if (Math.abs(roundOff) > 0) {
-      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
-      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff < 0 ? Math.abs(roundOff) : 0, creditAmount: roundOff > 0 ? roundOff : 0, narration: `Round Off on Service Sales: ${billNo}` });
-    }
-
     // Other Charges (Cr)
     for (const charge of (otherCharges || [])) {
       const amt = parseFloat(charge.amount) || 0;
@@ -327,6 +349,25 @@ export class LedgerService {
         const cL = await resolveLedgerPostingAccount({ firmId, accountHead: normalizeLedgerAccountHead(charge.name), fallbackType: 'INDIRECT_INCOME', session });
         docs.push({ ...base, accountHead: cL.accountHead, accountType: cL.accountType, debitAmount: 0, creditAmount: amt, narration: `${cL.accountHead} on Service Sales: ${billNo}` });
       }
+    }
+
+    // Exact Double-Entry Balance Guard:
+    // Any fractional paise difference between debits and credits is absorbed by Round Off
+    const totalDebitsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.debitAmount || 0) + Number.EPSILON) * 100), 0);
+    const totalCreditsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.creditAmount || 0) + Number.EPSILON) * 100), 0);
+    const diffPaise = totalCreditsPaise - totalDebitsPaise;
+
+    if (diffPaise !== 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
+      const rofAmount = Math.abs(diffPaise) / 100;
+      docs.push({
+        ...base,
+        accountHead: rofL.accountHead,
+        accountType: rofL.accountType,
+        debitAmount: diffPaise > 0 ? rofAmount : 0,
+        creditAmount: diffPaise < 0 ? rofAmount : 0,
+        narration: `Round Off on Service Sales: ${billNo}`
+      });
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_SALES', billNo);
@@ -394,12 +435,6 @@ export class LedgerService {
       if (cessVal > 0) docs.push({ ...base, accountHead: 'Cess Input Credit', accountType: 'ASSET', debitAmount: cessVal, creditAmount: 0, narration: `Cess Input on Service Purchase: ${billNo}` });
     }
 
-    // Round Off
-    if (Math.abs(roundOff) > 0) {
-      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
-      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff > 0 ? roundOff : 0, creditAmount: roundOff < 0 ? Math.abs(roundOff) : 0, narration: `Round Off on Service Purchase: ${billNo}` });
-    }
-
     // Other Charges (Dr)
     for (const charge of (otherCharges || [])) {
       const amt = parseFloat(charge.amount) || 0;
@@ -407,6 +442,25 @@ export class LedgerService {
         const cL = await resolveLedgerPostingAccount({ firmId, accountHead: normalizeLedgerAccountHead(charge.name), fallbackType: 'INDIRECT_EXPENSE', session });
         docs.push({ ...base, accountHead: cL.accountHead, accountType: cL.accountType, debitAmount: amt, creditAmount: 0, narration: `${cL.accountHead} on Service Purchase: ${billNo}` });
       }
+    }
+
+    // Exact Double-Entry Balance Guard:
+    // Any fractional paise difference between debits and credits is absorbed by Round Off
+    const totalDebitsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.debitAmount || 0) + Number.EPSILON) * 100), 0);
+    const totalCreditsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.creditAmount || 0) + Number.EPSILON) * 100), 0);
+    const diffPaise = totalDebitsPaise - totalCreditsPaise;
+
+    if (diffPaise !== 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
+      const rofAmount = Math.abs(diffPaise) / 100;
+      docs.push({
+        ...base,
+        accountHead: rofL.accountHead,
+        accountType: rofL.accountType,
+        debitAmount: diffPaise < 0 ? rofAmount : 0,
+        creditAmount: diffPaise > 0 ? rofAmount : 0,
+        narration: `Round Off on Service Purchase: ${billNo}`
+      });
     }
 
     this.assertBalanced(docs, 'ACCOUNTING_PURCHASE', billNo);
@@ -496,11 +550,6 @@ export class LedgerService {
       if (igst > 0) docs.push({ ...base, accountHead: 'IGST Payable', accountType: 'LIABILITY', debitAmount: igst, creditAmount: 0, narration: `IGST Reversal on CN: ${billNo}` });
     }
 
-    if (Math.abs(roundOff) > 0) {
-      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
-      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff > 0 ? roundOff : 0, creditAmount: roundOff < 0 ? Math.abs(roundOff) : 0, narration: `Round Off reversal on CN: ${billNo}` });
-    }
-
     const salesL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Sales', fallbackType: 'INCOME', session });
     docs.push({ ...base, accountHead: salesL.accountHead, accountType: salesL.accountType, debitAmount: taxableItemsTotal, creditAmount: 0, narration: `Sales reversal on CN: ${billNo}` });
 
@@ -509,6 +558,25 @@ export class LedgerService {
         docs.push({ ...base, accountHead: 'Inventory', accountType: 'ASSET', stockId: cl.stockId, stockRegId: cl.stockRegId, debitAmount: cl.cogsValue, creditAmount: 0, narration: `Goods returned to inventory: ${cl.item} - CN No: ${billNo}` });
         docs.push({ ...base, accountHead: 'COGS', accountType: 'EXPENSE', stockId: cl.stockId, stockRegId: cl.stockRegId, debitAmount: 0, creditAmount: cl.cogsValue, narration: `COGS reversal: ${cl.item} - CN No: ${billNo}` });
       }
+    }
+
+    // Exact Double-Entry Balance Guard:
+    // Any fractional paise difference between debits and credits is absorbed by Round Off
+    const totalDebitsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.debitAmount || 0) + Number.EPSILON) * 100), 0);
+    const totalCreditsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.creditAmount || 0) + Number.EPSILON) * 100), 0);
+    const diffPaise = totalDebitsPaise - totalCreditsPaise;
+
+    if (diffPaise !== 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_INCOME', session });
+      const rofAmount = Math.abs(diffPaise) / 100;
+      docs.push({
+        ...base,
+        accountHead: rofL.accountHead,
+        accountType: rofL.accountType,
+        debitAmount: diffPaise < 0 ? rofAmount : 0,
+        creditAmount: diffPaise > 0 ? rofAmount : 0,
+        narration: `Round Off reversal on CN: ${billNo}`
+      });
     }
 
     this.assertBalanced(docs, 'CREDIT_NOTE', billNo);
@@ -539,16 +607,30 @@ export class LedgerService {
     if (sgst > 0) docs.push({ ...base, accountHead: 'SGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: sgst, narration: `SGST Input Reversal on DN: ${billNo}` });
     if (igst > 0) docs.push({ ...base, accountHead: 'IGST Input Credit', accountType: 'ASSET', debitAmount: 0, creditAmount: igst, narration: `IGST Input Reversal on DN: ${billNo}` });
 
-    if (Math.abs(roundOff) > 0) {
-      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
-      docs.push({ ...base, accountHead: rofL.accountHead, accountType: rofL.accountType, debitAmount: roundOff < 0 ? Math.abs(roundOff) : 0, creditAmount: roundOff > 0 ? roundOff : 0, narration: `Round Off reversal on DN: ${billNo}` });
-    }
-
     for (const pi of (purchasedItems || [])) {
       const lineVal = pi.lineValue ?? pi.total ?? 0;
       if (lineVal > 0) {
         docs.push({ ...base, accountHead: 'Inventory', accountType: 'ASSET', stockId: pi.stockId, stockRegId: pi.stockRegId, debitAmount: 0, creditAmount: lineVal, narration: `Goods returned to supplier: ${pi.item} - DN No: ${billNo}` });
       }
+    }
+
+    // Exact Double-Entry Balance Guard:
+    // Any fractional paise difference between debits and credits is absorbed by Round Off
+    const totalDebitsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.debitAmount || 0) + Number.EPSILON) * 100), 0);
+    const totalCreditsPaise = docs.reduce((sum, d) => sum + Math.round((Number(d.creditAmount || 0) + Number.EPSILON) * 100), 0);
+    const diffPaise = totalCreditsPaise - totalDebitsPaise;
+
+    if (diffPaise !== 0) {
+      const rofL = await resolveLedgerPostingAccount({ firmId, accountHead: 'Round Off', fallbackType: 'INDIRECT_EXPENSE', session });
+      const rofAmount = Math.abs(diffPaise) / 100;
+      docs.push({
+        ...base,
+        accountHead: rofL.accountHead,
+        accountType: rofL.accountType,
+        debitAmount: diffPaise > 0 ? rofAmount : 0,
+        creditAmount: diffPaise < 0 ? rofAmount : 0,
+        narration: `Round Off reversal on DN: ${billNo}`
+      });
     }
 
     this.assertBalanced(docs, 'DEBIT_NOTE', billNo);

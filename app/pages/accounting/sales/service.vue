@@ -122,6 +122,10 @@
               <span>Taxable Amount</span>
               <span class="amount">₹{{ computedTotals.taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }) }}</span>
             </div>
+            <div v-if="computedTotals.otherChargesTotal > 0" class="totals-row">
+              <span>Other Charges</span>
+              <span class="amount">₹{{ computedTotals.otherChargesTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }) }}</span>
+            </div>
             <div v-if="meta.billType === 'intra-state'" class="totals-row">
               <span>CGST</span>
               <span class="amount">₹{{ computedTotals.cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }) }}</span>
@@ -163,7 +167,7 @@
     <LedgerModal v-model="showLedgerModal" @select="onLedgerSelect" />
     <PartyModal v-model="showCreatePartyModal" @saved="onPartySaved" />
     <PartyModal v-model="showEditPartyModal" :account-id="selectedPartyToEdit?._id" :initial-data="selectedPartyToEdit" @saved="onPartyEditedAndSaved" />
-    <OtherChargesModal v-model="showOtherChargesModal" :other-charges="otherCharges" />
+    <OtherChargesModal v-model="showOtherChargesModal" :other-charges="otherCharges" @apply="onOtherChargesApplied" />
 
     <!-- Print & Success Modal with Complete Zero-Mouse Keyboard Support -->
     <UModal v-model:open="showSuccessModal" title="Service Invoice Saved Successfully">
@@ -318,10 +322,12 @@ import LedgerCartManager from '@/components/accounting/LedgerCartManager.vue';
 import LedgerModal from '@/components/accounting/LedgerModal.vue';
 import PartyModal from '@/components/accounting/PartyModal.vue';
 import OtherChargesModal from '@/components/accounting/OtherChargesModal.vue';
+import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 
 const router = useRouter();
 const api = useApi();
 const { cart, addItem, removeItem, updateItem, clearCart, computeTotals, saving, saveInvoice, saveError } = useAccountingInvoiceState('SALES');
+const { saveFocus, restoreFocus, trackPageFocus } = useKeyboardNavigation();
 
 // ─── Firm & Statutory State ───
 const currentFirmName = ref('Loading...');
@@ -374,17 +380,23 @@ const partySearchRef = ref<HTMLInputElement | null>(null);
 const partyListRef = ref<HTMLElement | null>(null);
 const successModalContainerRef = ref<HTMLElement | null>(null);
 
-// ─── Party State for PartyManager Component ───
-const partyState = computed(() => ({
-  selectedParty: selectedParty.value,
-  selectedPartyGstin: selectedPartyGstin.value,
-  selectedPartyLocation: selectedPartyLocation.value,
-  parties: parties.value,
-  gstEnabled: gstEnabled.value,
+// ─── Party State for PartyManager Component (Reactive ERP Object) ───
+const partyState = reactive<any>({
+  selectedParty: null,
+  selectedPartyGstin: null,
+  selectedPartyLocation: null,
+  parties: [],
+  gstEnabled: true,
   isReturnMode: false,
   consigneeSameAsBillTo: true,
   selectedConsignee: null,
-}));
+});
+
+watch(parties, (val) => { partyState.parties = val || []; }, { immediate: true });
+watch(gstEnabled, (val) => { partyState.gstEnabled = val; }, { immediate: true });
+watch(selectedParty, (val) => { partyState.selectedParty = val; });
+watch(selectedPartyGstin, (val) => { partyState.selectedPartyGstin = val; });
+watch(selectedPartyLocation, (val) => { partyState.selectedPartyLocation = val; });
 
 // ─── Modal Open/Close Helpers ───
 function openLedgerModal() {
@@ -436,6 +448,10 @@ function openOtherChargesModal() {
   showOtherChargesModal.value = true;
 }
 
+function onOtherChargesApplied(updated: any[]) {
+  otherCharges.value = [...updated];
+}
+
 function openCreatePartyFromDrawer() {
   showPartyDrawer.value = false;
   openCreatePartyModal();
@@ -468,14 +484,32 @@ function onReverseChargeEnter() {
   advanceToPartyOrReference();
 }
 
-function advanceToPartyOrReference() {
+function focusPartySection() {
   if (!selectedParty.value) {
-    // If party not selected yet, automatically pop the party drawer!
     openPartyDrawer();
-  } else {
+    return;
+  }
+  nextTick(() => {
+    // 1. If party has multiple branches/GSTIN locations, focus the billing branch select
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
+    // 2. Focus the "Ship to billing address" checkbox directly!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. Fallback to reference / PO
     referenceInputRef.value?.focus();
     referenceInputRef.value?.select();
-  }
+  });
+}
+
+function advanceToPartyOrReference() {
+  focusPartySection();
 }
 
 function onReferenceEnter() {
@@ -487,6 +521,30 @@ function onReferenceBackspace(e: KeyboardEvent) {
   const target = e.target as HTMLInputElement;
   if (target && (target.value === '' || (target.selectionStart === 0 && target.selectionEnd === 0))) {
     e.preventDefault();
+    // 1. If consignee is expanded, move back to the last visible consignee field
+    if (!partyState.consigneeSameAsBillTo && partyState.selectedConsignee) {
+      const shipInputs = Array.from(document.querySelectorAll('.party-panel .ship-fields input:not([type="hidden"]), .party-panel .ship-fields textarea, .party-panel .ship-fields select')) as HTMLElement[];
+      const lastInput = shipInputs[shipInputs.length - 1];
+      if (lastInput) {
+        lastInput.focus();
+        if (lastInput instanceof HTMLInputElement || lastInput instanceof HTMLTextAreaElement) {
+          lastInput.select?.();
+        }
+        return;
+      }
+    }
+    // 2. Focus the "Ship to billing address" checkbox!
+    const shipToggle = document.querySelector('.party-panel .same-toggle input[type="checkbox"]') as HTMLInputElement;
+    if (shipToggle) {
+      shipToggle.focus();
+      return;
+    }
+    // 3. If party has multiple GST branches, focus the branch select
+    const gstSelect = document.querySelector('.party-panel .gst-select') as HTMLSelectElement;
+    if (gstSelect) {
+      gstSelect.focus();
+      return;
+    }
     firstInputRef.value?.focus();
   }
 }
@@ -529,7 +587,7 @@ function determineGstBillType() {
 
 // ─── Computed Totals ───
 const computedTotals = computed(() => {
-  return computeTotals(meta.value.billType, meta.value.reverseCharge);
+  return computeTotals(meta.value.billType, meta.value.reverseCharge, otherCharges.value);
 });
 
 const canSave = computed(() => {
@@ -597,19 +655,19 @@ function selectParty(party: any) {
   const primaryLoc = party?.gstLocations?.find((l: any) => l.isPrimary) || party?.gstLocations?.[0] || null;
   selectedPartyLocation.value = primaryLoc;
   selectedPartyGstin.value = primaryLoc?.gstin || party?.gstin || 'UNREGISTERED';
+  partyState.selectedParty = party;
+  partyState.selectedPartyLocation = primaryLoc;
+  partyState.selectedPartyGstin = selectedPartyGstin.value;
   showPartyDrawer.value = false;
   determineGstBillType();
-
-  // Move focus immediately to Reference / PO input
-  nextTick(() => {
-    referenceInputRef.value?.focus();
-    referenceInputRef.value?.select();
-  });
+  focusPartySection();
 }
 
 function onPartyLocationChange(location: any) {
   selectedPartyLocation.value = location;
   selectedPartyGstin.value = location?.gstin || selectedParty.value?.gstin || 'UNREGISTERED';
+  partyState.selectedPartyLocation = location;
+  partyState.selectedPartyGstin = selectedPartyGstin.value;
   determineGstBillType();
 }
 
@@ -674,11 +732,21 @@ async function handleSave() {
         narration: meta.value.narration,
         partyGstin: selectedPartyGstin.value,
         firmGstin: activeFirmLocation.value?.gst_number,
-        consigneeName: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.name : undefined,
-        consigneeGstin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.gstin : undefined,
-        consigneeAddress: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.address : undefined,
-        consigneeState: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.state : undefined,
-        consigneePin: !partyState.consigneeSameAsBillTo ? partyState.selectedConsignee?.pin : undefined,
+        consigneeName: partyState.consigneeSameAsBillTo
+          ? (selectedParty.value?.name || partyState.selectedConsignee?.name)
+          : (partyState.selectedConsignee?.name || selectedParty.value?.name),
+        consigneeGstin: partyState.consigneeSameAsBillTo
+          ? selectedPartyGstin.value
+          : (partyState.selectedConsignee?.gstin || selectedPartyGstin.value),
+        consigneeAddress: partyState.consigneeSameAsBillTo
+          ? (selectedPartyLocation.value?.address || selectedParty.value?.address)
+          : (partyState.selectedConsignee?.address || selectedPartyLocation.value?.address || selectedParty.value?.address),
+        consigneeState: partyState.consigneeSameAsBillTo
+          ? (selectedPartyLocation.value?.state || selectedParty.value?.state)
+          : (partyState.selectedConsignee?.state || selectedPartyLocation.value?.state || selectedParty.value?.state),
+        consigneePin: partyState.consigneeSameAsBillTo
+          ? (selectedPartyLocation.value?.pincode || selectedParty.value?.pin)
+          : (partyState.selectedConsignee?.pin || selectedPartyLocation.value?.pincode || selectedParty.value?.pin),
       },
       otherCharges: otherCharges.value,
     });
@@ -694,6 +762,11 @@ function resetForm() {
   selectedParty.value = null;
   selectedPartyLocation.value = null;
   selectedPartyGstin.value = null;
+  partyState.selectedParty = null;
+  partyState.selectedPartyLocation = null;
+  partyState.selectedPartyGstin = null;
+  partyState.selectedConsignee = null;
+  partyState.consigneeSameAsBillTo = true;
   otherCharges.value = [];
   meta.value = {
     billNo: '',
@@ -707,7 +780,12 @@ function resetForm() {
   fetchNextBillNo();
   nextTick(() => {
     firstInputRef.value?.focus();
+    firstInputRef.value?.select?.();
   });
+  setTimeout(() => {
+    firstInputRef.value?.focus();
+    firstInputRef.value?.select?.();
+  }, 50);
 }
 
 function closeSuccess() {
@@ -845,8 +923,18 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
+watch(showOtherChargesModal, (isOpen) => {
+  if (isOpen) {
+    saveFocus();
+  } else {
+    otherCharges.value = [...otherCharges.value];
+    restoreFocus();
+  }
+});
+
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown);
+  trackPageFocus(pageContainerRef.value);
   fetchFirmData();
   fetchParties();
   fetchNextBillNo();

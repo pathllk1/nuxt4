@@ -4,11 +4,21 @@ import { MailCouchbaseService } from '../../../../../utils/mail-couchbase.servic
 import { assertMessageAccess } from '../../../../../utils/mail-auth';
 import { generateMailPdfBuffer } from '../../../../../utils/mail-pdf.utils';
 
-function sanitizeFilename(name: string): string {
-  return (name || 'email')
-    .replace(/[\\/:*?"<>|]/g, '_')
+function buildSafeContentDisposition(dispositionType: 'attachment' | 'inline', rawFilename: string): string {
+  // 1. Strict printable ASCII fallback (RFC 2616 token / quoted-string, char codes 0x20-0x7E)
+  const asciiFallback = (rawFilename || 'email')
+    .replace(/[^\x20-\x7E]/g, '') // Strip all non-ASCII bytes
+    .replace(/["\\/:*?<>|]/g, '_') // Strip filesystem and header quote delimiters
     .replace(/\s+/g, '_')
-    .slice(0, 80);
+    .slice(0, 80)
+    .trim() || 'email';
+
+  // 2. RFC 5987 / RFC 6266 UTF-8 encoded filename for modern browsers (100% ASCII-safe string)
+  const utf8Encoded = encodeURIComponent(rawFilename || 'email')
+    .replace(/['()]/g, escape)
+    .replace(/\*/g, '%2A');
+
+  return `${dispositionType}; filename="${asciiFallback}"; filename*=UTF-8''${utf8Encoded}`;
 }
 
 export default defineEventHandler(async (event) => {
@@ -37,10 +47,10 @@ export default defineEventHandler(async (event) => {
       isThread
     });
 
-    const filename = `${sanitizeFilename(message.subject || 'email')}${isThread ? '_thread' : ''}.pdf`;
+    const rawFilename = `${(message.subject || 'email').trim()}${isThread ? '_thread' : ''}.pdf`;
 
     setResponseHeader(event, 'Content-Type', 'application/pdf');
-    setResponseHeader(event, 'Content-Disposition', `attachment; filename="${filename}"`);
+    setResponseHeader(event, 'Content-Disposition', buildSafeContentDisposition('attachment', rawFilename));
     return pdfBuffer;
   } catch (error: any) {
     throw createError({
