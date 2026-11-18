@@ -42,18 +42,19 @@ export async function resolvePartyLocation(partyDoc: any, requestedGstin?: strin
 
   if (gstin && gstin !== 'UNREGISTERED' && /^\d{2}/.test(gstin.trim())) {
     stateCode = gstin.trim().substring(0, 2);
-    state = GST_STATE_CODE_MAP[stateCode] || partyLoc?.state || partyDoc.state || null;
+    state = (stateCode ? GST_STATE_CODE_MAP[stateCode] : null) || partyLoc?.state || partyDoc?.state || null;
   } else {
-    stateCode = partyLoc?.stateCode || partyDoc.stateCode || null;
-    state = partyLoc?.state || partyDoc.state || null;
+    stateCode = partyLoc?.stateCode || partyDoc?.stateCode || null;
+    state = partyLoc?.state || partyDoc?.state || null;
   }
   
   return {
+    name: partyDoc?.name || '',
     gstin,
     state,
     stateCode,
-    address: partyLoc?.address || partyDoc.address,
-    pin: partyLoc?.pincode || partyDoc.pin
+    address: partyLoc?.address || partyDoc?.address || '',
+    pin: partyLoc?.pincode || partyDoc?.pin || ''
   };
 }
 

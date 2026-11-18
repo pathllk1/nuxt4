@@ -185,6 +185,7 @@ export default defineEventHandler(async (event) => {
     const resolvedPan = acc.pan || party?.pan || null;
     const resolvedPhone = acc.phone || party?.contact || party?.phone || null;
     const resolvedAddress = acc.address || party?.address || null;
+    const resolvedPin = acc.pin || acc.pincode || party?.pin || party?.pincode || null;
     const rawGstLocations = (acc.gstLocations && acc.gstLocations.length > 0) ? acc.gstLocations : (party?.gstLocations || []);
     const resolvedGstLocations = rawGstLocations.map((loc: any) => {
       const locGstin = (loc.gstin || '').toUpperCase().trim();
