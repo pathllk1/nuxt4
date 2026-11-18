@@ -1057,22 +1057,30 @@ function onPartySelect(party: any) {
   const primaryLoc = normParty.gstLocations?.find((l: any) => l.isPrimary) || normParty.gstLocations?.[0] || null;
   state.selectedPartyLocation = primaryLoc;
   state.selectedPartyGstin = primaryLoc?.gstin || normParty.gstin || 'UNREGISTERED';
-  determineGstBillType();
   populateConsigneeFromBillTo();
+  determineGstBillType();
   showPartyModal.value = false;
   focusPartySection();
 }
 
-function onPartyLocationChange() {
-  determineGstBillType();
+function onPartyLocationChange(location?: any) {
+  if (location) {
+    state.selectedPartyLocation = location;
+    state.selectedPartyGstin = location.gstin || state.selectedParty?.gstin || 'UNREGISTERED';
+  }
   populateConsigneeFromBillTo();
+  determineGstBillType();
 }
 
 function onFirmGstinChange(event: Event) {
   const gstin = (event.target as HTMLSelectElement).value;
-  state.activeFirmLocation = state.firmLocations.find(location => (location.gst_number || '') === gstin) || null;
+  state.activeFirmLocation = state.firmLocations.find(location => (location.gst_number || '') === gstin) || state.firmLocations[0] || null;
   determineGstBillType();
 }
+
+watch([() => state.activeFirmLocation, () => state.selectedPartyLocation, () => state.selectedPartyGstin, () => state.consigneeSameAsBillTo, () => state.selectedConsignee], () => {
+  determineGstBillType();
+}, { deep: true });
 
 function onStockSelect(stock: any) {
   const selectedBatch = stock.selectedBatch;

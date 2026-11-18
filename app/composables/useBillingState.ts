@@ -319,6 +319,7 @@ export const useBillingState = () => {
         state.firmLocations = firm.locations || [];
         state.activeFirmLocation = state.firmLocations.find(l => l.is_default) || state.firmLocations[0] || null;
         state.gstEnabled = firm.gst_enabled !== false;
+        determineGstBillType();
       }
     } catch (err) {
       console.warn('Failed to load state dependencies:', err);

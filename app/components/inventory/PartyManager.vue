@@ -38,7 +38,7 @@
           <select 
             :value="state.selectedPartyLocation?.gstin || state.selectedPartyGstin || ''" 
             @change="onPartyGstinChange" 
-            @keydown.enter.prevent="onInputEnter($event)"
+            @keydown.enter.prevent="onPartyGstinEnter($event)"
             @keydown.backspace="onInputBackspace($event)"
             class="gst-select"
           >
@@ -97,7 +97,7 @@
             <span>Ship to Party Branch:</span>
             <select 
               @change="onConsigneeLocationChange" 
-              @keydown.enter.prevent="onInputEnter($event)"
+              @keydown.enter.prevent="onConsigneeLocationEnter($event)"
               @keydown.backspace="onInputBackspace($event)"
               class="gst-select"
             >
@@ -198,6 +198,7 @@
 import { ref, nextTick } from 'vue';
 import type { BillingState } from '@/composables/useBillingState';
 import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
+import { GST_STATE_CODE_MAP } from '@/utils/gst-address-helper';
 
 const props = withDefaults(defineProps<{
   state: BillingState;
@@ -214,17 +215,35 @@ const partyPanelRef = ref<HTMLElement | null>(null);
 
 function onPartyGstinChange(event: Event) {
   const gstin = (event.target as HTMLSelectElement).value;
-  const loc = props.state.selectedParty?.gstLocations?.find((l: any) => l.gstin === gstin) || null;
+  const loc = props.state.selectedParty?.gstLocations?.find((l: any) => l.gstin === gstin || String(l._id) === gstin || String(l.id) === gstin) || null;
+  if (loc && loc.gstin && /^\d{2}/.test(loc.gstin.trim()) && loc.gstin !== 'UNREGISTERED') {
+    const sc = loc.gstin.trim().substring(0, 2);
+    loc.stateCode = sc;
+    loc.state = GST_STATE_CODE_MAP[sc] || loc.state;
+  }
   props.state.selectedPartyLocation = loc;
-  props.state.selectedPartyGstin = gstin || 'UNREGISTERED';
-  emit('location-change');
+  props.state.selectedPartyGstin = loc?.gstin || gstin || 'UNREGISTERED';
+  if (props.state.consigneeSameAsBillTo) {
+    props.state.selectedConsignee = buildConsigneeFromParty();
+  }
+  emit('location-change', loc);
+}
+
+function onPartyGstinEnter(event: KeyboardEvent) {
+  onPartyGstinChange(event);
+  onInputEnter(event);
 }
 
 function onConsigneeLocationChange(event: Event) {
   const gstin = (event.target as HTMLSelectElement).value;
   if (!gstin) return;
-  const loc = props.state.selectedParty?.gstLocations?.find((l: any) => l.gstin === gstin);
+  const loc = props.state.selectedParty?.gstLocations?.find((l: any) => l.gstin === gstin || String(l._id) === gstin || String(l.id) === gstin);
   if (loc && props.state.selectedConsignee) {
+    if (loc.gstin && /^\d{2}/.test(loc.gstin.trim()) && loc.gstin !== 'UNREGISTERED') {
+      const sc = loc.gstin.trim().substring(0, 2);
+      loc.stateCode = sc;
+      loc.state = GST_STATE_CODE_MAP[sc] || loc.state;
+    }
     props.state.selectedConsignee.name = props.state.selectedParty?.name || props.state.selectedParty?.firm || '';
     props.state.selectedConsignee.gstin = loc.gstin || 'UNREGISTERED';
     props.state.selectedConsignee.address = loc.address || '';
@@ -232,15 +251,23 @@ function onConsigneeLocationChange(event: Event) {
     props.state.selectedConsignee.stateCode = loc.stateCode || (loc.gstin && loc.gstin.length >= 2 ? loc.gstin.substring(0, 2) : '');
     props.state.selectedConsignee.pin = loc.pincode || '';
     props.state.selectedConsignee.contact = loc.contact || props.state.selectedParty?.contact || '';
+    emit('location-change', loc);
   }
+}
+
+function onConsigneeLocationEnter(event: KeyboardEvent) {
+  onConsigneeLocationChange(event);
+  onInputEnter(event);
 }
 
 function handleConsigneeToggle() {
   if (props.state.consigneeSameAsBillTo) {
     props.state.selectedConsignee = buildConsigneeFromParty();
+    emit('location-change', props.state.selectedPartyLocation);
     return;
   }
   ensureConsignee();
+  emit('location-change', props.state.selectedPartyLocation);
   nextTick(() => {
     const firstShipInput = partyPanelRef.value?.querySelector('.ship-fields input') as HTMLElement;
     firstShipInput?.focus();

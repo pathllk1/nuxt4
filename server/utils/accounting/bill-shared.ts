@@ -9,9 +9,12 @@ export async function resolveFirmLocation(firmId: string | mongoose.Types.Object
   const locations = (firmDoc as any)?.locations || [];
   let firmLoc = null;
 
-  if (firmGstin) {
-    firmLoc = locations.find((l: any) => l.gst_number === firmGstin);
-    if (!firmLoc) throw new Error(`Firm GSTIN ${firmGstin} not found in firm registrations`);
+  if (firmGstin && firmGstin !== 'UNREGISTERED' && firmGstin !== 'null' && firmGstin !== 'undefined') {
+    const cleanGst = firmGstin.trim().toUpperCase();
+    firmLoc = locations.find((l: any) => l.gst_number?.trim()?.toUpperCase() === cleanGst);
+    if (!firmLoc && locations.length > 0) {
+      firmLoc = locations.find((l: any) => l.is_default) || locations[0];
+    }
   } else {
     firmLoc = locations.find((l: any) => l.is_default) || locations[0] || null;
   }
@@ -28,8 +31,9 @@ export async function resolvePartyLocation(partyDoc: any, requestedGstin?: strin
   let partyLoc = null;
   const locations: any[] = Array.isArray(partyDoc.gstLocations) ? partyDoc.gstLocations : [];
 
-  if (requestedGstin && requestedGstin !== 'UNREGISTERED' && locations.length > 0) {
-    partyLoc = locations.find((l: any) => l.gstin?.trim()?.toUpperCase() === requestedGstin.trim().toUpperCase());
+  if (requestedGstin && requestedGstin !== 'UNREGISTERED' && requestedGstin !== 'null' && requestedGstin !== 'undefined' && locations.length > 0) {
+    const cleanPartyGst = requestedGstin.trim().toUpperCase();
+    partyLoc = locations.find((l: any) => l.gstin?.trim()?.toUpperCase() === cleanPartyGst);
   }
 
   if (!partyLoc && locations.length > 0) {

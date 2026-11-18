@@ -346,6 +346,7 @@ import { useApi } from '@/utils/api';
 import { useAccountingInvoiceState, type COAAccount } from '@/composables/useAccountingInvoiceState';
 import { useKeyboardNavigation } from '@/composables/useKeyboardNavigation';
 import { INDIA_STATE_CODES, extractGstStateCode, normalizePartyGstInfo } from '@/composables/useBillingState';
+import { GST_STATE_CODE_MAP } from '@/utils/gst-address-helper';
 import PartyManager from '@/components/accounting/PartyManager.vue';
 import LedgerCartManager from '@/components/accounting/LedgerCartManager.vue';
 import LedgerModal from '@/components/accounting/LedgerModal.vue';
@@ -772,7 +773,7 @@ async function fetchFirmData() {
 
 function onFirmGstinChange(e: Event) {
   const gstin = (e.target as HTMLSelectElement).value;
-  activeFirmLocation.value = firmLocations.value.find((l: any) => l.gst_number === gstin) || firmLocations.value[0] || null;
+  activeFirmLocation.value = firmLocations.value.find((l: any) => (l.gst_number || '') === gstin) || firmLocations.value[0] || null;
   determineGstBillType();
 }
 
@@ -781,23 +782,61 @@ function selectParty(party: any) {
   const normParty = normalizePartyGstInfo(party);
   selectedParty.value = normParty;
   const primaryLoc = normParty?.gstLocations?.find((l: any) => l.isPrimary) || normParty?.gstLocations?.[0] || null;
+  if (primaryLoc && primaryLoc.gstin && /^\d{2}/.test(primaryLoc.gstin.trim()) && primaryLoc.gstin !== 'UNREGISTERED') {
+    const sc = primaryLoc.gstin.trim().substring(0, 2);
+    primaryLoc.stateCode = sc;
+    primaryLoc.state = GST_STATE_CODE_MAP[sc] || primaryLoc.state;
+  }
   selectedPartyLocation.value = primaryLoc;
   selectedPartyGstin.value = primaryLoc?.gstin || normParty?.gstin || 'UNREGISTERED';
   partyState.selectedParty = normParty;
   partyState.selectedPartyLocation = primaryLoc;
   partyState.selectedPartyGstin = selectedPartyGstin.value;
+  if (partyState.consigneeSameAsBillTo) {
+    partyState.selectedConsignee = {
+      name: normParty.name || normParty.firm || '',
+      gstin: selectedPartyGstin.value,
+      address: primaryLoc?.address || normParty.address || '',
+      state: primaryLoc?.state || normParty.state || '',
+      stateCode: primaryLoc?.stateCode || normParty.stateCode || '',
+      pin: primaryLoc?.pincode || normParty.pin || '',
+      contact: primaryLoc?.contact || normParty.contact || '',
+    };
+  }
   showPartyDrawer.value = false;
   determineGstBillType();
   focusPartySection();
 }
 
-function onPartyLocationChange(location: any) {
-  selectedPartyLocation.value = location;
-  selectedPartyGstin.value = location?.gstin || selectedParty.value?.gstin || 'UNREGISTERED';
-  partyState.selectedPartyLocation = location;
+function onPartyLocationChange(location?: any) {
+  const loc = location || partyState.selectedPartyLocation;
+  if (loc && loc.gstin && /^\d{2}/.test(loc.gstin.trim()) && loc.gstin !== 'UNREGISTERED') {
+    const sc = loc.gstin.trim().substring(0, 2);
+    loc.stateCode = sc;
+    loc.state = GST_STATE_CODE_MAP[sc] || loc.state;
+  }
+  selectedPartyLocation.value = loc;
+  selectedPartyGstin.value = loc?.gstin || selectedParty.value?.gstin || 'UNREGISTERED';
+  partyState.selectedPartyLocation = loc;
   partyState.selectedPartyGstin = selectedPartyGstin.value;
+  if (partyState.consigneeSameAsBillTo && selectedParty.value) {
+    partyState.selectedConsignee = {
+      name: selectedParty.value.name || selectedParty.value.firm || '',
+      gstin: selectedPartyGstin.value,
+      address: loc?.address || selectedParty.value.address || '',
+      state: loc?.state || selectedParty.value.state || '',
+      stateCode: loc?.stateCode || selectedParty.value.stateCode || '',
+      pin: loc?.pincode || selectedParty.value.pin || '',
+      contact: loc?.contact || selectedParty.value.contact || '',
+    };
+  }
   determineGstBillType();
 }
+
+// Watchers for dynamic statutory alignment
+watch([activeFirmLocation, selectedPartyLocation, selectedPartyGstin, () => partyState.consigneeSameAsBillTo, () => partyState.selectedConsignee], () => {
+  determineGstBillType();
+}, { deep: true });
 
 function onPartySaved(party: any) {
   fetchParties();

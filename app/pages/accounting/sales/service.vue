@@ -30,6 +30,7 @@
             :value="activeFirmLocation?.gst_number || ''" 
             @change="onFirmGstinChange" 
             @keydown.enter.prevent="onFirmGstinEnter"
+            @keydown.backspace="onFirmGstinBackspace"
           >
             <option v-for="location in firmLocations" :key="location.gst_number || location.state_code" :value="location.gst_number || ''">
               {{ location.gst_number || 'No GSTIN' }} - {{ location.state || location.state_code || '' }}{{ location.is_default ? ' (Default)' : '' }}
@@ -44,6 +45,7 @@
             ref="txTypeSelectRef"
             v-model="meta.billType" 
             @keydown.enter.prevent="onTxTypeEnter"
+            @keydown.backspace="onTxTypeBackspace"
           >
             <option value="intra-state">Intra-State (CGST + SGST)</option>
             <option value="inter-state">Inter-State (IGST)</option>
@@ -51,14 +53,29 @@
         </label>
 
         <label v-if="gstEnabled" class="inline-toggle">
-          <input v-model="meta.reverseCharge" type="checkbox" @keydown.enter.prevent="onReverseChargeEnter" />
+          <input 
+            ref="reverseChargeInputRef"
+            v-model="meta.reverseCharge" 
+            type="checkbox" 
+            @keydown.enter.prevent="onReverseChargeEnter"
+            @keydown.backspace="onReverseChargeBackspace"
+          />
           <span>Reverse Charge</span>
         </label>
       </div>
 
       <div class="header-actions">
         <button class="ghost-btn" type="button" @click="resetForm" title="Discard (F9)">Discard (F9)</button>
-        <button class="primary-btn" type="button" :disabled="saving || !canSave" @click="handleSave" title="Save Invoice (F8)">
+        <button 
+          ref="saveBtnRef"
+          class="primary-btn" 
+          type="button" 
+          :disabled="saving || !canSave" 
+          @click="handleSave" 
+          @keydown.enter.prevent="handleSave"
+          @keydown.backspace.prevent="onSaveBtnBackspace"
+          title="Save Invoice (F8)"
+        >
           {{ saving ? 'Saving...' : 'Save Invoice' }}
           <span>F8</span>
         </button>
@@ -159,6 +176,8 @@
           @remove-item="(idx) => removeItem(idx)"
           @update-item="(idx, field, val) => updateItem(idx, field, val)"
           @open-ledger-modal="openLedgerModal"
+          @backspace-out="onCartBackspaceOut"
+          @cart-complete="onCartComplete"
         />
       </section>
     </main>
@@ -317,6 +336,7 @@ import { useRouter } from 'vue-router';
 import { useApi } from '@/utils/api';
 import { useAccountingInvoiceState, type COAAccount } from '@/composables/useAccountingInvoiceState';
 import { INDIA_STATE_CODES, extractGstStateCode, normalizePartyGstInfo } from '@/composables/useBillingState';
+import { GST_STATE_CODE_MAP } from '@/utils/gst-address-helper';
 import PartyManager from '@/components/accounting/PartyManager.vue';
 import LedgerCartManager from '@/components/accounting/LedgerCartManager.vue';
 import LedgerModal from '@/components/accounting/LedgerModal.vue';
@@ -369,6 +389,8 @@ const pageContainerRef = ref<HTMLElement | null>(null);
 const firstInputRef = ref<HTMLInputElement | null>(null);
 const firmGstinSelectRef = ref<HTMLSelectElement | null>(null);
 const txTypeSelectRef = ref<HTMLSelectElement | null>(null);
+const reverseChargeInputRef = ref<HTMLInputElement | null>(null);
+const saveBtnRef = ref<HTMLButtonElement | null>(null);
 const referenceInputRef = ref<HTMLInputElement | null>(null);
 const narrationInputRef = ref<HTMLTextAreaElement | null>(null);
 const cartManagerRef = ref<any>(null);
@@ -468,7 +490,8 @@ function onDateEnter() {
   }
 }
 
-function onFirmGstinEnter() {
+function onFirmGstinEnter(e?: Event) {
+  if (e) onFirmGstinChange(e);
   if (gstEnabled.value && txTypeSelectRef.value) {
     txTypeSelectRef.value.focus();
   } else {
@@ -476,12 +499,41 @@ function onFirmGstinEnter() {
   }
 }
 
+function onFirmGstinBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  firstInputRef.value?.focus();
+}
+
 function onTxTypeEnter() {
-  advanceToPartyOrReference();
+  if (gstEnabled.value && reverseChargeInputRef.value) {
+    reverseChargeInputRef.value.focus();
+  } else {
+    advanceToPartyOrReference();
+  }
+}
+
+function onTxTypeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (firmLocations.value.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    firstInputRef.value?.focus();
+  }
 }
 
 function onReverseChargeEnter() {
   advanceToPartyOrReference();
+}
+
+function onReverseChargeBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (txTypeSelectRef.value) {
+    txTypeSelectRef.value.focus();
+  } else if (firmLocations.value.length > 1 && firmGstinSelectRef.value) {
+    firmGstinSelectRef.value.focus();
+  } else {
+    firstInputRef.value?.focus();
+  }
 }
 
 function focusPartySection() {
@@ -662,7 +714,7 @@ async function fetchFirmData() {
 
 function onFirmGstinChange(e: Event) {
   const gstin = (e.target as HTMLSelectElement).value;
-  activeFirmLocation.value = firmLocations.value.find((l: any) => l.gst_number === gstin) || firmLocations.value[0] || null;
+  activeFirmLocation.value = firmLocations.value.find((l: any) => (l.gst_number || '') === gstin) || firmLocations.value[0] || null;
   determineGstBillType();
 }
 
@@ -671,22 +723,79 @@ function selectParty(party: any) {
   const normParty = normalizePartyGstInfo(party);
   selectedParty.value = normParty;
   const primaryLoc = normParty?.gstLocations?.find((l: any) => l.isPrimary) || normParty?.gstLocations?.[0] || null;
+  if (primaryLoc && primaryLoc.gstin && /^\d{2}/.test(primaryLoc.gstin.trim()) && primaryLoc.gstin !== 'UNREGISTERED') {
+    const sc = primaryLoc.gstin.trim().substring(0, 2);
+    primaryLoc.stateCode = sc;
+    primaryLoc.state = GST_STATE_CODE_MAP[sc] || primaryLoc.state;
+  }
   selectedPartyLocation.value = primaryLoc;
   selectedPartyGstin.value = primaryLoc?.gstin || normParty?.gstin || 'UNREGISTERED';
   partyState.selectedParty = normParty;
   partyState.selectedPartyLocation = primaryLoc;
   partyState.selectedPartyGstin = selectedPartyGstin.value;
+  if (partyState.consigneeSameAsBillTo) {
+    partyState.selectedConsignee = {
+      name: normParty.name || normParty.firm || '',
+      gstin: selectedPartyGstin.value,
+      address: primaryLoc?.address || normParty.address || '',
+      state: primaryLoc?.state || normParty.state || '',
+      stateCode: primaryLoc?.stateCode || normParty.stateCode || '',
+      pin: primaryLoc?.pincode || normParty.pin || '',
+      contact: primaryLoc?.contact || normParty.contact || '',
+    };
+  }
   showPartyDrawer.value = false;
   determineGstBillType();
   focusPartySection();
 }
 
-function onPartyLocationChange(location: any) {
-  selectedPartyLocation.value = location;
-  selectedPartyGstin.value = location?.gstin || selectedParty.value?.gstin || 'UNREGISTERED';
-  partyState.selectedPartyLocation = location;
+function onPartyLocationChange(location?: any) {
+  const loc = location || partyState.selectedPartyLocation;
+  if (loc && loc.gstin && /^\d{2}/.test(loc.gstin.trim()) && loc.gstin !== 'UNREGISTERED') {
+    const sc = loc.gstin.trim().substring(0, 2);
+    loc.stateCode = sc;
+    loc.state = GST_STATE_CODE_MAP[sc] || loc.state;
+  }
+  selectedPartyLocation.value = loc;
+  selectedPartyGstin.value = loc?.gstin || selectedParty.value?.gstin || 'UNREGISTERED';
+  partyState.selectedPartyLocation = loc;
   partyState.selectedPartyGstin = selectedPartyGstin.value;
+  if (partyState.consigneeSameAsBillTo && selectedParty.value) {
+    partyState.selectedConsignee = {
+      name: selectedParty.value.name || selectedParty.value.firm || '',
+      gstin: selectedPartyGstin.value,
+      address: loc?.address || selectedParty.value.address || '',
+      state: loc?.state || selectedParty.value.state || '',
+      stateCode: loc?.stateCode || selectedParty.value.stateCode || '',
+      pin: loc?.pincode || selectedParty.value.pin || '',
+      contact: loc?.contact || selectedParty.value.contact || '',
+    };
+  }
   determineGstBillType();
+}
+
+// Watchers for dynamic statutory alignment
+watch([activeFirmLocation, selectedPartyLocation, selectedPartyGstin, () => partyState.consigneeSameAsBillTo, () => partyState.selectedConsignee], () => {
+  determineGstBillType();
+}, { deep: true });
+
+function onCartBackspaceOut() {
+  narrationInputRef.value?.focus();
+  narrationInputRef.value?.select();
+}
+
+function onCartComplete() {
+  saveBtnRef.value?.focus();
+}
+
+function onSaveBtnBackspace(e: KeyboardEvent) {
+  e.preventDefault();
+  if (cart.value.length > 0) {
+    cartManagerRef.value?.focusCell(cart.value.length - 1, 'narration');
+  } else {
+    narrationInputRef.value?.focus();
+    narrationInputRef.value?.select();
+  }
 }
 
 function onPartySaved(party: any) {
