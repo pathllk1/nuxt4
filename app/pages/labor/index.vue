@@ -253,6 +253,20 @@
               </div>
             </div>
             <div v-else class="text-[8px] text-gray-400 dark:text-gray-600 italic">No bank details added</div>
+
+            <!-- Direct Advance Action -->
+            <div class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <span class="text-[9px] font-semibold text-gray-400">Direct Payment</span>
+              <UButton 
+                icon="i-lucide-banknotes" 
+                label="Pay Advance" 
+                color="warning" 
+                variant="subtle" 
+                size="xs" 
+                class="font-bold cursor-pointer text-[10px] py-1 px-2.5"
+                @click="openDirectAdvanceModal(l)" 
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -312,17 +326,216 @@
         </div>
       </template>
     </UModal>
+
+    <!-- Direct Advance Modal -->
+    <UModal v-model:open="isAdvanceModalOpen" :title="`Issue Advance: ${selectedAdvanceLeader?.name || ''}`">
+      <template #content>
+        <div class="bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-100 dark:border-gray-800 p-6 space-y-4 max-w-lg mx-auto">
+          <div class="border-b border-gray-100 dark:border-gray-800 pb-3 flex justify-between items-center">
+            <div>
+              <h3 class="text-base font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span>💸</span> Issue Advance Payout
+              </h3>
+              <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                Leader: <span class="font-bold text-gray-900 dark:text-white">{{ selectedAdvanceLeader?.name }}</span>
+                <span v-if="selectedAdvanceLeader?.pan" class="ml-1.5 font-mono text-[10px] bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 px-1 py-0.2 rounded border border-purple-200 dark:border-purple-800">PAN: {{ selectedAdvanceLeader.pan }}</span>
+              </p>
+            </div>
+            <UButton icon="i-lucide-x" size="xs" color="neutral" variant="ghost" @click="isAdvanceModalOpen = false" />
+          </div>
+
+          <form @submit.prevent="submitAdvance" class="space-y-4 text-xs">
+            <!-- Period Allocation Dropdown -->
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center justify-between">
+                <span>Work Period Allocation</span>
+                <span class="text-[9px] text-teal-600 dark:text-teal-400 font-semibold lowercase">unallocated is supported</span>
+              </label>
+              <USelect 
+                v-model="advanceTargetPeriodId" 
+                :items="advanceTargetPeriodOptions" 
+                size="sm"
+                class="w-full font-semibold cursor-pointer" 
+              />
+              <p class="text-[10px] text-gray-400 dark:text-gray-500 italic mt-0.5">
+                {{ !advanceTargetPeriodId ? '📌 Unallocated: Records as an advance on account. Can be allocated to a period when created.' : '🗓️ Will be allocated directly to this open work period.' }}
+              </p>
+            </div>
+
+            <!-- Amount & Payment Date -->
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Amount (₹)*</label>
+                <UInput 
+                  v-model.number="advanceForm.amount" 
+                  type="number" 
+                  step="0.01" 
+                  min="1" 
+                  size="sm" 
+                  placeholder="0.00"
+                  class="w-full font-mono font-bold" 
+                  required 
+                />
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Payment Date*</label>
+                <UInput 
+                  v-model="advanceForm.payment_date" 
+                  type="date" 
+                  size="sm" 
+                  class="w-full font-semibold cursor-pointer" 
+                  required 
+                />
+              </div>
+            </div>
+
+            <!-- Payment Mode -->
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Payment Mode*</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button 
+                  type="button" 
+                  class="py-1.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  :class="advanceForm.payment_mode === 'BANK' ? 'bg-teal-50 dark:bg-teal-950/40 border-teal-500 text-teal-700 dark:text-teal-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                  @click="advanceForm.payment_mode = 'BANK'"
+                >
+                  <UIcon name="i-lucide-landmark" class="w-3.5 h-3.5" />
+                  Bank Transfer
+                </button>
+                <button 
+                  type="button" 
+                  class="py-1.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  :class="advanceForm.payment_mode === 'CASH' ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500 text-amber-700 dark:text-amber-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                  @click="advanceForm.payment_mode = 'CASH'"
+                >
+                  <UIcon name="i-lucide-banknote" class="w-3.5 h-3.5" />
+                  Cash
+                </button>
+              </div>
+            </div>
+
+            <!-- Bank Account Selector (if BANK) -->
+            <div v-if="advanceForm.payment_mode === 'BANK'" class="space-y-1 animate-fadeIn">
+              <label class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Paid From Bank Account*</label>
+              <USelect 
+                v-model="advanceForm.bank_account_id" 
+                :items="bankAccountOptions" 
+                size="sm"
+                class="w-full font-semibold cursor-pointer" 
+                required 
+              />
+            </div>
+
+            <!-- Statutory TDS Assistant (Section 194C) -->
+            <div class="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-800 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs">⚖️</span>
+                  <span class="font-bold text-[11px] text-gray-800 dark:text-gray-200 uppercase tracking-wider">Statutory TDS Assistant (Sec 194C)</span>
+                </div>
+                <input 
+                  type="checkbox" 
+                  v-model="applyAdvanceTds" 
+                  class="rounded text-teal-600 focus:ring-teal-500 cursor-pointer w-4 h-4" 
+                />
+              </div>
+
+              <div v-if="applyAdvanceTds" class="space-y-2 pt-1 border-t border-gray-200 dark:border-gray-700 animate-fadeIn">
+                <div v-if="loadingAdvanceTds" class="flex items-center gap-1.5 text-xs text-gray-500">
+                  <UIcon name="i-lucide-loader-2" class="w-3.5 h-3.5 animate-spin text-teal-500" />
+                  Evaluating statutory thresholds...
+                </div>
+                <div v-else-if="advanceTdsData" class="space-y-2">
+                  <div class="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      class="p-2 rounded-lg border text-left transition cursor-pointer"
+                      :class="advanceTdsMode === 'GROSS_UP' ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-500 text-purple-900 dark:text-purple-200' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                      @click="advanceTdsMode = 'GROSS_UP'"
+                    >
+                      <div class="font-bold text-[10px] uppercase">Tax Borne by Firm (195A)</div>
+                      <div class="text-[9px] opacity-80 mt-0.5">Leader gets ₹{{ formatINR(advanceForm.amount) }} net</div>
+                      <div class="text-xs font-mono font-bold mt-1 text-purple-600 dark:text-purple-400">
+                        + TDS: ₹{{ formatINR(advanceTdsData.grossUpOption?.tdsAmount) }}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      class="p-2 rounded-lg border text-left transition cursor-pointer"
+                      :class="advanceTdsMode === 'DEDUCT' ? 'bg-teal-50 dark:bg-teal-950/40 border-teal-500 text-teal-900 dark:text-teal-200' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                      @click="advanceTdsMode = 'DEDUCT'"
+                    >
+                      <div class="font-bold text-[10px] uppercase">Standard TDS Deduction (194C)</div>
+                      <div class="text-[9px] opacity-80 mt-0.5">TDS deducted from advance</div>
+                      <div class="text-xs font-mono font-bold mt-1 text-teal-600 dark:text-teal-400">
+                        Net: ₹{{ formatINR(advanceTdsData.standardOption?.netPayout) }}
+                      </div>
+                    </button>
+                  </div>
+
+                  <!-- Summary Box -->
+                  <div class="bg-white dark:bg-gray-900 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] space-y-1 font-mono">
+                    <div class="flex justify-between text-gray-500">
+                      <span>Rate ({{ advanceTdsData.entityType }}):</span>
+                      <span class="font-bold text-gray-900 dark:text-white">{{ advanceTdsData.applicableRate }}%</span>
+                    </div>
+                    <div class="flex justify-between text-gray-500">
+                      <span>Gross Payment:</span>
+                      <span class="font-bold text-gray-900 dark:text-white">
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption?.grossAmount : advanceTdsData.standardOption?.grossAmount) }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-purple-600 dark:text-purple-400">
+                      <span>TDS Liability:</span>
+                      <span class="font-bold">
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption?.tdsAmount : advanceTdsData.standardOption?.tdsAmount) }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-teal-600 dark:text-teal-400 pt-1 border-t border-gray-100 dark:border-gray-800 font-bold">
+                      <span>Net Outflow:</span>
+                      <span>
+                        ₹{{ formatINR(advanceTdsMode === 'GROSS_UP' ? advanceTdsData.grossUpOption?.netPayout : advanceTdsData.standardOption?.netPayout) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Modal Action Buttons -->
+            <div class="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <UButton label="Cancel" variant="ghost" color="neutral" size="sm" @click="isAdvanceModalOpen = false" />
+              <UButton 
+                type="submit" 
+                label="Confirm & Issue Advance" 
+                color="warning" 
+                variant="solid" 
+                size="sm" 
+                class="font-bold cursor-pointer" 
+                :loading="postingAdvance" 
+              />
+            </div>
+          </form>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, onMounted, reactive, watch } from 'vue';
 import { useLabor } from '~/composables/useLabor';
+import { useBanking } from '~/composables/useBanking';
+import { useAccounting } from '~/composables/useAccounting';
 import PartyAccountMasterModal from '@/components/accounting/PartyAccountMasterModal.vue';
 
 definePageMeta({
   layout: 'default'
 });
+
+const toast = useToast();
+const { fetchBankAccounts, bankAccounts } = useBanking();
+const { checkTdsThreshold } = useAccounting();
 
 const { 
   loading, 
@@ -336,7 +549,8 @@ const {
   createPeriod, 
   updatePeriod,
   deletePeriod,
-  unsettlePeriod
+  unsettlePeriod,
+  payAdvance
 } = useLabor();
 
 const leaderFilter = ref('All Leaders');
@@ -357,9 +571,134 @@ const periodForm = reactive({
 onMounted(async () => {
   await Promise.all([
     fetchLeaders(),
-    fetchPeriods()
+    fetchPeriods(),
+    fetchBankAccounts()
   ]);
 });
+
+const formatINR = (val: number) => {
+  return Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// Direct Advance State
+const isAdvanceModalOpen = ref(false);
+const postingAdvance = ref(false);
+const selectedAdvanceLeader = ref<any>(null);
+const advanceTargetPeriodId = ref<string>('');
+const advanceForm = reactive({
+  amount: 0,
+  payment_date: new Date().toISOString().split('T')[0],
+  payment_mode: 'BANK',
+  bank_account_id: ''
+});
+const applyAdvanceTds = ref(false);
+const advanceTdsMode = ref<'GROSS_UP' | 'DEDUCT'>('GROSS_UP');
+const advanceTdsData = ref<any>(null);
+const loadingAdvanceTds = ref(false);
+
+const advanceTargetPeriodOptions = computed(() => {
+  if (!selectedAdvanceLeader.value) return [{ label: '📌 Unallocated (Advance on Account)', value: '' }];
+  const leaderOpenPeriods = periods.value.filter(
+    (p: any) => p.leader_id === selectedAdvanceLeader.value.id && p.status === 'Open'
+  );
+  return [
+    { label: '📌 Unallocated (Advance on Account)', value: '' },
+    ...leaderOpenPeriods.map((p: any) => ({
+      label: `🗓️ Work Period #${p.id.substring(0, 8)} (${formatDate(p.start_date)} - ${formatDate(p.end_date)})`,
+      value: p.id
+    }))
+  ];
+});
+
+const bankAccountOptions = computed(() => {
+  return bankAccounts.value.map((b: any) => ({
+    label: `${b.account_name} (${b.bank_name || 'Bank'})`,
+    value: b._id
+  }));
+});
+
+const openDirectAdvanceModal = (leader: any) => {
+  selectedAdvanceLeader.value = leader;
+  advanceTargetPeriodId.value = '';
+  advanceForm.amount = 0;
+  advanceForm.payment_date = new Date().toISOString().split('T')[0];
+  advanceForm.payment_mode = 'BANK';
+  advanceForm.bank_account_id = bankAccounts.value[0]?._id || '';
+  applyAdvanceTds.value = false;
+  advanceTdsMode.value = 'GROSS_UP';
+  advanceTdsData.value = null;
+  isAdvanceModalOpen.value = true;
+};
+
+const fetchAdvanceTds = async () => {
+  if (!applyAdvanceTds.value || !selectedAdvanceLeader.value || !advanceForm.amount || advanceForm.amount <= 0) {
+    advanceTdsData.value = null;
+    return;
+  }
+  loadingAdvanceTds.value = true;
+  try {
+    const res: any = await checkTdsThreshold({
+      leaderId: selectedAdvanceLeader.value.id,
+      accountHead: selectedAdvanceLeader.value.name,
+      amount: Number(advanceForm.amount) || 0,
+      paymentDate: advanceForm.payment_date
+    });
+    if (res.success && res.data) {
+      advanceTdsData.value = res.data;
+    }
+  } catch (err) {
+    console.warn('Advance TDS check notice:', err);
+  } finally {
+    loadingAdvanceTds.value = false;
+  }
+};
+
+watch([applyAdvanceTds, () => advanceForm.amount, () => advanceForm.payment_date], () => {
+  if (applyAdvanceTds.value) {
+    fetchAdvanceTds();
+  }
+});
+
+const submitAdvance = async () => {
+  if (!selectedAdvanceLeader.value || !advanceForm.amount || advanceForm.amount <= 0) return;
+  postingAdvance.value = true;
+  try {
+    const selectedTds = applyAdvanceTds.value
+      ? advanceTdsMode.value === 'GROSS_UP' ? advanceTdsData.value?.grossUpOption : advanceTdsData.value?.standardOption
+      : null;
+
+    const payload: any = {
+      leader_id: selectedAdvanceLeader.value.id,
+      period_id: advanceTargetPeriodId.value || null,
+      amount: applyAdvanceTds.value && selectedTds ? Number(selectedTds.netPayout) : Number(advanceForm.amount),
+      payment_date: advanceForm.payment_date,
+      payment_mode: advanceForm.payment_mode,
+      bank_account_id: advanceForm.payment_mode === 'CASH' ? null : advanceForm.bank_account_id,
+      idempotency_key: crypto.randomUUID(),
+      tds_mode: applyAdvanceTds.value ? advanceTdsMode.value : 'NONE',
+      tds_rate: applyAdvanceTds.value && advanceTdsData.value ? Number(advanceTdsData.value.applicableRate) : 0,
+      tds_amount: applyAdvanceTds.value && selectedTds ? Number(selectedTds.tdsAmount) : 0,
+      gross_amount: applyAdvanceTds.value && selectedTds ? Number(selectedTds.grossAmount) : Number(advanceForm.amount)
+    };
+
+    await payAdvance(payload);
+    isAdvanceModalOpen.value = false;
+    toast.add({
+      title: 'Advance Recorded',
+      description: `Advance of ₹${formatINR(Number(advanceForm.amount))} issued to ${selectedAdvanceLeader.value.name}${advanceTargetPeriodId.value ? ' (allocated to period)' : ' (unallocated on account)'}.`,
+      icon: 'i-lucide-check-circle-2',
+      color: 'success'
+    });
+    await Promise.all([
+      fetchLeaders(),
+      fetchPeriods()
+    ]);
+  } catch (err: any) {
+    alert(err.message || 'Error recording advance');
+  } finally {
+    postingAdvance.value = false;
+  }
+};
 
 const openPeriodsCount = computed(() => {
   return periods.value.filter((p: any) => p.status === 'Open').length;

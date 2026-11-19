@@ -774,9 +774,12 @@ function getOpenPeriodsForLeader(leaderName: string) {
 
 function onAccountSelected(entry: LocalVoucherEntry, acc: any) {
   if (acc && ((acc.account_type || '').toUpperCase().includes('LABOR'))) {
+    entry.accountType = 'LABOR_LEADER';
     const openPeriods = getOpenPeriodsForLeader(acc.account_name);
     if (openPeriods.length > 0) {
       entry.laborPeriodId = openPeriods[0].id;
+    } else {
+      entry.laborPeriodId = '';
     }
   } else {
     entry.laborPeriodId = '';

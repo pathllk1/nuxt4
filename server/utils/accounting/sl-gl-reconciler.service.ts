@@ -276,10 +276,12 @@ export class SLGLReconcilerService {
       }
       if (sql && isPgReady()) {
         const pgAdvances = await sql`
-          SELECT a.id, a.period_id, a.amount, a.payment_date, a.ledger_voucher_group_id,
+          SELECT a.id, a.period_id, a.leader_id, a.amount, a.payment_date, a.ledger_voucher_group_id,
                  a.gross_amount, a.tds_amount, a.tds_mode, a.paid_from_bank_account_id,
-                 p.leader_id, l.name as leader_name
+                 COALESCE(a.leader_id, p.leader_id) AS leader_id,
+                 COALESCE(l_direct.name, l.name) AS leader_name
           FROM labor_advances a
+          LEFT JOIN labor_leaders l_direct ON a.leader_id = l_direct.id
           LEFT JOIN labor_periods p ON a.period_id = p.id
           LEFT JOIN labor_leaders l ON p.leader_id = l.id
           WHERE a.firm_id = ${String(firmId)}

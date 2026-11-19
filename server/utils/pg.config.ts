@@ -31,9 +31,10 @@ export const connectPostgres = async (): Promise<postgres.Sql<any> | null> => {
   try {
     sql = postgres(connectionString, {
       ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1') ? false : { rejectUnauthorized: false },
-      connect_timeout: 15,
+      connect_timeout: 20,
       idle_timeout: 30,
       max_lifetime: 60 * 30,
+      prepare: false,
       onnotice: () => {},
     });
 

@@ -21,6 +21,7 @@ export default defineEventHandler(async (event) => {
     const body = await readBody(event) || {};
     const {
       period_id,
+      leader_id,
       amount,
       payment_date,
       payment_mode,
@@ -32,9 +33,9 @@ export default defineEventHandler(async (event) => {
       idempotency_key: idempotencyKey
     } = body;
 
-    if (!period_id || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 ||
+    if ((!period_id && !leader_id) || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 ||
       typeof payment_date !== 'string' || !isUuid(idempotencyKey)) {
-      throw createError({ statusCode: 400, statusMessage: 'Period, positive amount, payment date, and UUID idempotency key are required.' });
+      throw createError({ statusCode: 400, statusMessage: 'Work period or Labor Leader, positive amount, payment date, and UUID idempotency key are required.' });
     }
     getFinancialYearFromDate(payment_date);
     if (!['CASH', 'BANK', 'CHEQUE', 'UPI', 'NEFT', 'RTGS'].includes(payment_mode)) {
@@ -65,23 +66,48 @@ export default defineEventHandler(async (event) => {
     let postedVoucherGroupId: string | null = null;
     try {
       const advance = await sql.begin(async (tx: any) => {
-        const [period] = await tx`
-          SELECT p.*, l.id AS leader_id, l.name AS leader_name, l.pan AS leader_pan
-          FROM labor_periods p
-          JOIN labor_leaders l ON p.leader_id = l.id
-          WHERE p.id = ${period_id} AND p.firm_id = ${String(session.firm_id)}
-          FOR UPDATE
-        `;
-        if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found in current firm.' });
+        let resolvedLeaderId: string;
+        let resolvedLeaderName: string;
+        let resolvedLeaderPan: string | null = null;
+        let resolvedPeriodId: string | null = null;
+
+        if (period_id) {
+          const [period] = await tx`
+            SELECT p.*, l.id AS leader_id, l.name AS leader_name, l.pan AS leader_pan
+            FROM labor_periods p
+            JOIN labor_leaders l ON p.leader_id = l.id
+            WHERE p.id = ${period_id} AND p.firm_id = ${String(session.firm_id)}
+            FOR UPDATE
+          `;
+          if (!period) throw createError({ statusCode: 404, statusMessage: 'Work period not found in current firm.' });
+          if (period.status === 'Settled') {
+            throw createError({ statusCode: 409, statusMessage: 'Cannot add advances to a settled work period.' });
+          }
+          resolvedPeriodId = String(period.id);
+          resolvedLeaderId = String(period.leader_id);
+          resolvedLeaderName = String(period.leader_name);
+          resolvedLeaderPan = period.leader_pan ? String(period.leader_pan) : null;
+        } else {
+          const [leader] = await tx`
+            SELECT id, name, pan
+            FROM labor_leaders
+            WHERE id = ${leader_id} AND firm_id = ${String(session.firm_id)}
+          `;
+          if (!leader) throw createError({ statusCode: 404, statusMessage: 'Labor leader not found in current firm.' });
+          resolvedLeaderId = String(leader.id);
+          resolvedLeaderName = String(leader.name);
+          resolvedLeaderPan = leader.pan ? String(leader.pan) : null;
+        }
 
         const [existing] = await tx`
           SELECT * FROM labor_advances
-          WHERE firm_id = ${period.firm_id} AND idempotency_key = ${idempotencyKey}
+          WHERE firm_id = ${String(session.firm_id)} AND idempotency_key = ${idempotencyKey}
           LIMIT 1
         `;
         const periodDeductionAmount = tds_mode === 'DEDUCT' ? numGrossAmount : amount;
         if (existing) {
-          const matches = String(existing.period_id) === String(period_id) &&
+          const matches = String(existing.period_id || '') === String(resolvedPeriodId || '') &&
+            String(existing.leader_id || '') === String(resolvedLeaderId) &&
             String(existing.ledger_voucher_group_id || '') === stableVoucherGroupId &&
             Number(existing.amount) === periodDeductionAmount &&
             dateValue(existing.payment_date) === payment_date &&
@@ -96,18 +122,15 @@ export default defineEventHandler(async (event) => {
           }
           return { ...existing, isIdempotentReplay: true };
         }
-        if (period.status === 'Settled') {
-          throw createError({ statusCode: 409, statusMessage: 'Cannot add advances to a settled work period.' });
-        }
 
-        const sourcePaymentRef = `ADVANCE-${String(period.firm_id)}-${idempotencyKey}`;
+        const sourcePaymentRef = `ADVANCE-${String(session.firm_id)}-${idempotencyKey}`;
         postedVoucherGroupId = await laborLedgerHelper.postLaborAdvance({
-          firm_id: period.firm_id,
+          firm_id: String(session.firm_id),
           amount,
           payment_date,
           bank_account_id: payment_mode === 'CASH' ? null : bank_account_id,
           payment_mode,
-          leader_name: period.leader_name,
+          leader_name: resolvedLeaderName,
           created_by: String(session._id),
           tds_mode,
           tds_rate: numTdsRate,
@@ -115,16 +138,16 @@ export default defineEventHandler(async (event) => {
           gross_amount: numGrossAmount,
           external_voucher_group_id: stableVoucherGroupId,
           source_payment_ref: sourcePaymentRef,
-          deductee_id: String(period.leader_id),
-          deductee_pan: String(period.leader_pan || '')
+          deductee_id: resolvedLeaderId,
+          deductee_pan: resolvedLeaderPan || ''
         });
 
         const [createdAdvance] = await tx`
           INSERT INTO labor_advances (
-            firm_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
+            firm_id, leader_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
             ledger_voucher_group_id, idempotency_key, tds_mode, tds_rate, tds_amount, gross_amount, leg_index
           ) VALUES (
-            ${period.firm_id}, ${period_id}, ${periodDeductionAmount}, ${payment_date}, ${payment_mode},
+            ${String(session.firm_id)}, ${resolvedLeaderId}, ${resolvedPeriodId}, ${periodDeductionAmount}, ${payment_date}, ${payment_mode},
             ${payment_mode === 'CASH' ? null : bank_account_id}, ${postedVoucherGroupId}, ${idempotencyKey},
             ${tds_mode}, ${numTdsRate}, ${numTdsAmount}, ${numGrossAmount}, 0
           )

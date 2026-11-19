@@ -123,6 +123,7 @@ export const initLaborPgTables = async (clientSql: postgres.Sql<any> | null) => 
     // Safe non-destructive column additions for existing live tables
     await clientSql`
       ALTER TABLE labor_advances 
+      ADD COLUMN IF NOT EXISTS leader_id UUID REFERENCES labor_leaders(id) ON DELETE CASCADE,
       ADD COLUMN IF NOT EXISTS paid_from_bank_account_id VARCHAR(24),
       ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20),
       ADD COLUMN IF NOT EXISTS ledger_voucher_group_id VARCHAR(100),

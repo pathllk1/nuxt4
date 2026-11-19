@@ -77,6 +77,15 @@ export default defineEventHandler(async (event) => {
       ORDER BY payment_date ASC
     `;
 
+    // 5b. Fetch Unallocated Advances for this leader
+    const unallocatedAdvances = await sql`
+      SELECT * FROM labor_advances
+      WHERE leader_id = ${period.leader_id}
+        AND period_id IS NULL
+        AND firm_id = ${String(session.firm_id)}
+      ORDER BY payment_date ASC
+    `;
+
     // 6. Fetch Settlement (if settled)
     const [settlement] = await sql`
       SELECT * FROM labor_settlements
@@ -161,6 +170,7 @@ export default defineEventHandler(async (event) => {
         attendance: attendanceMap,
         expenses,
         advances,
+        unallocatedAdvances: unallocatedAdvances || [],
         settlement: settlement || null,
         bankAccounts: bankAccounts || [],
         leaderLedgerBalance

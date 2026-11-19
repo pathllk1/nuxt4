@@ -38,25 +38,66 @@ export default defineEventHandler(async (event) => {
   if (entries.some((entry: any) => !entry || typeof entry !== 'object')) {
     throw createError({ statusCode: 400, statusMessage: 'Each voucher entry must be an object' });
   }
-  const laborEntries = vtype === 'PAYMENT'
-    ? entries.map((entry: any, legIndex: number) => ({ entry, legIndex, periodId: entry.laborPeriodId || body.laborPeriodId }))
-      .filter(({ entry, periodId }: any) => periodId &&
-        !/tds payable|tds borne by company/i.test(String(entry.accountHead || '')))
-    : [];
+  const isPayment = (vtype || '').toUpperCase() === 'PAYMENT';
+  let laborSql: any = null;
+  const laborEntries: Array<{ entry: any; legIndex: number; periodId: string | null; leaderId: string | null }> = [];
+
+  if (isPayment) {
+    const { getSql, connectPostgres } = await import('../../utils/pg.config');
+    laborSql = getSql();
+    if (!laborSql) laborSql = await connectPostgres();
+
+    let pgLeadersMap = new Map<string, any>();
+    if (laborSql) {
+      try {
+        const leaders = await laborSql`
+          SELECT id, name
+          FROM labor_leaders
+          WHERE firm_id = ${String(user.firm_id)}
+        `;
+        for (const l of leaders) {
+          pgLeadersMap.set(String(l.name).trim().toLowerCase(), l);
+        }
+      } catch (err: any) {
+        console.warn('[Vouchers Post] Notice: Failed to fetch labor leaders from Postgres:', err?.message);
+      }
+    }
+
+    for (let legIndex = 0; legIndex < entries.length; legIndex++) {
+      const entry = entries[legIndex];
+      const head = String(entry.accountHead || '').trim();
+      if (!head || /tds payable|tds borne by company/i.test(head)) continue;
+
+      const explicitPeriodId = entry.laborPeriodId || body.laborPeriodId || null;
+      const matchedLeader = pgLeadersMap.get(head.toLowerCase());
+      const isLaborHead = Boolean(
+        explicitPeriodId ||
+        matchedLeader ||
+        (entry.accountType || '').toUpperCase() === 'LABOR_LEADER'
+      );
+
+      if (isLaborHead) {
+        if (!laborSql) {
+          throw createError({ statusCode: 503, statusMessage: 'PostgreSQL labor records are unavailable; voucher was not posted.' });
+        }
+
+        // Support unallocated advances without forcing artificial period creation
+        const resolvedLeaderId = matchedLeader?.id || null;
+        laborEntries.push({
+          entry,
+          legIndex,
+          periodId: explicitPeriodId,
+          leaderId: resolvedLeaderId
+        });
+      }
+    }
+  }
+
   for (const { entry, legIndex } of laborEntries) {
     const rawAmount = entry.amount !== undefined && entry.amount !== null ? entry.amount : entry.debitAmount;
     const amount = Number(rawAmount);
     if (rawAmount === undefined || rawAmount === null || rawAmount === '' || !Number.isFinite(amount) || amount <= 0) {
       throw createError({ statusCode: 400, statusMessage: `Labor-linked voucher entry ${legIndex + 1} must have a positive amount` });
-    }
-  }
-  let laborSql: any = null;
-  if (laborEntries.length > 0) {
-    const { getSql, connectPostgres } = await import('../../utils/pg.config');
-    laborSql = getSql();
-    if (!laborSql) laborSql = await connectPostgres();
-    if (!laborSql) {
-      throw createError({ statusCode: 503, statusMessage: 'PostgreSQL labor records are unavailable; voucher was not posted.' });
     }
   }
 
@@ -152,6 +193,7 @@ export default defineEventHandler(async (event) => {
     try {
       await laborSql.begin(async (tx: any) => {
         for (const { periodId } of laborEntries) {
+          if (!periodId) continue; // Unallocated advance has no period yet
           const [period] = await tx`
             SELECT id, status FROM labor_periods
             WHERE id = ${periodId} AND firm_id = ${String(user.firm_id)}
@@ -167,7 +209,7 @@ export default defineEventHandler(async (event) => {
         const bankAccountId = postResult.bankAccountId ? String(postResult.bankAccountId) : null;
         const paymentMode = bankAccountId ? 'BANK' : 'CASH';
 
-        for (const { entry, legIndex, periodId } of laborEntries) {
+        for (const { entry, legIndex, periodId, leaderId } of laborEntries) {
           const baseAmount = Number(entry.amount ?? entry.debitAmount);
           if (!Number.isFinite(baseAmount) || baseAmount <= 0) {
             throw new Error(`Labor advance leg ${legIndex} has an invalid amount.`);
@@ -182,7 +224,8 @@ export default defineEventHandler(async (event) => {
           `;
           if (existingRows.length > 0) {
             const existing = existingRows[0];
-            const matches = String(existing.period_id) === String(periodId) &&
+            const matches = String(existing.period_id || '') === String(periodId || '') &&
+              String(existing.leader_id || '') === String(leaderId || '') &&
               Math.round(Number(existing.amount) * 100) === Math.round(periodAdvanceAmount * 100) &&
               databaseDate(existing.payment_date) === transactionDate &&
               String(existing.payment_mode) === paymentMode &&
@@ -199,10 +242,10 @@ export default defineEventHandler(async (event) => {
 
           await tx`
             INSERT INTO labor_advances (
-              firm_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
+              firm_id, leader_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
               ledger_voucher_group_id, idempotency_key, tds_mode, tds_rate, tds_amount, gross_amount, leg_index
             ) VALUES (
-              ${String(user.firm_id)}, ${periodId}, ${periodAdvanceAmount}, ${transactionDate}, ${paymentMode},
+              ${String(user.firm_id)}, ${leaderId}, ${periodId || null}, ${periodAdvanceAmount}, ${transactionDate}, ${paymentMode},
               ${bankAccountId}, ${postResult.voucherGroupId}, ${requestKey}, ${tdsMode},
               ${tdsRate}, ${tdsAmount}, ${currentGrossAmount}, ${legIndex}
             )

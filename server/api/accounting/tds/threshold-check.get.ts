@@ -203,26 +203,20 @@ export default defineEventHandler(async (event) => {
       for (const tLeg of priorTdsLegs) {
         const vgId = tLeg.voucherGroupId ? String(tLeg.voucherGroupId) : '';
         if (vgId) {
-          // Initialize remaining taxable base for this TDS leg so it is not multiplied across multiple debits (F-04)
           const sourcePaymentRef = tLeg.sourcePaymentRef || tLeg.statutory?.sourcePaymentRef;
           const taxableBase = tLeg.statutory?.taxableAmount ?? tLeg.statutory?.grossAmount;
-          const calculatedBase = taxableBase == null ? Number.NaN : Number(taxableBase);
-          if (!sourcePaymentRef || !Number.isFinite(calculatedBase) || calculatedBase <= 0) {
-            hasIncompleteHistory = true;
+          let calculatedBase = taxableBase == null ? Number.NaN : Number(taxableBase);
+          if (!Number.isFinite(calculatedBase) || calculatedBase <= 0) {
+            const legCr = Number(tLeg.creditAmount);
+            if (Number.isFinite(legCr) && legCr > 0) {
+              calculatedBase = Math.round(legCr * 100 * 100) / 100;
+            }
           }
           (tLeg as any).sourcePaymentRef = sourcePaymentRef || null;
           (tLeg as any).remainingBase = Number.isFinite(calculatedBase) && calculatedBase > 0 ? calculatedBase : 0;
 
           if (!tdsLegsByVg.has(vgId)) tdsLegsByVg.set(vgId, []);
           tdsLegsByVg.get(vgId)!.push(tLeg);
-        }
-      }
-
-      const sourceRefCounts = new Map<string, number>();
-      for (const entry of priorEntries) {
-        const sourceRef = entry.sourcePaymentRef || (entry as any).statutory?.sourcePaymentRef;
-        if (sourceRef) {
-          sourceRefCounts.set(sourceRef, (sourceRefCounts.get(sourceRef) || 0) + 1);
         }
       }
 
@@ -234,52 +228,42 @@ export default defineEventHandler(async (event) => {
         }
         const matchingTdsList = tdsLegsByVg.get(vg);
         if (!matchingTdsList || matchingTdsList.length === 0) {
-          hasIncompleteHistory = true;
+          // This prior payment did not have a TDS leg (normal for payments under ₹30,000 threshold).
+          // It counts as an untaxed payment towards turnover, but history is NOT corrupted.
           continue;
         }
 
         const entrySourceRef = entry.sourcePaymentRef || (entry as any).statutory?.sourcePaymentRef;
-        if (!entrySourceRef || sourceRefCounts.get(entrySourceRef) !== 1) {
-          hasIncompleteHistory = true;
-          continue;
+        let matchedTdsLeg: any = null;
+
+        if (entrySourceRef) {
+          const matched = matchingTdsList.filter((tLeg: any) => tLeg.sourcePaymentRef === entrySourceRef);
+          if (matched.length === 1) {
+            matchedTdsLeg = matched[0];
+          }
         }
 
-        const matchedTdsLegs = matchingTdsList.filter(
-          (tLeg: any) => tLeg.sourcePaymentRef === entrySourceRef
-        );
-        if (matchedTdsLegs.length > 1) {
-          hasIncompleteHistory = true;
+        // Fallback for legacy vouchers where sourcePaymentRef was not yet assigned:
+        if (!matchedTdsLeg && matchingTdsList.length === 1) {
+          matchedTdsLeg = matchingTdsList[0];
+        }
+
+        if (!matchedTdsLeg) {
           continue;
         }
-        const matchedTdsLeg = matchedTdsLegs[0];
-        if (!matchedTdsLeg) continue;
 
         const statutory = matchedTdsLeg.statutory;
-        const identityMatches = Boolean(
-          statutory &&
-          (
-            (resolvedPartyId
-              ? String(statutory.deducteeId || '') === String(resolvedPartyId)
-              : detectedPan
-                ? String(statutory.pan || statutory.deducteePan || '').toUpperCase() === detectedPan.toUpperCase()
-                : resolvedAccountHead &&
-                  String(statutory.deducteeName || '').trim().toLowerCase() === resolvedAccountHead.trim().toLowerCase())
-          )
-        );
-        if (!identityMatches || !(Number(matchedTdsLeg.remainingBase) > 0)) {
-          hasIncompleteHistory = true;
-          continue;
-        }
-
         const entryDebit = Number(entry.debitAmount);
         const taxableBase = Number(matchedTdsLeg.remainingBase);
-        if (!Number.isFinite(entryDebit) || entryDebit <= 0 || !Number.isFinite(taxableBase) || taxableBase < entryDebit) {
-          hasIncompleteHistory = true;
-          continue;
+
+        if (Number.isFinite(taxableBase) && taxableBase > 0) {
+          const taxedPart = Math.min(entryDebit, taxableBase);
+          priorAlreadyTaxedAmount += taxedPart;
+          if (statutory?.isGrossUp && taxableBase > entryDebit) {
+            priorYtd += (taxableBase - entryDebit);
+          }
+          matchedTdsLeg.remainingBase -= taxedPart;
         }
-        priorAlreadyTaxedAmount += taxableBase;
-        if (statutory.isGrossUp) priorYtd += taxableBase - entryDebit;
-        matchedTdsLeg.remainingBase = 0;
       }
     }
 

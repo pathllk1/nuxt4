@@ -429,6 +429,16 @@
               </div>
               <UButton 
                 v-if="period?.status === 'Open'"
+                icon="i-lucide-unlink" 
+                variant="ghost" 
+                color="neutral" 
+                size="xs" 
+                title="Unlink from this period (return to unallocated)"
+                class="cursor-pointer p-1"
+                @click="handleDeallocateAdvance(adv.id)" 
+              />
+              <UButton 
+                v-if="period?.status === 'Open'"
                 icon="i-lucide-trash-2" 
                 variant="ghost" 
                 color="error" 
@@ -438,6 +448,52 @@
                 :loading="revokingAdvanceId === adv.id"
                 @click="handleRevokeAdvance(adv)" 
               />
+            </div>
+          </div>
+        </div>
+
+        <!-- Unallocated Advances Available for Allocation -->
+        <div v-if="period?.status === 'Open' && unallocatedAdvances.length > 0" class="mt-3 p-3 bg-blue-50/70 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-900/50 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+              <UIcon name="i-lucide-arrow-down-left" class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              Unallocated General Advances ({{ unallocatedAdvances.length }})
+            </span>
+            <span class="text-[9px] text-blue-600 dark:text-blue-400 font-semibold">Available to link to this period</span>
+          </div>
+
+          <div class="space-y-1.5">
+            <div 
+              v-for="unalloc in unallocatedAdvances" 
+              :key="unalloc.id"
+              class="flex items-center justify-between p-2 bg-white dark:bg-zinc-800 rounded-lg border border-blue-100 dark:border-zinc-700 text-xs shadow-2xs"
+            >
+              <div>
+                <div class="font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                  <span>General Advance</span>
+                  <span class="text-[9px] font-mono font-semibold text-blue-600 dark:text-blue-400">{{ unalloc.ledger_voucher_group_id }}</span>
+                </div>
+                <div class="text-[9px] text-gray-500 dark:text-gray-400">
+                  Paid on {{ formatDate(unalloc.payment_date) }} • {{ unalloc.payment_mode || 'BANK' }}
+                  <span v-if="unalloc.tds_amount && Number(unalloc.tds_amount) > 0"> • TDS: ₹{{ formatINR(unalloc.tds_amount) }}</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="font-black text-xs text-blue-700 dark:text-blue-300">
+                  ₹{{ formatINR(unalloc.amount) }}
+                </span>
+                <UButton
+                  size="2xs"
+                  color="primary"
+                  variant="solid"
+                  icon="i-lucide-link"
+                  label="Allocate to this Period"
+                  class="font-bold cursor-pointer text-[10px]"
+                  :loading="allocatingAdvanceId === unalloc.id"
+                  @click="handleAllocateAdvance(unalloc.id)"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -715,6 +771,7 @@ const {
   periodDetails, 
   syncPeriodData, 
   payAdvance, 
+  allocateAdvance,
   deleteAdvance,
   updatePeriod,
   unsettlePeriod,
@@ -724,6 +781,7 @@ const {
 
 const period = computed(() => periodDetails.value?.period);
 const advances = computed(() => periodDetails.value?.advances || []);
+const unallocatedAdvances = computed(() => periodDetails.value?.unallocatedAdvances || []);
 const bankAccounts = computed(() => periodDetails.value?.bankAccounts || []);
 const leaderLedgerBalance = computed(() => periodDetails.value?.leaderLedgerBalance);
 
@@ -1146,6 +1204,44 @@ const handleRevokeAdvance = async (adv: any) => {
     } finally {
       revokingAdvanceId.value = null;
     }
+  }
+};
+
+const allocatingAdvanceId = ref<string | null>(null);
+
+const handleAllocateAdvance = async (advanceId: string) => {
+  if (!period.value?.id) return;
+  allocatingAdvanceId.value = advanceId;
+  try {
+    const res: any = await allocateAdvance({
+      advance_id: advanceId,
+      period_id: period.value.id
+    });
+    if (res.success) {
+      await loadDetails();
+    }
+  } catch (err: any) {
+    alert(err?.data?.statusMessage || err.message || 'Failed to allocate advance');
+  } finally {
+    allocatingAdvanceId.value = null;
+  }
+};
+
+const handleDeallocateAdvance = async (advanceId: string) => {
+  if (!confirm('Unlink this advance from this work period? It will return to general unallocated advances.')) return;
+  allocatingAdvanceId.value = advanceId;
+  try {
+    const res: any = await allocateAdvance({
+      advance_id: advanceId,
+      period_id: null
+    });
+    if (res.success) {
+      await loadDetails();
+    }
+  } catch (err: any) {
+    alert(err?.data?.statusMessage || err.message || 'Failed to unlink advance');
+  } finally {
+    allocatingAdvanceId.value = null;
   }
 };
 

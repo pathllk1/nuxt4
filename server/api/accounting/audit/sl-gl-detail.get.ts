@@ -7,6 +7,7 @@ import Bill from '../../../models/Bill';
 import BankAccount from '../../../models/BankAccount';
 import Wage from '../../../models/Wage';
 import { requireAuthSession } from '../../../utils/auth';
+import { getSql, connectPostgres } from '../../../utils/pg.config';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -21,7 +22,7 @@ export default defineEventHandler(async (event) => {
   const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
   const firmIdStr = String(user.firm_id);
 
-  if (!targetId || !mongoose.Types.ObjectId.isValid(targetId)) {
+  if (!targetId) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid entity ID' });
   }
   if (category && !['AR', 'AP', 'BANK', 'LABOR', 'ADVANCE'].includes(category)) {
@@ -39,6 +40,133 @@ export default defineEventHandler(async (event) => {
     ) {
       throw createError({ statusCode: 400, statusMessage: 'toDate must be a real calendar date.' });
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Handle Labor Leader category (targetId can be UUID, Leader Name, or Head)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (category === 'LABOR' || !mongoose.Types.ObjectId.isValid(targetId)) {
+    let sql = getSql();
+    if (!sql) sql = await connectPostgres();
+    if (sql) {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+      let leader: any = null;
+      if (isUuid) {
+        const [l] = await sql`SELECT id, name, pan, phone FROM labor_leaders WHERE firm_id = ${firmIdStr} AND id = ${targetId} LIMIT 1`;
+        leader = l;
+        if (!leader) {
+          const [adv] = await sql`
+            SELECT a.id, p.leader_id, l.name as leader_name
+            FROM labor_advances a
+            JOIN labor_periods p ON a.period_id = p.id
+            JOIN labor_leaders l ON p.leader_id = l.id
+            WHERE a.firm_id = ${firmIdStr} AND a.id = ${targetId}
+            LIMIT 1
+          `;
+          if (adv) {
+            leader = { id: adv.leader_id, name: adv.leader_name };
+          }
+        }
+      } else {
+        const [l] = await sql`
+          SELECT id, name, pan, phone
+          FROM labor_leaders
+          WHERE firm_id = ${firmIdStr} AND LOWER(TRIM(name)) = ${targetId.toLowerCase().trim()}
+          LIMIT 1
+        `;
+        leader = l;
+      }
+
+      const leaderName = leader?.name || targetId;
+      const ledgerFilter: any = {
+        $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }, { firmId: firmIdStr }, { firm_id: firmIdStr }],
+        accountHead: { $regex: `^${leaderName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+        accountType: 'LABOR_LEADER',
+        isReversed: { $ne: true }
+      };
+      if (toDate) ledgerFilter.transactionDate = { $lte: toDate };
+      const ledgerEntries = await Ledger.find(ledgerFilter).sort({ transactionDate: 1 }).lean();
+
+      let glDebit = 0;
+      let glCredit = 0;
+      for (const l of ledgerEntries) {
+        glDebit += Number(l.debitAmount || 0);
+        glCredit += Number(l.creditAmount || 0);
+      }
+      const glNet = glDebit - glCredit;
+
+      let subledgerEntries: any[] = [];
+      let slNet = 0;
+      if (leader) {
+        const advances = await sql`
+          SELECT a.id, a.amount, a.payment_date, a.payment_mode, a.ledger_voucher_group_id,
+                 a.gross_amount, a.tds_amount, a.tds_mode, 'ADVANCE' as type
+          FROM labor_advances a
+          JOIN labor_periods p ON a.period_id = p.id
+          WHERE a.firm_id = ${firmIdStr} AND p.leader_id = ${leader.id}
+            ${toDate ? sql`AND a.payment_date <= ${toDate}` : sql``}
+          ORDER BY a.payment_date ASC
+        `;
+
+        const settlements = await sql`
+          SELECT s.id, s.total_wages, s.total_expenses, s.paid_amount, s.net_payable, s.payment_date,
+                 s.ledger_voucher_group_id, 'SETTLEMENT' as type
+          FROM labor_settlements s
+          JOIN labor_periods p ON s.period_id = p.id
+          WHERE p.firm_id = ${firmIdStr} AND p.leader_id = ${leader.id}
+            ${toDate ? sql`AND s.payment_date <= ${toDate}` : sql``}
+          ORDER BY s.payment_date ASC
+        `;
+
+        let totalAdv = 0;
+        for (const a of advances) totalAdv += Number(a.amount || 0);
+        let sumW = 0, sumE = 0, sumP = 0, sumAdj = 0;
+        for (const s of settlements) {
+          sumW += Number(s.total_wages || 0);
+          sumE += Number(s.total_expenses || 0);
+          sumP += Number(s.paid_amount || 0);
+          const adj = Number(s.net_payable || 0) > 0 ? (Number(s.net_payable) - Number(s.paid_amount || 0)) : 0;
+          sumAdj += adj;
+        }
+
+        slNet = (totalAdv + sumP + sumAdj) - (sumW + sumE);
+        subledgerEntries = [
+          ...advances.map((a: any) => ({ ...a, date: a.payment_date, amount: Number(a.amount) })),
+          ...settlements.map((s: any) => ({ ...s, date: s.payment_date, amount: Number(s.paid_amount) }))
+        ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      }
+
+      const variance = Math.round(Math.abs(glNet - slNet) * 100) / 100;
+      return {
+        success: true,
+        data: {
+          entityType: 'LABOR_LEADER',
+          category: 'LABOR',
+          entityName: leaderName,
+          leader,
+          glSummary: {
+            totalDebit: glDebit,
+            totalCredit: glCredit,
+            netBalance: glNet,
+            balanceType: glNet >= 0 ? 'DR' : 'CR',
+            entryCount: ledgerEntries.length
+          },
+          slSummary: {
+            totalAdvances: slNet,
+            netBalance: slNet,
+            balanceType: slNet >= 0 ? 'DR' : 'CR',
+            entryCount: subledgerEntries.length
+          },
+          variance,
+          ledgerEntries,
+          subledgerEntries
+        }
+      };
+    }
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(targetId)) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid entity ID' });
   }
   const targetIdObj = new mongoose.Types.ObjectId(targetId);
 

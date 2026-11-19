@@ -95,6 +95,21 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-zinc-800">
+            <tr v-if="ledgerStatement?.startingBal && Math.abs(ledgerStatement.startingBal.rawBalance) > 0.001" class="bg-amber-50/30 dark:bg-zinc-800/40 font-semibold text-gray-600 dark:text-zinc-400">
+              <td class="py-2 px-4 whitespace-nowrap text-gray-500 font-mono">{{ filters.fromDate }}</td>
+              <td class="py-2 px-4 font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 text-[10px]">Opening Balance</td>
+              <td class="py-2 px-4 text-gray-500 italic">Balance brought forward prior to period</td>
+              <td class="py-2 px-4 text-right font-medium text-rose-600 dark:text-rose-400 font-mono">
+                {{ ledgerStatement.startingBal.rawBalance > 0 ? formatCurrency(ledgerStatement.startingBal.balance) : '' }}
+              </td>
+              <td class="py-2 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400 font-mono">
+                {{ ledgerStatement.startingBal.rawBalance < 0 ? formatCurrency(ledgerStatement.startingBal.balance) : '' }}
+              </td>
+              <td class="py-2 px-4 text-right font-bold bg-gray-50/50 dark:bg-zinc-850/40 font-mono">
+                {{ formatCurrency(ledgerStatement.startingBal.balance) }} {{ ledgerStatement.startingBal.balanceType }}
+              </td>
+              <td class="py-2 px-3"></td>
+            </tr>
             <tr v-for="(entry, idx) in runningLedger" :key="idx" class="hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors group">
               <td class="py-2 px-4 text-gray-600 dark:text-zinc-400 whitespace-nowrap">{{ entry.transactionDate }}</td>
               <td class="py-2 px-4">
@@ -188,7 +203,7 @@ import VoucherDetailModal from '~/components/accounting/VoucherDetailModal.vue';
 import VoucherModal from '~/components/accounting/VoucherModal.vue';
 
 const route = useRoute();
-const { ledgerEntries, accountBalance, fetchLedger, fetchAccountBalance, fetchCOA, chartOfAccounts, exportLedgerPdf, exportLedgerExcel, getVoucher, loading } = useAccounting();
+const { ledgerEntries, ledgerStatement, accountBalance, fetchLedger, fetchAccountBalance, fetchCOA, chartOfAccounts, exportLedgerPdf, exportLedgerExcel, getVoucher, loading } = useAccounting();
 
 const exportLoading = ref(false);
 
@@ -269,7 +284,7 @@ const currentBalance = computed(() => accountBalance.value);
 
 const runningLedger = computed(() => {
   if (!Array.isArray(ledgerEntries.value)) return [];
-  let bal = 0;
+  let bal = Number(ledgerStatement.value?.startingBal?.rawBalance || 0);
   return ledgerEntries.value.map(entry => {
     bal += (entry.debitAmount || 0) - (entry.creditAmount || 0);
     return { ...entry, runningBalance: bal };

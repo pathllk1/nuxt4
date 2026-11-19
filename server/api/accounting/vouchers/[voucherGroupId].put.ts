@@ -148,12 +148,47 @@ export default defineEventHandler(async (event) => {
 
   // 4. Identify Labor Advance Legs in the incoming payload
   const normalizedVtype = (vtype || '').toUpperCase();
-  const laborEntries = normalizedVtype === 'PAYMENT'
-    ? entries
-        .map((entry: any, legIndex: number) => ({ entry, legIndex, periodId: entry.laborPeriodId || body.laborPeriodId }))
-        .filter(({ entry, periodId }: any) => periodId &&
-          !/tds payable|tds borne by company/i.test(String(entry.accountHead || '')))
-    : [];
+  const laborEntries: Array<{ entry: any; legIndex: number; periodId: string | null; leaderId: string | null }> = [];
+
+  if (normalizedVtype === 'PAYMENT') {
+    let pgLeadersMap = new Map<string, any>();
+    try {
+      const leaders = await sql`
+        SELECT id, name
+        FROM labor_leaders
+        WHERE firm_id = ${String(user.firm_id)}
+      `;
+      for (const l of leaders) {
+        pgLeadersMap.set(String(l.name).trim().toLowerCase(), l);
+      }
+    } catch (err: any) {
+      console.warn('[Vouchers Put] Notice: Failed to fetch labor leaders from Postgres:', err?.message);
+    }
+
+    for (let legIndex = 0; legIndex < entries.length; legIndex++) {
+      const entry = entries[legIndex];
+      const head = String(entry.accountHead || '').trim();
+      if (!head || /tds payable|tds borne by company/i.test(head)) continue;
+
+      const explicitPeriodId = entry.laborPeriodId || body.laborPeriodId || null;
+      const matchedLeader = pgLeadersMap.get(head.toLowerCase());
+      const isLaborHead = Boolean(
+        explicitPeriodId ||
+        matchedLeader ||
+        (entry.accountType || '').toUpperCase() === 'LABOR_LEADER'
+      );
+
+      if (isLaborHead) {
+        const resolvedLeaderId = matchedLeader?.id || null;
+        laborEntries.push({
+          entry,
+          legIndex,
+          periodId: explicitPeriodId,
+          leaderId: resolvedLeaderId
+        });
+      }
+    }
+  }
 
   // Verify that any target labor periods exist and are Open
   for (const { entry, legIndex, periodId } of laborEntries) {
@@ -162,15 +197,17 @@ export default defineEventHandler(async (event) => {
     if (rawAmount === undefined || rawAmount === null || rawAmount === '' || !Number.isFinite(amount) || amount <= 0) {
       throw createError({ statusCode: 400, statusMessage: `Labor-linked voucher entry ${legIndex + 1} must have a positive amount` });
     }
-    const [period] = await sql`
-      SELECT id, status FROM labor_periods
-      WHERE id = ${periodId} AND firm_id = ${String(user.firm_id)}
-    `;
-    if (!period) {
-      throw createError({ statusCode: 404, statusMessage: `Labor period "${periodId}" was not found in the current firm.` });
-    }
-    if (period.status === 'Settled') {
-      throw createError({ statusCode: 409, statusMessage: `Labor period "${periodId}" is settled and cannot receive or modify advances.` });
+    if (periodId) {
+      const [period] = await sql`
+        SELECT id, status FROM labor_periods
+        WHERE id = ${periodId} AND firm_id = ${String(user.firm_id)}
+      `;
+      if (!period) {
+        throw createError({ statusCode: 404, statusMessage: `Labor period "${periodId}" was not found in the current firm.` });
+      }
+      if (period.status === 'Settled') {
+        throw createError({ statusCode: 409, statusMessage: `Labor period "${periodId}" is settled and cannot receive or modify advances.` });
+      }
     }
   }
 
@@ -275,7 +312,7 @@ export default defineEventHandler(async (event) => {
         const bankAccountId = updateResult.bankAccountId || null;
         const paymentMode = bankAccountId ? 'BANK' : 'CASH';
 
-        for (const { entry, legIndex, periodId } of laborEntries) {
+        for (const { entry, legIndex, periodId, leaderId } of laborEntries) {
           const baseAmount = Number(entry.amount ?? entry.debitAmount);
           const periodAdvanceAmount = baseAmount;
           const currentGrossAmount = tdsMode === 'GROSS_UP' ? baseAmount + tdsAmount : baseAmount;
@@ -283,10 +320,10 @@ export default defineEventHandler(async (event) => {
 
           await tx`
             INSERT INTO labor_advances (
-              firm_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
+              firm_id, leader_id, period_id, amount, payment_date, payment_mode, paid_from_bank_account_id,
               ledger_voucher_group_id, idempotency_key, tds_mode, tds_rate, tds_amount, gross_amount, leg_index
             ) VALUES (
-              ${String(user.firm_id)}, ${periodId}, ${periodAdvanceAmount}, ${transactionDate}, ${paymentMode},
+              ${String(user.firm_id)}, ${leaderId}, ${periodId || null}, ${periodAdvanceAmount}, ${transactionDate}, ${paymentMode},
               ${bankAccountId}, ${canonicalVoucherGroupId}, ${requestKey}, ${tdsMode},
               ${tdsRate}, ${tdsAmount}, ${currentGrossAmount}, ${legIndex}
             )
