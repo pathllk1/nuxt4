@@ -4,24 +4,33 @@ import Party from '../../models/Party';
 import StockReg from '../../models/StockReg';
 import { LedgerService } from '../../utils/accounting/ledger.service';
 import { StockService } from '../../utils/inventory/stock.service';
-import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, getNextVoucherNumber, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 import { connectDB } from '../../plugins/mongodb';
+import { CommercialInvoiceMutationSchema } from '../../utils/accounting/schemas/accounting-mutation.schema';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
-  const body = await readBody(event) || {};
-  const { meta, party, cart, otherCharges, consignee } = body;
+  const rawBody = (await readBody(event)) || {};
+  const validationResult = CommercialInvoiceMutationSchema.safeParse(rawBody);
 
-  if (!cart?.length) {
-    throw createError({ statusCode: 400, statusMessage: 'Cart cannot be empty' });
+  if (!validationResult.success) {
+    const firstIssue = validationResult.error.issues[0];
+    const path = firstIssue?.path?.join('.') || 'body';
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Validation Error on ${path}: ${firstIssue?.message || 'Invalid request payload'}`
+    });
   }
+
+  const { meta, party, cart, otherCharges, consignee } = validationResult.data;
 
   await connectDB();
 
   const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
-  const partyId = party.id || party._id || party;
+  const partyId = typeof party === 'string' ? party : (party.id || party._id);
   const username = user.username || user.email || 'system';
 
   const executeSave = async (session?: mongoose.ClientSession) => {
@@ -45,7 +54,7 @@ export default defineEventHandler(async (event) => {
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
 
     const billType = (meta?.billType || 'intra-state').toLowerCase();
-    const billNo = await getNextBillNumber(firmIdObj, 'PURCHASE');
+    const billNo = await getNextBillNumber(firmIdObj, 'PURCHASE', meta?.billDate);
     const voucherId = await getNextVoucherNumber(firmIdObj);
 
     const gstEnabled = await isGstEnabled(firmIdObj);
@@ -228,17 +237,11 @@ export default defineEventHandler(async (event) => {
       err.message?.includes('replica set') ||
       err.message?.includes('Transaction numbers')
     ) {
-      console.warn('Retrying purchase bill post without transaction session:', err.message);
-      try {
-        const createdBill = await executeSave(undefined);
-        return {
-          success: true,
-          message: 'Purchase bill created successfully',
-          data: createdBill
-        };
-      } catch (retryErr: any) {
-        throw createError({ statusCode: retryErr.statusCode || 500, statusMessage: retryErr.message });
-      }
+      console.error('[Purchase Bill] MongoDB transaction unsupported:', err.message);
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'MongoDB replica set transactions are required for purchase bill posting to guarantee atomic execution across commercial billing, financial General Ledger, and warehouse inventory. Non-transactional execution is prohibited.'
+      });
     }
 
     throw createError({ statusCode: err.statusCode || 500, statusMessage: err.message });

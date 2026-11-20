@@ -131,28 +131,10 @@ export const useTdsManager = () => {
       if (filters.toDate) queryParams.set('toDate', filters.toDate);
       if (filters.search) queryParams.set('search', filters.search);
 
-      const url = `/api/accounting/tds/export/excel?${queryParams.toString()}`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token') || ''}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to download TDS export');
-      }
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `TDS_Register_Form26Q_${filters.financialYear}_${filters.quarter}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      const url = `/accounting/tds/export/excel?${queryParams.toString()}`;
+      const filename = `TDS_Register_Form26Q_${filters.financialYear}_${filters.quarter}.xlsx`;
+      const { download } = useApi();
+      await download(url, filename);
     } catch (err: any) {
       console.error('Excel Export Error:', err);
       alert('Failed to export Excel: ' + (err.message || 'Server error'));

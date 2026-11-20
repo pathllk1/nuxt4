@@ -4,7 +4,7 @@ import PeriodLock from '../../models/PeriodLock';
 import { drainInFlightPostings } from './period-lock.service';
 import { UnifiedPostingService } from './unified-posting.service';
 import { LedgerService } from './ledger.service';
-import { getCurrentFinancialYear } from './bill-utils';
+import { getCurrentFinancialYear } from '../../../shared/utils/tax-calc';
 import {
   type IVoucherPayload,
   type IVoucherLeg,

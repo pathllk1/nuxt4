@@ -3,7 +3,7 @@ import OpeningBalance from '../../models/OpeningBalance';
 import Ledger from '../../models/Ledger';
 import Party from '../../models/Party';
 import ChartOfAccounts from '../../models/ChartOfAccounts';
-import { getCurrentFinancialYear } from './bill-utils';
+import { getCurrentFinancialYear } from '../../../shared/utils/tax-calc';
 
 export interface SyncOpeningBalanceParams {
   firmId: mongoose.Types.ObjectId | string;

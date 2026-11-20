@@ -1,8 +1,13 @@
+import { defineEventHandler, getRouterParam, readBody, createError } from 'h3';
 import mongoose from 'mongoose';
-import Bill from '../../../../models/Bill';
+import Bill, { type IBill } from '../../../../models/Bill';
 import Ledger from '../../../../models/Ledger';
 import { requireAuthSession } from '../../../../utils/auth';
 import { connectDB } from '../../../../plugins/mongodb';
+import { UnifiedPostingService } from '../../../../utils/accounting/unified-posting.service';
+import { mapLegacyVoucherType } from '../../../../utils/accounting/posting-adapter';
+import { StockService } from '../../../../utils/inventory/stock.service';
+import type { IVoucherLeg } from '../../../../types/accounting';
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
@@ -15,11 +20,11 @@ export default defineEventHandler(async (event) => {
 
   await connectDB();
 
-  const firmIdObj = new mongoose.Types.ObjectId(user.firm_id as string);
+  const firmIdObj = new mongoose.Types.ObjectId(String(user.firm_id));
 
-  const executeCancel = async (session?: mongoose.ClientSession) => {
+  const executeCancel = async (session?: mongoose.ClientSession): Promise<IBill> => {
     const billQuery = Bill.findOne({
-      _id: id,
+      _id: new mongoose.Types.ObjectId(id),
       firmId: firmIdObj
     });
     if (session) billQuery.session(session);
@@ -36,7 +41,7 @@ export default defineEventHandler(async (event) => {
     bill.status = 'CANCELLED';
     bill.cancellationReason = body.reason || 'Cancelled by user';
     bill.cancelledAt = new Date();
-    bill.cancelledBy = new mongoose.Types.ObjectId(user._id as string);
+    bill.cancelledBy = new mongoose.Types.ObjectId(String(user._id));
 
     if (session) {
       await bill.save({ session });
@@ -44,31 +49,29 @@ export default defineEventHandler(async (event) => {
       await bill.save();
     }
 
-    // 1. Post reversal ledger entries (immutable audit trail — never delete financial records)
+    // 1. Post reversal ledger entries (immutable audit trail — only reverse active entries, never superseded rows)
     const ledgerFindQuery = Ledger.find({
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
       refType: 'BILL',
-      refId: bill._id
+      refId: bill._id as mongoose.Types.ObjectId,
+      isReversed: { $ne: true }
     });
     if (session) ledgerFindQuery.session(session);
     const originalEntries = await ledgerFindQuery.lean();
 
     if (originalEntries.length > 0) {
       const reversalVoucherGroupId = `CANCEL-${bill.voucherId || bill._id}`;
-      const reversalLegs = originalEntries.map((orig: any) => ({
-        accountHead: orig.accountHead,
-        accountType: orig.accountType,
-        debitAmount: orig.creditAmount || 0, // Swap: original CR -> reversal DR
-        creditAmount: orig.debitAmount || 0, // Swap: original DR -> reversal CR
+      const reversalLegs: IVoucherLeg[] = originalEntries.map((orig: any) => ({
+        accountHead: String(orig.accountHead || ''),
+        accountType: orig.accountType ? String(orig.accountType) : undefined,
+        debitAmount: Number(orig.creditAmount) || 0, // Swap: original CR -> reversal DR
+        creditAmount: Number(orig.debitAmount) || 0, // Swap: original DR -> reversal CR
         narration: `CANCELLATION REVERSAL: ${orig.narration || ''} [Original Bill: ${bill.bno}]`,
         partyId: orig.partyId || null,
         stockId: orig.stockId || null,
         stockRegId: orig.stockRegId || null,
         bankAccountId: orig.bankAccountId || null,
       }));
-
-      const { UnifiedPostingService } = await import('../../../../utils/accounting/unified-posting.service');
-      const { mapLegacyVoucherType } = await import('../../../../utils/accounting/posting-adapter');
 
       await UnifiedPostingService.postVoucher(
         {
@@ -79,27 +82,37 @@ export default defineEventHandler(async (event) => {
           legs: reversalLegs,
           createdBy: user.username || user.email || 'system',
           refType: 'BILL_CANCELLATION',
-          refId: bill._id,
+          refId: bill._id as mongoose.Types.ObjectId,
           externalVoucherGroupId: reversalVoucherGroupId,
           externalVoucherNo: `CANCEL/${bill.bno}`,
         },
         session
       );
 
-      // Mark original ledger entries as reversed with audit pointer (F-01)
+      // Mark original active ledger entries with audit pointer (F-01)
       // Since reversalLegs (a counter-voucher) is posted, BOTH original and reversal voucher
       // remain in the general ledger and naturally net to 0. Marking isReversed: true would
       // exclude original while keeping reversalLegs, causing a double-reversal.
       await Ledger.updateMany(
-        { $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }], refType: 'BILL', refId: bill._id },
-        { $set: { reversalVoucherGroupId, reversedBy: reversalVoucherGroupId, reversedAt: new Date() } },
+        { 
+          $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }], 
+          refType: 'BILL', 
+          refId: bill._id,
+          isReversed: { $ne: true }
+        },
+        { 
+          $set: { 
+            reversalVoucherGroupId, 
+            reversedBy: user.username || user.email || 'system', 
+            reversedAt: new Date() 
+          } 
+        },
         session ? { session } : {}
       );
     }
 
     // 2. Reverse inventory movements for SALES and PURCHASE bills
-    if (['SALES', 'PURCHASE'].includes(bill.btype) && Array.isArray(bill.items) && bill.items.length > 0) {
-      const { StockService } = await import('../../../../utils/inventory/stock.service');
+    if ((bill.btype === 'SALES' || bill.btype === 'PURCHASE') && Array.isArray(bill.items) && bill.items.length > 0) {
       for (const item of bill.items) {
         if (!item.item || !item.qty || item.qty <= 0) continue;
         try {
@@ -120,7 +133,7 @@ export default defineEventHandler(async (event) => {
                 bno: `CANCEL/${bill.bno}`,
                 bdate: new Date().toISOString().split('T')[0] as string,
                 supply: 'CANCELLATION',
-                billId: bill._id,
+                billId: bill._id as mongoose.Types.ObjectId,
                 btype: 'SALES_CANCEL'
               },
               user: String(user.username || user.email || 'system'),
@@ -143,7 +156,7 @@ export default defineEventHandler(async (event) => {
                 bno: `CANCEL/${bill.bno}`,
                 bdate: new Date().toISOString().split('T')[0] as string,
                 supply: 'CANCELLATION',
-                billId: bill._id,
+                billId: bill._id as mongoose.Types.ObjectId,
                 btype: 'PURCHASE_CANCEL'
               },
               user: String(user.username || user.email || 'system'),
@@ -151,10 +164,10 @@ export default defineEventHandler(async (event) => {
             });
           }
         } catch (stockErr: any) {
-          console.error(`[Bill Cancel] Stock reversal failed for item "${item.item}":`, stockErr.message);
+          console.error(`[Bill Cancel] Stock reversal failed for item "${item.item}":`, stockErr?.message);
           throw createError({
             statusCode: 500,
-            statusMessage: `Failed to reverse inventory for item "${item.item}": ${stockErr.message}. Bill cancellation aborted to preserve warehouse inventory and financial ledger integrity.`
+            statusMessage: `Failed to reverse inventory for item "${item.item}": ${stockErr?.message || 'Stock error'}. Bill cancellation aborted to preserve warehouse inventory and financial ledger integrity.`
           });
         }
       }
@@ -164,7 +177,7 @@ export default defineEventHandler(async (event) => {
   };
 
   let session: mongoose.ClientSession | null = null;
-  let cancelledBill: any;
+  let cancelledBill: IBill;
 
   try {
     session = await mongoose.connection.startSession();

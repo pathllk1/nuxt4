@@ -5,7 +5,8 @@ import StockReg from '../../../models/StockReg';
 import Ledger from '../../../models/Ledger';
 import { LedgerService } from '../../../utils/accounting/ledger.service';
 import { StockService } from '../../../utils/inventory/stock.service';
-import { calcBillTotals, getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../../utils/accounting/bill-utils';
+import { getEffectiveItemQty, ensureUniqueSupplierBillNo, isServiceItem } from '../../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../../utils/auth';
 

@@ -4,7 +4,7 @@ import Party from '../../../models/Party';
 import BankAccount from '../../../models/BankAccount';
 import OpeningBalance from '../../../models/OpeningBalance';
 import { OpeningBalanceService } from '../../../utils/accounting/opening-balance.service';
-import { getCurrentFinancialYear } from '../../../utils/accounting/bill-utils';
+import { getCurrentFinancialYear } from '~~/shared/utils/tax-calc';
 import { classifyAccountType } from '../../../types/accounting';
 import { requireAuthSession } from '../../../utils/auth';
 import { getSql, connectPostgres } from '../../../utils/pg.config';

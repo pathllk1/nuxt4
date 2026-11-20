@@ -8,6 +8,7 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
+    "test:accounting": "node --experimental-strip-types --test tests/accounting/**/*.test.ts",
     "test:couchbase": "node scripts/test-couchbase.mjs",
     "migrate:erp:dry": "node scripts/migrate-erp-unification.mjs --dry-run",
     "migrate:erp": "node scripts/migrate-erp-unification.mjs"

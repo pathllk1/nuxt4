@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 import Bill from '../../../models/Bill';
 import Party from '../../../models/Party';
-import { calcBillTotals, getEffectiveItemQty } from '../../../utils/accounting/bill-utils';
+import { getEffectiveItemQty } from '../../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../../utils/auth';
 

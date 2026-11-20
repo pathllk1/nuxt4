@@ -3,7 +3,8 @@ import Bill from '../../../models/Bill';
 import Party from '../../../models/Party';
 import StockReg from '../../../models/StockReg';
 import { StockService } from '../../../utils/inventory/stock.service';
-import { calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../../utils/accounting/bill-utils';
+import { getEffectiveItemQty, isServiceItem } from '../../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../../utils/auth';
 

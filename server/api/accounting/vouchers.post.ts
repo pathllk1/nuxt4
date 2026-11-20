@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { UnifiedPostingService } from '../../utils/accounting/unified-posting.service';
 import { convertVoucherInputToLegs, mapLegacyVoucherType } from '../../utils/accounting/posting-adapter';
 import { resolveVoucherLiquidityAccount } from '../../utils/accounting/voucher-liquidity-account';
+import { VoucherMutationSchema } from '../../utils/accounting/schemas/accounting-mutation.schema';
 import { requireAuthSession } from '../../utils/auth';
 import { connectDB } from '../../plugins/mongodb';
 
@@ -10,15 +11,20 @@ const databaseDate = (value: unknown) =>
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
-  const body = (await readBody(event)) || {};
-  const { vtype, vdate, narration = '', entries, mainAccount, idempotencyKey } = body;
+  const rawBody = (await readBody(event)) || {};
+  const validationResult = VoucherMutationSchema.safeParse(rawBody);
 
-  if (!entries || !Array.isArray(entries) || entries.length === 0) {
-    throw createError({ statusCode: 400, statusMessage: 'Voucher must contain at least one entry' });
+  if (!validationResult.success) {
+    const firstIssue = validationResult.error.issues[0];
+    const path = firstIssue?.path?.join('.') || 'body';
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Validation Error on ${path}: ${firstIssue?.message || 'Invalid voucher payload'}`
+    });
   }
-  if (typeof idempotencyKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
-    throw createError({ statusCode: 400, statusMessage: 'A valid voucher idempotency key is required' });
-  }
+
+  const { vtype, vdate, narration = '', entries, mainAccount, idempotencyKey } = validationResult.data;
+
   const parsedTransactionDate = typeof vdate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(vdate)
     ? new Date(`${vdate}T00:00:00.000Z`)
     : null;
@@ -64,16 +70,16 @@ export default defineEventHandler(async (event) => {
     }
 
     for (let legIndex = 0; legIndex < entries.length; legIndex++) {
-      const entry = entries[legIndex];
-      const head = String(entry.accountHead || '').trim();
+      const entry: any = entries[legIndex];
+      const head = String(entry?.accountHead || '').trim();
       if (!head || /tds payable|tds borne by company/i.test(head)) continue;
 
-      const explicitPeriodId = entry.laborPeriodId || body.laborPeriodId || null;
+      const explicitPeriodId = entry?.laborPeriodId || (rawBody as any)?.laborPeriodId || null;
       const matchedLeader = pgLeadersMap.get(head.toLowerCase());
       const isLaborHead = Boolean(
         explicitPeriodId ||
         matchedLeader ||
-        (entry.accountType || '').toUpperCase() === 'LABOR_LEADER'
+        String(entry?.accountType || '').toUpperCase() === 'LABOR_LEADER'
       );
 
       if (isLaborHead) {
@@ -109,8 +115,8 @@ export default defineEventHandler(async (event) => {
       entries,
       mainAccount: liquidityAccount?.accountHead,
       mainAccountType: liquidityAccount?.accountType,
-      bankAccountId: liquidityAccount?.bankAccountId,
-      narration,
+      bankAccountId: liquidityAccount?.bankAccountId ? String(liquidityAccount.bankAccountId) : undefined,
+      narration: narration || '',
     });
 
     const mappedType = mapLegacyVoucherType(vtype);
@@ -120,7 +126,7 @@ export default defineEventHandler(async (event) => {
         firmId: firmIdObj,
         voucherType: mappedType,
         transactionDate,
-        narration,
+        narration: narration || '',
         legs,
         createdBy,
         refType: 'VOUCHER',
@@ -130,8 +136,8 @@ export default defineEventHandler(async (event) => {
     );
   };
 
-  const tdsPayableEntry = entries.find((entry: any) => /tds payable/i.test(String(entry.accountHead || '')));
-  const tdsBorneEntry = entries.find((entry: any) => /tds borne by company/i.test(String(entry.accountHead || '')));
+  const tdsPayableEntry: any = entries.find((entry: any) => /tds payable/i.test(String(entry?.accountHead || '')));
+  const tdsBorneEntry: any = entries.find((entry: any) => /tds borne by company/i.test(String(entry?.accountHead || '')));
   const tdsBorneCount = entries.filter((entry: any) => /tds borne by company/i.test(String(entry.accountHead || ''))).length;
   const tdsMode = tdsPayableEntry ? (tdsBorneEntry ? 'GROSS_UP' : 'DEDUCT') : 'NONE';
   const tdsAmount = tdsPayableEntry
@@ -254,10 +260,29 @@ export default defineEventHandler(async (event) => {
       });
     } catch (laborSyncError: any) {
       console.error('[Dual-DB Sync Failure] Labor advance write failed:', laborSyncError);
-      const group = postResult?.voucherGroupId ? ` Voucher ${postResult.voucherGroupId} is committed in GL.` : '';
+      let compensated = false;
+      if (postResult?.voucherGroupId) {
+        try {
+          console.warn(`[Dual-DB Compensation] Reversing committed MongoDB voucher ${postResult.voucherGroupId} to avoid orphaned advance...`);
+          await UnifiedPostingService.reverseVoucher({
+            firmId: firmIdObj,
+            originalVoucherGroupId: postResult.voucherGroupId,
+            reason: `AUTO-ROLLBACK: Labor advance insert failed (${laborSyncError.message || 'Postgres error'})`,
+            createdBy: 'system',
+            reversalDate: transactionDate
+          });
+          compensated = true;
+          console.info(`[Dual-DB Compensation] Successfully rolled back MongoDB voucher ${postResult.voucherGroupId}`);
+        } catch (compErr: any) {
+          console.error(`[CRITICAL Dual-DB Divergence] Failed to compensate MongoDB voucher ${postResult.voucherGroupId}:`, compErr);
+        }
+      }
+      const statusNotice = compensated
+        ? ` Committed GL voucher ${postResult.voucherGroupId} was automatically reversed to preserve cross-database atomicity.`
+        : (postResult?.voucherGroupId ? ` WARNING: Voucher ${postResult.voucherGroupId} remained committed in GL.` : '');
       throw createError({
         statusCode: laborSyncError.statusCode || 500,
-        statusMessage: `${group} Labor synchronization was not confirmed. Retry with the same voucher request key ${idempotencyKey}. Cause: ${laborSyncError.statusMessage || laborSyncError.message}`
+        statusMessage: `Labor advance synchronization failed.${statusNotice} Cause: ${laborSyncError.statusMessage || laborSyncError.message}`
       });
     }
   } else {

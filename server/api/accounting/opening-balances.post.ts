@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { OpeningBalanceService } from '../../utils/accounting/opening-balance.service';
-import { getCurrentFinancialYear } from '../../utils/accounting/bill-utils';
+import { getCurrentFinancialYear } from '~~/shared/utils/tax-calc';
 import { requireAuthSession } from '../../utils/auth';
 
 export default defineEventHandler(async (event) => {

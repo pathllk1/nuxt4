@@ -161,58 +161,20 @@ export function useAccountingInvoiceState(invoiceType: 'SALES' | 'PURCHASE') {
 
   const grossTotal = computed(() => taxableTotal.value);
 
-  // These depend on billType and optional other charges — we compute them with a function
+  // These depend on billType and optional other charges — consolidated canonical calculation
   function computeTotals(billType: string, reverseCharge: boolean, otherChargesList?: any[]) {
-    const isIntra = billType.toLowerCase() === 'intra-state';
-    let totalTax = 0;
-    
-    // 1. Calculate taxes on service items
-    cart.value.forEach(item => {
-      const amt = parseFloat(String(item.amount)) || 0;
-      const rate = parseFloat(String(item.gstRate)) || 0;
-      totalTax += Number(((amt * rate) / 100).toFixed(2));
-    });
+    const rawTotals = calcBillTotals(
+      cart.value,
+      otherChargesList || [],
+      true,
+      billType,
+      reverseCharge
+    );
 
-    // 2. Calculate other charges and their applicable GST distribution
-    let otherChargesTotal = 0;
-    let otherChargesGstTotal = 0;
-    const charges = otherChargesList || [];
-    for (const c of charges) {
-      const amt = Number((parseFloat(String(c.amount)) || 0).toFixed(2));
-      const rate = parseFloat(String(c.grate ?? c.gstRate)) || 0;
-      otherChargesTotal += amt;
-      otherChargesGstTotal += Number(((amt * rate) / 100).toFixed(2));
-    }
-    otherChargesTotal = Number(otherChargesTotal.toFixed(2));
-    otherChargesGstTotal = Number(otherChargesGstTotal.toFixed(2));
-
-    const combinedTax = Number((totalTax + otherChargesGstTotal).toFixed(2));
-    let cgst = 0, sgst = 0, igst = 0;
-    if (isIntra) {
-      const halfTax = Number((combinedTax / 2).toFixed(2));
-      cgst = halfTax;
-      sgst = Number((combinedTax - halfTax).toFixed(2));
-    } else {
-      igst = combinedTax;
-    }
-
-    const itemsTaxable = Number(taxableTotal.value.toFixed(2));
-    const totalTaxable = Number((itemsTaxable + otherChargesTotal).toFixed(2));
-    const taxSum = reverseCharge ? 0 : Number((cgst + sgst + igst).toFixed(2));
-    const netTotalBeforeRoundOff = Number((totalTaxable + taxSum).toFixed(2));
-    const netTotal = Math.round(netTotalBeforeRoundOff);
-    const roundOff = Number((netTotal - netTotalBeforeRoundOff).toFixed(2));
-
-    return { 
-      cgst, 
-      sgst, 
-      igst, 
-      netTotal, 
-      roundOff, 
-      taxableTotal: itemsTaxable,
-      otherChargesTotal,
-      otherChargesGstTotal,
-      totalTaxable
+    return {
+      ...rawTotals,
+      taxableTotal: rawTotals.grossTotal - rawTotals.otherChargesTotal,
+      totalTaxable: rawTotals.grossTotal
     };
   }
 

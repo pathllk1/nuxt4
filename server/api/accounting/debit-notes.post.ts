@@ -3,7 +3,8 @@ import Bill from '../../models/Bill';
 import StockReg from '../../models/StockReg';
 import { LedgerService } from '../../utils/accounting/ledger.service';
 import { StockService } from '../../utils/inventory/stock.service';
-import { getNextBillNumber, getNextVoucherNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, getNextVoucherNumber, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 import { connectDB } from '../../plugins/mongodb';
@@ -11,7 +12,7 @@ import { connectDB } from '../../plugins/mongodb';
 export default defineEventHandler(async (event) => {
   const user = await requireAuthSession(event);
   const body = (await readBody(event)) || {};
-  const { originalBillId, returnCart, narration } = body;
+  const { originalBillId, returnCart, narration, bdate } = body;
 
   if (!originalBillId || !mongoose.Types.ObjectId.isValid(originalBillId)) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid original purchase bill ID' });
@@ -34,7 +35,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Invalid original purchase bill' });
     }
 
-    const billNo = await getNextBillNumber(firmIdObj, 'DEBIT_NOTE');
+    const billNo = await getNextBillNumber(firmIdObj, 'DEBIT_NOTE', bdate || originalBill.bdate);
     const voucherId = await getNextVoucherNumber(firmIdObj);
     const billType = String(originalBill.billSubtype || 'INTRA-STATE').toLowerCase();
     const gstEnabled = await isGstEnabled(firmIdObj);

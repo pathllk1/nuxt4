@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 import Bill from '../../models/Bill';
 import Party from '../../models/Party';
-import { getNextBillNumber, calcBillTotals, getEffectiveItemQty } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, getEffectiveItemQty } from '../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 import { connectDB } from '../../plugins/mongodb';
@@ -34,7 +35,7 @@ export default defineEventHandler(async (event) => {
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
 
     const billType = (meta?.billType || 'intra-state').toLowerCase();
-    const billNo = await getNextBillNumber(firmIdObj, 'PROFORMA');
+    const billNo = await getNextBillNumber(firmIdObj, 'PROFORMA', meta?.billDate);
 
     const gstEnabled = await isGstEnabled(firmIdObj);
     const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);

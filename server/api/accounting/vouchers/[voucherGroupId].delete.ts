@@ -87,17 +87,68 @@ export default defineEventHandler(async (event) => {
       if (pgErr.statusCode) throw pgErr;
     }
 
-    // 5. Neutralize voucher legs (Statutory Audit Immutability: Flag as reversed)
-    const executeDelete = async (mongoSession?: mongoose.ClientSession) => {
+    const body = (await readBody(event).catch(() => ({}))) || {};
+    const cancellationReason = body.reason || 'Voucher cancelled via Voucher Manager';
+
+    // 5. Explicit Double-Entry Reversal Counter-Voucher (Statutory Audit Immutability)
+    const activeEntries = entries.filter((e: any) => e.isReversed !== true && !e.reversalVoucherGroupId);
+    if (!activeEntries || activeEntries.length === 0) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Voucher "${canonicalVoucherGroupId}" is already cancelled or reversed.`
+      });
+    }
+
+    const { UnifiedPostingService } = await import('../../../utils/accounting/unified-posting.service');
+
+    let reversalResult: any;
+    const executeReversal = async (mongoSession?: mongoose.ClientSession) => {
+      const reversalLegs = activeEntries.map((orig: any) => ({
+        accountHead: orig.accountHead,
+        accountType: orig.accountType,
+        debitAmount: orig.creditAmount || 0, // Swap: original CR -> reversal DR
+        creditAmount: orig.debitAmount || 0, // Swap: original DR -> reversal CR
+        narration: `REVERSAL OF VOUCHER ${canonicalVoucherGroupId}: ${orig.narration || ''}`.trim(),
+        partyId: orig.partyId || null,
+        bankAccountId: orig.bankAccountId || null,
+        stockId: orig.stockId || null,
+        stockRegId: orig.stockRegId || null,
+        paymentMode: orig.paymentMode || undefined,
+        isWageEntry: orig.isWageEntry,
+        masterRollId: orig.masterRollId || null,
+        statutory: orig.statutory || null,
+        refId: orig.refId || null,
+      }));
+
+      reversalResult = await UnifiedPostingService.postVoucher(
+        {
+          firmId: firmIdObj,
+          voucherType: (firstEntry.voucherType || 'JOURNAL') as any,
+          transactionDate: new Date().toISOString().split('T')[0] as string,
+          narration: `REVERSAL OF VOUCHER ${canonicalVoucherGroupId}: ${cancellationReason}`,
+          legs: reversalLegs,
+          createdBy: sessionUser.username || sessionUser.email || 'system',
+          refType: 'VOUCHER_REVERSAL',
+          refId: firstEntry.refId || undefined,
+          externalVoucherGroupId: `REV-${canonicalVoucherGroupId}`,
+          tags: {
+            reversedVoucherGroupId: canonicalVoucherGroupId,
+            isReversalVoucher: true,
+          }
+        },
+        mongoSession
+      );
+
+      // Link original active ledger entries to the counter-voucher audit trail
       await Ledger.updateMany(
         {
           $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
           voucherGroupId: canonicalVoucherGroupId,
-          isReversed: { $ne: true }
+          reversalVoucherGroupId: { $exists: false }
         },
         {
           $set: {
-            isReversed: true,
+            reversalVoucherGroupId: reversalResult.voucherGroupId,
             reversedAt: new Date(),
             reversedBy: sessionUser.username || sessionUser.email || 'system'
           }
@@ -110,7 +161,7 @@ export default defineEventHandler(async (event) => {
     try {
       mongoSession = await mongoose.connection.startSession();
       mongoSession.startTransaction();
-      await executeDelete(mongoSession);
+      await executeReversal(mongoSession);
       await mongoSession.commitTransaction();
     } catch (err: any) {
       if (mongoSession) {
@@ -122,8 +173,11 @@ export default defineEventHandler(async (event) => {
         err.message?.includes('replica set') ||
         err.message?.includes('Transaction numbers')
       ) {
-        console.warn('[Vouchers Delete] Retrying voucher cancel without transaction session:', err.message);
-        await executeDelete(undefined);
+        console.error('[Vouchers Delete] MongoDB replica set transaction required:', err.message);
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'MongoDB replica set transactions are mandatory for voucher reversal to guarantee immutable double-entry counter-posting. Non-transactional execution is prohibited.'
+        });
       } else {
         throw err;
       }
@@ -149,8 +203,9 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      message: `Voucher ${canonicalVoucherGroupId} (${entries[0]?.voucherNo || canonicalVoucherGroupId}) was cancelled successfully in compliance with audit trail standards.`,
-      deletedCount: entries.length
+      message: `Voucher ${canonicalVoucherGroupId} was reversed with counter-voucher ${reversalResult?.voucherGroupId || `REV-${canonicalVoucherGroupId}`} in compliance with audit trail standards.`,
+      reversalVoucherGroupId: reversalResult?.voucherGroupId,
+      reversedLegsCount: activeEntries.length
     };
   } catch (err: any) {
     console.error('Delete voucher error:', err);

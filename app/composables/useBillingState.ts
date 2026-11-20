@@ -237,68 +237,13 @@ export const useBillingState = () => {
   };
 
   const totals = computed(() => {
-    let itemsGrossTotal = 0;
-    let itemsTaxTotal = 0;
-
-    state.cart.forEach((item) => {
-      const qty = parseFloat(item.qty) || 0;
-      const rate = parseFloat(item.rate) || 0;
-      const disc = parseFloat(item.disc) || 0;
-      const grate = parseFloat(item.grate) || 0;
-
-      const lineVal = Number((qty * rate * (1 - disc / 100)).toFixed(2));
-      if (state.gstEnabled) {
-        itemsTaxTotal += Number(((lineVal * grate) / 100).toFixed(2));
-      }
-      itemsGrossTotal += lineVal;
-    });
-
-    itemsGrossTotal = Number(itemsGrossTotal.toFixed(2));
-    itemsTaxTotal = Number(itemsTaxTotal.toFixed(2));
-
-    let otherChargesTotal = 0;
-    let otherChargesGstTotal = 0;
-    if (state.otherCharges && state.otherCharges.length > 0) {
-      for (const charge of state.otherCharges) {
-        const amt = Number((parseFloat(charge.amount) || 0).toFixed(2));
-        const grate = parseFloat(charge.grate || charge.gstRate) || 0;
-        otherChargesTotal += amt;
-        if (state.gstEnabled) {
-          otherChargesGstTotal += Number(((amt * grate) / 100).toFixed(2));
-        }
-      }
-    }
-    otherChargesTotal = Number(otherChargesTotal.toFixed(2));
-    otherChargesGstTotal = Number(otherChargesGstTotal.toFixed(2));
-
-    const grossTotal = Number((itemsGrossTotal + otherChargesTotal).toFixed(2));
-    const totalTax = Number((itemsTaxTotal + otherChargesGstTotal).toFixed(2));
-
-    let cgst = 0, sgst = 0, igst = 0;
-    if (state.gstEnabled && state.meta.billType === 'intra-state') {
-      const halfTax = Number((totalTax / 2).toFixed(2));
-      cgst = halfTax;
-      sgst = Number((totalTax - halfTax).toFixed(2));
-    } else if (state.gstEnabled) {
-      igst = totalTax;
-    }
-
-    const taxSum = state.meta.reverseCharge ? 0 : Number((cgst + sgst + igst).toFixed(2));
-    const netTotalBeforeRoundOff = Number((grossTotal + taxSum).toFixed(2));
-    const netTotal = Math.round(netTotalBeforeRoundOff);
-    const roundOff = Number((netTotal - netTotalBeforeRoundOff).toFixed(2));
-
-    return {
-      grossTotal,
-      totalTax,
-      otherChargesTotal,
-      otherChargesGstTotal,
-      cgst,
-      sgst,
-      igst,
-      netTotal,
-      roundOff
-    };
+    return calcBillTotals(
+      state.cart,
+      state.otherCharges,
+      state.gstEnabled,
+      state.meta.billType,
+      Boolean(state.meta.reverseCharge)
+    );
   });
 
   const fetchData = async () => {

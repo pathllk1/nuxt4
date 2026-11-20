@@ -7,7 +7,7 @@ import Stock from '../../models/Stock';
 import Bill from '../../models/Bill';
 import MasterRoll from '../../models/MasterRoll';
 import PeriodLock from '../../models/PeriodLock';
-import { getCurrentFinancialYear } from '../../utils/accounting/bill-utils';
+import { getCurrentFinancialYear } from '~~/shared/utils/tax-calc';
 
 export default defineEventHandler(async (event) => {
   await connectDB();

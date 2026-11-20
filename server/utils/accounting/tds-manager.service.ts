@@ -238,27 +238,58 @@ export class TdsManagerService {
       };
     }
 
-    // 2. Fetch all voucher legs sharing these voucherGroupIds
+    // 2. Fetch all voucher legs sharing these voucherGroupIds (with fallback for legacy records)
     const voucherGroupIds = Array.from(new Set(
       genuineTdsEntries
         .map(e => e.voucherGroupId)
         .filter((id): id is string => Boolean(id))
     ));
+    const fallbackRefIds = Array.from(new Set(
+      genuineTdsEntries
+        .filter(e => !e.voucherGroupId && e.refId)
+        .map(e => String(e.refId))
+    ));
+    const fallbackVoucherNos = Array.from(new Set(
+      genuineTdsEntries
+        .filter(e => !e.voucherGroupId && !e.refId && e.voucherNo)
+        .map(e => String(e.voucherNo))
+    ));
+    const isolatedIds = genuineTdsEntries
+      .filter(e => !e.voucherGroupId && !e.refId && !e.voucherNo)
+      .map(e => e._id);
+
+    const queryOr: any[] = [];
+    if (voucherGroupIds.length > 0) queryOr.push({ voucherGroupId: { $in: voucherGroupIds } });
+    if (fallbackRefIds.length > 0) queryOr.push({ refId: { $in: fallbackRefIds } });
+    if (fallbackVoucherNos.length > 0) queryOr.push({ voucherNo: { $in: fallbackVoucherNos } });
+    if (isolatedIds.length > 0) queryOr.push({ _id: { $in: isolatedIds } });
 
     const allLegs = await Ledger.find({
       $or: [{ firmId: firmIdObj }, { firm_id: firmIdObj }],
-      voucherGroupId: { $in: voucherGroupIds },
-      isReversed: { $ne: true }
+      $and: [
+        { isReversed: { $ne: true } },
+        ...(queryOr.length > 0 ? [{ $or: queryOr }] : [])
+      ]
     }).lean();
 
-    // Group all legs by voucherGroupId
+    // Group all legs by canonical group key (voucherGroupId or fallback key)
+    const resolveLegKey = (leg: any): string => {
+      if (leg.voucherGroupId) return leg.voucherGroupId;
+      if (leg.refId) return `REF-${leg.refId}`;
+      if (leg.voucherNo) return `VNO-${leg.voucherNo}`;
+      return `LEG-${leg._id}`;
+    };
+
     const legsByGroup = new Map<string, typeof allLegs>();
     for (const leg of allLegs) {
-      if (!leg.voucherGroupId) continue;
-      const existing = legsByGroup.get(leg.voucherGroupId) || [];
+      const key = resolveLegKey(leg);
+      const existing = legsByGroup.get(key) || [];
       existing.push(leg);
-      legsByGroup.set(leg.voucherGroupId, existing);
+      legsByGroup.set(key, existing);
     }
+
+    // Collect all unique group keys across all genuine TDS entries
+    const allGroupKeys = Array.from(new Set(genuineTdsEntries.map(e => resolveLegKey(e))));
 
     // 3. Preload Party, BankAccount, and User lookup maps
     const [partyList, bankList, userList] = await Promise.all([
@@ -297,10 +328,10 @@ export class TdsManagerService {
       // safe fallback if PG is unavailable
     }
 
-    // 4. Construct aggregated TDS items — ONE ITEM PER VOUCHER GROUP
+    // 4. Construct aggregated TDS items — ONE ITEM PER VOUCHER GROUP (or legacy fallback key)
     const rawItems: ITdsRegisterItem[] = [];
 
-    for (const vGroupId of voucherGroupIds) {
+    for (const vGroupId of allGroupKeys) {
       const siblingLegs = legsByGroup.get(vGroupId) || [];
       if (siblingLegs.length === 0) continue;
 

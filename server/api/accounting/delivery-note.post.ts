@@ -3,7 +3,8 @@ import Bill from '../../models/Bill';
 import Party from '../../models/Party';
 import StockReg from '../../models/StockReg';
 import { StockService } from '../../utils/inventory/stock.service';
-import { getNextBillNumber, calcBillTotals, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
+import { getNextBillNumber, getEffectiveItemQty, isServiceItem } from '../../utils/accounting/bill-utils';
+import { calcBillTotals } from '~~/shared/utils/tax-calc';
 import { resolvePartyLocation, resolveFirmLocation, isGstEnabled } from '../../utils/accounting/bill-shared';
 import { requireAuthSession } from '../../utils/auth';
 import { connectDB } from '../../plugins/mongodb';
@@ -33,7 +34,7 @@ export default defineEventHandler(async (event) => {
     const partyInfo = await resolvePartyLocation(partyDoc, meta?.partyGstin);
     const { firmLoc, firmStateCode } = await resolveFirmLocation(firmIdObj, meta?.firmGstin);
     const billType = String(meta?.billType || 'intra-state').toLowerCase();
-    const billNo = await getNextBillNumber(firmIdObj, 'DELIVERY_NOTE');
+    const billNo = await getNextBillNumber(firmIdObj, 'DELIVERY_NOTE', meta?.billDate);
     const gstEnabled = await isGstEnabled(firmIdObj);
     const totals = calcBillTotals(cart, otherCharges, gstEnabled, billType, !!meta?.reverseCharge, getEffectiveItemQty);
 
