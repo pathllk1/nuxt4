@@ -3,6 +3,7 @@ import { useAuth } from './useAuth';
 import { useMailVault } from './useMailVault';
 import { useToast } from '#imports';
 import type { MailAccount, MailFolder, MailMessage, MailContact } from '@/types/mail';
+import { indexedDb, type MailSyncMetadata } from '../utils/indexedDb';
 
 const accounts = ref<MailAccount[]>([]);
 const activeAccount = ref<MailAccount | null>(null);
@@ -21,6 +22,12 @@ const selectedThread = ref<MailMessage[]>([]);
 const loadingDetail = ref<boolean>(false);
 
 const isSyncing = ref<boolean>(false);
+const lastSyncMeta = ref<MailSyncMetadata | null>(null);
+
+function getTodayDateString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
 
 // Composer state
 const isComposerOpen = ref<boolean>(false);
@@ -73,6 +80,10 @@ export function useMail() {
         } else {
           activeAccount.value = null;
         }
+
+        if (activeAccount.value) {
+          loadSyncMeta(activeAccount.value.id);
+        }
       }
     } catch (err: any) {
       console.warn('[useMail] Fetch accounts notice:', err.message);
@@ -92,6 +103,8 @@ export function useMail() {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('mail_active_account_id', target.id);
     }
+
+    loadSyncMeta(target.id);
 
     // Reset view state for fresh mailbox load
     activeFolderId.value = 'INBOX';
@@ -296,10 +309,12 @@ export function useMail() {
   }
 
   // 7. Sync Mailbox
-  async function syncMailbox(targetFolder?: string) {
+  async function syncMailbox(targetFolder?: string, silent = false): Promise<boolean> {
     if (!activeAccount.value) {
-      toast.add({ title: 'No Account', description: 'Configure an email account first', color: 'warning' });
-      return;
+      if (!silent) {
+        toast.add({ title: 'No Account', description: 'Configure an email account first', color: 'warning' });
+      }
+      return false;
     }
     const folderToSync = (typeof targetFolder === 'string' && targetFolder.trim()) 
       ? targetFolder.trim() 
@@ -308,12 +323,14 @@ export function useMail() {
     try {
       const ephemeralPayload = await buildEphemeralPayload(activeAccount.value);
       if (!ephemeralPayload) {
-        toast.add({
-          title: 'Vault PIN Needed',
-          description: 'Could not decrypt email credentials. Click Unlock Vault to enter your PIN (Default: 1234)',
-          color: 'warning'
-        });
-        return;
+        if (!silent) {
+          toast.add({
+            title: 'Vault PIN Needed',
+            description: 'Could not decrypt email credentials. Click Unlock Vault to enter your PIN (Default: 1234)',
+            color: 'warning'
+          });
+        }
+        return false;
       }
 
       const res: any = await apiFetch('/api/mail/sync', {
@@ -326,22 +343,117 @@ export function useMail() {
       });
 
       if (res?.success) {
-        toast.add({
-          title: 'Sync Complete',
-          description: `Updated ${res.syncedCount || 0} messages in ${folderToSync}`,
-          color: 'success'
-        });
+        if (!silent) {
+          toast.add({
+            title: 'Sync Complete',
+            description: `Updated ${res.syncedCount || 0} messages in ${folderToSync}`,
+            color: 'success'
+          });
+        }
         await fetchMessages();
         await fetchFolders();
+
+        // Update IndexedDB sync metadata
+        const todayStr = getTodayDateString();
+        const meta: MailSyncMetadata = {
+          accountId: activeAccount.value.id,
+          lastSyncDate: todayStr,
+          lastSyncTimestamp: Date.now(),
+          lastStatus: 'SUCCESS',
+          folder: folderToSync,
+          syncedCount: res.syncedCount || 0
+        };
+        lastSyncMeta.value = meta;
+        await indexedDb.setMailSyncMeta(meta);
+
+        return true;
       }
+      return false;
     } catch (err: any) {
-      toast.add({
-        title: 'Sync Failed',
-        description: err.data?.message || err.message || 'Error connecting to IMAP',
-        color: 'error'
-      });
+      if (!silent) {
+        toast.add({
+          title: 'Sync Failed',
+          description: err.data?.message || err.message || 'Error connecting to IMAP',
+          color: 'error'
+        });
+      }
+      return false;
     } finally {
       isSyncing.value = false;
+    }
+  }
+
+  async function loadSyncMeta(accountId?: string) {
+    const id = accountId || activeAccount.value?.id;
+    if (!id || typeof window === 'undefined') return;
+    try {
+      const meta = await indexedDb.getMailSyncMeta(id);
+      if (meta) {
+        lastSyncMeta.value = meta;
+      }
+    } catch (e) {
+      console.warn('[useMail] loadSyncMeta notice:', e);
+    }
+  }
+
+  async function executeAutoSync(accountId: string, todayStr: string): Promise<boolean> {
+    if (!activeAccount.value || activeAccount.value.id !== accountId) return false;
+
+    // Check if vault can unlock automatically
+    const { autoUnlockIfPossible } = useMailVault();
+    let unlocked = isVaultUnlocked.value;
+    if (!unlocked) {
+      unlocked = await autoUnlockIfPossible(activeAccount.value.encryptedVaultBlob);
+    }
+
+    if (!unlocked) {
+      console.log(`[useMail] Daily auto-sync skipped: vault locked for account ${accountId}`);
+      return false;
+    }
+
+    console.log(`[useMail] Triggering daily auto-sync for account ${accountId}...`);
+    const ok = await syncMailbox('INBOX', true);
+    if (ok) {
+      console.log(`[useMail] Daily auto-sync completed successfully for ${accountId}`);
+    }
+    return ok;
+  }
+
+  async function checkAndRunDailyAutoSync(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    if (!activeAccount.value) return false;
+
+    const accountId = activeAccount.value.id;
+    const todayStr = getTodayDateString();
+
+    try {
+      // 1. Check IndexedDB record
+      const meta = await indexedDb.getMailSyncMeta(accountId);
+      if (meta) {
+        lastSyncMeta.value = meta;
+        if (meta.lastSyncDate === todayStr && meta.lastStatus === 'SUCCESS') {
+          console.log(`[useMail] Account ${accountId} already auto-synced today (${todayStr}) via IndexedDB.`);
+          return false;
+        }
+      }
+
+      // 2. Concurrency lock to prevent multi-tab simultaneous syncing
+      if (typeof navigator !== 'undefined' && 'locks' in navigator && (navigator as any).locks?.request) {
+        let didRun = false;
+        await (navigator as any).locks.request(`mail_daily_sync_${accountId}`, { ifAvailable: true }, async (lock: any) => {
+          if (!lock) {
+            console.log(`[useMail] Daily auto-sync lock currently acquired by another browser tab.`);
+            return;
+          }
+          didRun = await executeAutoSync(accountId, todayStr);
+        });
+        return didRun;
+      } else {
+        return await executeAutoSync(accountId, todayStr);
+      }
+    } catch (err) {
+      console.warn('[useMail] Daily auto-sync error:', err);
+      return false;
     }
   }
 
@@ -454,6 +566,9 @@ export function useMail() {
     toggleRead,
     toggleFlag,
     syncMailbox,
+    lastSyncMeta,
+    loadSyncMeta,
+    checkAndRunDailyAutoSync,
     openComposer,
     closeComposer,
     sendEmail

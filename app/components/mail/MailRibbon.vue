@@ -10,6 +10,7 @@ const {
   selectedMessage,
   selectedThread,
   isSyncing,
+  lastSyncMeta,
   syncMailbox,
   openComposer,
   toggleRead,
@@ -18,6 +19,17 @@ const {
 
 const { isVaultUnlocked } = useMailVault();
 const toast = useToast();
+
+const lastSyncTooltip = computed(() => {
+  if (!lastSyncMeta.value?.lastSyncTimestamp) return 'Sync mailbox with server';
+  const d = new Date(lastSyncMeta.value.lastSyncTimestamp);
+  const now = new Date();
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) {
+    return `Auto-synced today at ${timeStr} (IndexedDB)`;
+  }
+  return `Last synced: ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`;
+});
 
 const emit = defineEmits<{
   (e: 'open-account-modal'): void;
@@ -228,7 +240,7 @@ const ribbonExportItems = computed(() => {
         @click="emit('open-vault-modal')"
       />
 
-      <!-- Sync Button -->
+      <!-- Sync Button with IndexedDB Status Tooltip -->
       <UButton
         variant="outline"
         color="primary"
@@ -237,6 +249,7 @@ const ribbonExportItems = computed(() => {
         :loading="isSyncing"
         label="Sync Now"
         class="font-semibold text-xs"
+        :title="lastSyncTooltip"
         @click="() => syncMailbox()"
       />
 

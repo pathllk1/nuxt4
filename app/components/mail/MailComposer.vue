@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted } from 'vue';
+import { ref, reactive, watch, onMounted, onUnmounted } from 'vue';
 import { useMail } from '@/composables/useMail';
 import { useAuth } from '@/composables/useAuth';
 import { useToast } from '#imports';
@@ -44,6 +44,130 @@ const isSending = ref(false);
 const suggestions = ref<any[]>([]);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
+// Drag & Drop State
+const isDraggingOver = ref(false);
+let dragCounter = 0;
+
+const onDragEnter = (e: DragEvent) => {
+  if (composerState.value === 'minimized') return;
+  if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+    dragCounter++;
+    isDraggingOver.value = true;
+  }
+};
+
+const onDragOver = (e: DragEvent) => {
+  if (composerState.value === 'minimized') return;
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy';
+  }
+};
+
+const onDragLeave = (e: DragEvent) => {
+  if (composerState.value === 'minimized') return;
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    isDraggingOver.value = false;
+  }
+};
+
+const onDrop = async (e: DragEvent) => {
+  if (composerState.value === 'minimized') return;
+  dragCounter = 0;
+  isDraggingOver.value = false;
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) {
+    await processIncomingFiles(Array.from(files));
+  }
+};
+
+const processIncomingFiles = async (files: File[]) => {
+  let addedCount = 0;
+  for (const file of files) {
+    if (file.size > 25 * 1024 * 1024) {
+      toast.add({ title: 'File Too Large', description: `${file.name} exceeds 25 MB limit`, color: 'warning' });
+      continue;
+    }
+
+    // Deduplicate identical attachment
+    const isDuplicate = form.attachments.some(
+      a => a.filename === file.name && a.size === file.size
+    );
+    if (isDuplicate) continue;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      form.attachments.push({
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        size: file.size,
+        content: base64
+      });
+    };
+    reader.readAsDataURL(file);
+    addedCount++;
+  }
+
+  if (addedCount > 0) {
+    toast.add({
+      title: 'Attachment Added',
+      description: `Attached ${addedCount} file${addedCount > 1 ? 's' : ''}`,
+      color: 'success',
+      duration: 1800
+    });
+  }
+};
+
+const onFileSelected = async (e: Event) => {
+  const input = e.target as HTMLInputElement;
+  if (!input.files || input.files.length === 0) return;
+  await processIncomingFiles(Array.from(input.files));
+  input.value = '';
+};
+
+const onPaste = async (e: ClipboardEvent) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  const pastedFiles: File[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item && item.kind === 'file') {
+      const file = item.getAsFile();
+      if (file) {
+        const ext = file.type.split('/')[1] || 'png';
+        const customName = file.name === 'image.png' || !file.name
+          ? `pasted-image-${Date.now()}.${ext}`
+          : file.name;
+        const customFile = new File([file], customName, { type: file.type });
+        pastedFiles.push(customFile);
+      }
+    }
+  }
+
+  if (pastedFiles.length > 0) {
+    await processIncomingFiles(pastedFiles);
+  }
+};
+
+onMounted(() => {
+  // Prevent browser window from hijacking dropped files outside the dropzone
+  const preventWindowDrop = (e: DragEvent) => {
+    if (isComposerOpen.value) {
+      e.preventDefault();
+    }
+  };
+  window.addEventListener('dragover', preventWindowDrop, false);
+  window.addEventListener('drop', preventWindowDrop, false);
+
+  onUnmounted(() => {
+    window.removeEventListener('dragover', preventWindowDrop);
+    window.removeEventListener('drop', preventWindowDrop);
+  });
+});
+
 watch(isComposerOpen, (open) => {
   if (open) {
     selectedSenderAccountId.value = activeAccount.value?.id || accounts.value[0]?.id || '';
@@ -60,32 +184,6 @@ watch(isComposerOpen, (open) => {
 
 const triggerFileSelect = () => {
   fileInputRef.value?.click();
-};
-
-const onFileSelected = async (e: Event) => {
-  const input = e.target as HTMLInputElement;
-  if (!input.files || input.files.length === 0) return;
-
-  for (const file of Array.from(input.files)) {
-    if (file.size > 25 * 1024 * 1024) {
-      toast.add({ title: 'File Too Large', description: `${file.name} exceeds 25 MB limit`, color: 'warning' });
-      continue;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      form.attachments.push({
-        filename: file.name,
-        contentType: file.type || 'application/octet-stream',
-        size: file.size,
-        content: base64
-      });
-    };
-    reader.readAsDataURL(file);
-  }
-
-  input.value = '';
 };
 
 const removeAttachment = (index: number) => {
@@ -186,14 +284,19 @@ const toggleMinimize = () => {
 <template>
   <div
     v-if="isComposerOpen"
-    class="fixed z-[70] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col transition-all overflow-hidden"
+    class="fixed z-[70] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border flex flex-col transition-all overflow-hidden"
     :class="[
+      isDraggingOver ? 'border-primary-500 ring-4 ring-primary-500/20' : 'border-slate-200 dark:border-slate-800',
       composerState === 'maximized' 
         ? 'inset-4 sm:inset-8' 
         : composerState === 'minimized'
           ? 'bottom-10 right-4 sm:right-8 w-72 h-10'
           : 'bottom-10 right-4 sm:right-8 w-[94vw] sm:w-[620px] h-[520px] max-h-[calc(100vh-5rem)]'
     ]"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent="onDragOver"
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="onDrop"
   >
     <!-- Top Window Titlebar -->
     <div
@@ -235,7 +338,23 @@ const toggleMinimize = () => {
     </div>
 
     <!-- Collapsible Window Body (Hidden when minimized) -->
-    <div v-show="composerState !== 'minimized'" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div v-show="composerState !== 'minimized'" class="relative flex-1 flex flex-col min-h-0 overflow-hidden">
+      <!-- High-visibility Drag & Drop Dropzone Overlay -->
+      <div
+        v-if="isDraggingOver"
+        class="absolute inset-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center border-2 border-dashed border-primary-500 rounded-b-2xl pointer-events-none transition-all duration-150 animate-in fade-in"
+      >
+        <div class="w-16 h-16 rounded-2xl bg-primary-100 dark:bg-primary-950 text-primary-600 dark:text-primary-400 flex items-center justify-center mb-3 shadow-inner">
+          <UIcon name="i-heroicons-arrow-up-tray" class="w-8 h-8 animate-bounce" />
+        </div>
+        <p class="text-sm font-bold text-slate-800 dark:text-slate-100">
+          Drop files to attach
+        </p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          Attach files to this message (drag & drop up to 25 MB each)
+        </p>
+      </div>
+
       <!-- Header Fields (To, CC, Subject) -->
       <div class="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0">
         <!-- From Line (Visible when multiple accounts exist) -->
@@ -362,8 +481,9 @@ const toggleMinimize = () => {
       <div class="flex-1 p-3 flex flex-col min-h-0 overflow-y-auto">
         <textarea
           v-model="form.bodyText"
-          placeholder="Compose your message here..."
+          placeholder="Compose your message here (drag & drop files anywhere to attach, or paste screenshots)..."
           class="flex-1 w-full resize-none border-0 outline-none text-xs sm:text-sm text-slate-800 dark:text-slate-200 bg-transparent leading-relaxed font-sans min-h-[140px]"
+          @paste="onPaste"
         />
       </div>
 
@@ -380,14 +500,19 @@ const toggleMinimize = () => {
             @click="onSubmit"
           />
 
-          <UButton
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            icon="i-heroicons-paper-clip"
-            title="Attach File"
-            @click="triggerFileSelect"
-          />
+          <div class="flex items-center gap-1.5">
+            <UButton
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              icon="i-heroicons-paper-clip"
+              title="Attach File (or drag & drop files)"
+              @click="triggerFileSelect"
+            />
+            <span class="text-[10px] text-slate-400 hidden sm:inline-block select-none">
+              Drag & drop files to attach
+            </span>
+          </div>
 
           <UButton
             size="xs"

@@ -1,6 +1,15 @@
+export interface MailSyncMetadata {
+  accountId: string;
+  lastSyncDate: string; // YYYY-MM-DD local date string
+  lastSyncTimestamp: number;
+  lastStatus: 'SUCCESS' | 'ERROR' | 'SKIPPED';
+  folder?: string;
+  syncedCount?: number;
+}
+
 export class IndexedDbService {
   private dbName = 'EnterpriseToolsDB';
-  private dbVersion = 4;
+  private dbVersion = 5;
   private db: IDBDatabase | null = null;
   private openPromise: Promise<IDBDatabase> | null = null;
 
@@ -36,6 +45,10 @@ export class IndexedDbService {
         
         if (!db.objectStoreNames.contains('ai_settings')) {
           db.createObjectStore('ai_settings', { keyPath: 'key' });
+        }
+
+        if (!db.objectStoreNames.contains('mail_sync_meta')) {
+          db.createObjectStore('mail_sync_meta', { keyPath: 'accountId' });
         }
       };
 
@@ -179,6 +192,22 @@ export class IndexedDbService {
         reject(request.error);
       };
     });
+  }
+
+  async getMailSyncMeta(accountId: string): Promise<MailSyncMetadata | null> {
+    try {
+      return await this.get<MailSyncMetadata>('mail_sync_meta', accountId);
+    } catch {
+      return null;
+    }
+  }
+
+  async setMailSyncMeta(meta: MailSyncMetadata): Promise<void> {
+    try {
+      await this.put<MailSyncMetadata>('mail_sync_meta', meta);
+    } catch (e) {
+      console.warn('[IndexedDb] setMailSyncMeta notice:', e);
+    }
   }
 }
 

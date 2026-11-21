@@ -10,13 +10,14 @@ import MailComposer from './MailComposer.vue';
 import MailAccountModal from './MailAccountModal.vue';
 import MailVaultModal from './MailVaultModal.vue';
 
-const { fetchAccounts, fetchFolders, fetchMessages, activeAccount } = useMail();
+const { fetchAccounts, fetchFolders, fetchMessages, activeAccount, checkAndRunDailyAutoSync } = useMail();
 const { autoUnlockIfPossible } = useMailVault();
 
 const isAccountModalOpen = ref(false);
 const isVaultModalOpen = ref(false);
 
 onMounted(async () => {
+  // 1. Complete initial page load & database rendering
   await fetchAccounts();
   if (activeAccount.value?.encryptedVaultBlob) {
     await autoUnlockIfPossible(activeAccount.value.encryptedVaultBlob);
@@ -25,6 +26,19 @@ onMounted(async () => {
   }
   await fetchFolders();
   await fetchMessages();
+
+  // 2. Daily auto-sync: non-blocking, executes once per day using browser IndexedDB
+  if (typeof window !== 'undefined') {
+    if ('requestIdleCallback' in window) {
+      (window as any).requestIdleCallback(() => {
+        checkAndRunDailyAutoSync();
+      }, { timeout: 4000 });
+    } else {
+      setTimeout(() => {
+        checkAndRunDailyAutoSync();
+      }, 1200);
+    }
+  }
 });
 </script>
 
