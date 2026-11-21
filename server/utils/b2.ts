@@ -7,6 +7,124 @@ export interface B2UploadResult {
   targetPath?: string;
 }
 
+export interface B2UploadCredentials {
+  uploadUrl: string;
+  authorizationToken: string;
+  targetPath: string;
+  b2FileName: string;
+}
+
+let b2CorsEnsured = false;
+async function ensureB2BucketCors(auth: any, bucketId: string) {
+  if (b2CorsEnsured) return;
+  try {
+    const res = await fetch(`${auth.apiUrl}/b2api/v2/b2_update_bucket`, {
+      method: 'POST',
+      headers: {
+        Authorization: auth.authorizationToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        accountId: auth.accountId,
+        bucketId,
+        corsRules: [
+          {
+            corsRuleName: 'allowDirectUploads',
+            allowedOrigins: ['*'],
+            allowedOperations: [
+              'b2_upload_file',
+              'b2_download_file_by_name',
+              'b2_download_file_by_id'
+            ],
+            allowedHeaders: [
+              'authorization',
+              'content-type',
+              'content-length',
+              'x-bz-file-name',
+              'x-bz-content-sha1'
+            ],
+            maxAgeSeconds: 86400
+          }
+        ]
+      })
+    });
+    if (res.ok) {
+      b2CorsEnsured = true;
+    }
+  } catch (err: any) {
+    console.warn('[B2] CORS rule configuration notice:', err.message);
+  }
+}
+
+/**
+ * Generate direct B2 upload credentials and authorization token
+ * so the browser client can upload directly to Backblaze B2,
+ * bypassing serverless 4.5 MB request payload limits.
+ */
+export async function getB2UploadCredentials(
+  originalName: string,
+  customPrefix?: string
+): Promise<B2UploadCredentials> {
+  const keyId = String(process.env.B2_APPLICATION_KEY_ID || '').trim();
+  const appKey = String(process.env.B2_APPLICATION_KEY || '').trim();
+  const bucketId = String(process.env.B2_BUCKET_ID || '').trim();
+  const defaultPrefix = String(process.env.B2_BUCKET_PREFIX || 'documents').trim().replace(/^\/+|\/+$/g, '');
+  const prefix = (customPrefix !== undefined ? customPrefix : defaultPrefix).trim().replace(/^\/+|\/+$/g, '');
+
+  if (!keyId || !appKey) {
+    throw new Error('B2_APPLICATION_KEY_ID / B2_APPLICATION_KEY not configured');
+  }
+  if (!bucketId) {
+    throw new Error('B2_BUCKET_ID is not configured');
+  }
+
+  // 1. Authorize Account
+  const basicAuth = Buffer.from(`${keyId}:${appKey}`).toString('base64');
+  const authResp = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+    },
+  });
+
+  if (!authResp.ok) {
+    const errorText = await authResp.text();
+    throw new Error(`B2 authorize_account failed (${authResp.status}): ${errorText.slice(0, 200)}`);
+  }
+
+  const auth: any = await authResp.json();
+
+  // 2. Ensure CORS on bucket so browser can directly upload
+  await ensureB2BucketCors(auth, bucketId);
+
+  // 3. Get Upload URL
+  const urlResp = await fetch(`${auth.apiUrl}/b2api/v2/b2_get_upload_url`, {
+    method: 'POST',
+    headers: {
+      Authorization: auth.authorizationToken,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ bucketId }),
+  });
+
+  if (!urlResp.ok) {
+    const errorText = await urlResp.text();
+    throw new Error(`B2 get_upload_url failed (${urlResp.status}): ${errorText.slice(0, 200)}`);
+  }
+
+  const uploadInfo: any = await urlResp.json();
+
+  const safeOriginalName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const targetPath = prefix ? `${prefix}/${Date.now()}-${safeOriginalName}` : `${Date.now()}-${safeOriginalName}`;
+  const b2FileName = targetPath.split('/').map(encodeURIComponent).join('/');
+
+  return {
+    uploadUrl: uploadInfo.uploadUrl,
+    authorizationToken: uploadInfo.authorizationToken,
+    targetPath,
+    b2FileName
+  };
+}
+
 /**
  * Generate a download authorization token from Backblaze B2
  * scoped to the document prefix, valid for 24 hours (86400 seconds).

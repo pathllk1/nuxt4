@@ -3,7 +3,7 @@ import { requireAuthSession } from '../../utils/auth';
 import nodemailer from 'nodemailer';
 import { MailCouchbaseService } from '../../utils/mail-couchbase.service';
 import { assertAccountAccess } from '../../utils/mail-auth';
-import { uploadToBackblazeB2 } from '../../utils/b2';
+import { uploadToBackblazeB2, downloadFromBackblazeB2 } from '../../utils/b2';
 import type { MailMessage, MailAttachment } from '../../../app/types/mail';
 
 export default defineEventHandler(async (event) => {
@@ -69,12 +69,24 @@ export default defineEventHandler(async (event) => {
         const filename = att.filename || `attachment_${idx}`;
         const contentType = att.contentType || 'application/octet-stream';
         let buffer: Buffer | null = null;
+        let b2Key: string | undefined = att.b2Key;
 
-        if (att.content) {
+        // Option B: Attachment was pre-uploaded directly to Backblaze B2 (bypasses Vercel 4.5 MB payload limit)
+        if (att.b2Key) {
+          try {
+            const downloaded = await downloadFromBackblazeB2(att.b2Key);
+            if (downloaded) {
+              buffer = downloaded.buffer;
+            }
+          } catch (dlErr: any) {
+            console.warn(`[MailSend] Could not load B2 attachment ${att.b2Key}:`, dlErr.message);
+          }
+        }
+        // Fallback: direct content buffer or base64
+        else if (att.content) {
           if (Buffer.isBuffer(att.content)) {
             buffer = att.content;
           } else if (typeof att.content === 'string') {
-            // Check if base64 encoded
             const base64Data = att.content.includes(';base64,') ? att.content.split(';base64,').pop() : att.content;
             buffer = Buffer.from(base64Data || '', 'base64');
           }
@@ -82,14 +94,15 @@ export default defineEventHandler(async (event) => {
 
         if (buffer && buffer.length > 0) {
           const attId = `att_sent_${nowMs}_${idx}`;
-          let b2Key: string | undefined = undefined;
 
-          try {
-            const b2Prefix = `mail-attachments/${firmId}/${userId}/${body.accountId || 'default'}/sent_${nowMs}`;
-            const uploadResult = await uploadToBackblazeB2(buffer, filename, b2Prefix);
-            b2Key = uploadResult.targetPath;
-          } catch (b2Err: any) {
-            console.warn(`[MailSend] Outgoing attachment upload skipped for ${filename}:`, b2Err.message);
+          if (!b2Key) {
+            try {
+              const b2Prefix = `mail-attachments/${firmId}/${userId}/${body.accountId || 'default'}/sent_${nowMs}`;
+              const uploadResult = await uploadToBackblazeB2(buffer, filename, b2Prefix);
+              b2Key = uploadResult.targetPath;
+            } catch (b2Err: any) {
+              console.warn(`[MailSend] Outgoing attachment upload skipped for ${filename}:`, b2Err.message);
+            }
           }
 
           nodemailerAttachments.push({

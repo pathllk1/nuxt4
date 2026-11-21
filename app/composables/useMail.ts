@@ -490,7 +490,8 @@ export function useMail() {
       filename: string;
       contentType: string;
       size: number;
-      content: string; // Base64
+      content?: string;
+      b2Key?: string;
     }>;
     inReplyTo?: string;
     references?: string;

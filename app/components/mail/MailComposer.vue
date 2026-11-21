@@ -33,7 +33,11 @@ const form = reactive({
     filename: string;
     contentType: string;
     size: number;
-    content: string; // Base64
+    content?: string;
+    b2Key?: string;
+    uploading?: boolean;
+    uploadProgress?: number;
+    uploadError?: string;
   }>,
   inReplyTo: undefined as string | undefined,
   references: undefined as string | undefined,
@@ -82,6 +86,86 @@ const onDrop = async (e: DragEvent) => {
   }
 };
 
+const uploadFileToCloud = async (file: File, attEntry: typeof form.attachments[0]) => {
+  try {
+    attEntry.uploading = true;
+    attEntry.uploadProgress = 10;
+
+    // 1. Request direct upload URL & auth token from server (Option B)
+    const res: any = await apiFetch('/api/mail/upload-url', {
+      method: 'POST',
+      body: {
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        size: file.size,
+        accountId: selectedSenderAccountId.value || activeAccount.value?.id
+      }
+    });
+
+    if (!res?.success || !res.data?.uploadUrl) {
+      throw new Error(res?.statusMessage || res?.message || 'Could not obtain cloud upload authorization');
+    }
+
+    const { uploadUrl, authorizationToken, targetPath, b2FileName } = res.data;
+    attEntry.uploadProgress = 25;
+
+    // 2. Direct upload to Backblaze B2 using XMLHttpRequest for live progress
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl, true);
+      xhr.setRequestHeader('Authorization', authorizationToken);
+      xhr.setRequestHeader('X-Bz-File-Name', b2FileName);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('Content-Length', String(file.size));
+      xhr.setRequestHeader('X-Bz-Content-Sha1', 'do_not_verify');
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.min(99, Math.round(25 + (event.loaded / event.total) * 70));
+          attEntry.uploadProgress = percent;
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          attEntry.b2Key = targetPath;
+          attEntry.uploadProgress = 100;
+          attEntry.uploading = false;
+          resolve();
+        } else {
+          reject(new Error(`Storage rejected upload with status ${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error uploading to storage'));
+      };
+
+      xhr.send(file);
+    });
+  } catch (err: any) {
+    console.warn('[MailComposer] Direct B2 upload notice, fallback if small:', err.message);
+    // If file is small (<= 2.5 MB), fallback to Base64 in memory
+    if (file.size <= 2.5 * 1024 * 1024) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        attEntry.content = reader.result as string;
+        attEntry.uploading = false;
+        attEntry.uploadProgress = 100;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      attEntry.uploading = false;
+      attEntry.uploadError = err.message || 'Direct upload failed';
+      toast.add({
+        title: 'Upload Failed',
+        description: `Could not upload ${file.name} to cloud: ${err.message}`,
+        color: 'error'
+      });
+    }
+  }
+};
+
 const processIncomingFiles = async (files: File[]) => {
   let addedCount = 0;
   for (const file of files) {
@@ -96,26 +180,30 @@ const processIncomingFiles = async (files: File[]) => {
     );
     if (isDuplicate) continue;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      form.attachments.push({
-        filename: file.name,
-        contentType: file.type || 'application/octet-stream',
-        size: file.size,
-        content: base64
-      });
-    };
-    reader.readAsDataURL(file);
+    const attEntry = reactive({
+      filename: file.name,
+      contentType: file.type || 'application/octet-stream',
+      size: file.size,
+      content: undefined as string | undefined,
+      b2Key: undefined as string | undefined,
+      uploading: true,
+      uploadProgress: 0,
+      uploadError: undefined as string | undefined
+    });
+
+    form.attachments.push(attEntry);
     addedCount++;
+
+    // Trigger direct cloud upload (Option B)
+    uploadFileToCloud(file, attEntry);
   }
 
   if (addedCount > 0) {
     toast.add({
-      title: 'Attachment Added',
-      description: `Attached ${addedCount} file${addedCount > 1 ? 's' : ''}`,
-      color: 'success',
-      duration: 1800
+      title: 'Attachments Added',
+      description: `Uploading ${addedCount} file${addedCount > 1 ? 's' : ''} to storage...`,
+      color: 'neutral',
+      duration: 1500
     });
   }
 };
@@ -244,6 +332,26 @@ const onSubmit = async () => {
     return;
   }
 
+  const isUploading = form.attachments.some(a => a.uploading);
+  if (isUploading) {
+    toast.add({
+      title: 'Upload in Progress',
+      description: 'Please wait for your attachments to finish uploading to cloud storage',
+      color: 'warning'
+    });
+    return;
+  }
+
+  const hasFailed = form.attachments.some(a => a.uploadError);
+  if (hasFailed) {
+    toast.add({
+      title: 'Attachment Error',
+      description: 'Please remove failed attachments before sending',
+      color: 'error'
+    });
+    return;
+  }
+
   isSending.value = true;
   try {
     if (selectedSenderAccountId.value && selectedSenderAccountId.value !== activeAccount.value?.id) {
@@ -256,7 +364,13 @@ const onSubmit = async () => {
       bodyHtml: form.bodyText.replace(/\n/g, '<br>'),
       bodyText: form.bodyText,
       importance: form.importance,
-      attachments: form.attachments,
+      attachments: form.attachments.map(a => ({
+        filename: a.filename,
+        contentType: a.contentType,
+        size: a.size,
+        b2Key: a.b2Key,
+        content: a.content
+      })),
       inReplyTo: form.inReplyTo,
       references: form.references,
       threadId: form.threadId
@@ -453,13 +567,43 @@ const toggleMinimize = () => {
           <div
             v-for="(att, idx) in form.attachments"
             :key="idx"
-            class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary-50 dark:bg-primary-950/60 border border-primary-200 dark:border-primary-800 text-xs"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all"
+            :class="att.uploadError
+              ? 'bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+              : att.uploading
+                ? 'bg-primary-50 dark:bg-primary-950/60 border border-primary-300 dark:border-primary-700 text-slate-800 dark:text-slate-200'
+                : 'bg-primary-50 dark:bg-primary-950/60 border border-primary-200 dark:border-primary-800 text-slate-800 dark:text-slate-200'"
           >
-            <UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" />
-            <span class="truncate max-w-[140px] font-medium text-slate-800 dark:text-slate-200">{{ att.filename }}</span>
+            <UIcon
+              v-if="att.uploading"
+              name="i-heroicons-arrow-path"
+              class="w-3.5 h-3.5 text-primary-500 animate-spin shrink-0"
+            />
+            <UIcon
+              v-else-if="att.uploadError"
+              name="i-heroicons-exclamation-triangle"
+              class="w-3.5 h-3.5 text-red-500 shrink-0"
+            />
+            <UIcon
+              v-else
+              name="i-heroicons-paper-clip"
+              class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400 shrink-0"
+            />
+
+            <span class="truncate max-w-[140px] font-medium">{{ att.filename }}</span>
             <span class="text-[10px] text-slate-400 font-mono">({{ formatSize(att.size) }})</span>
+
+            <!-- Cloud upload progress or error pill -->
+            <span v-if="att.uploading" class="text-[10px] text-primary-600 font-mono font-bold">
+              {{ att.uploadProgress }}%
+            </span>
+            <span v-else-if="att.uploadError" class="text-[10px] text-red-500 font-bold">
+              Failed
+            </span>
+
             <button
               class="ml-1 text-slate-400 hover:text-red-500 cursor-pointer"
+              title="Remove attachment"
               @click="removeAttachment(idx)"
             >
               <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
